@@ -1,0 +1,41 @@
+name: TrackifyClientSample
+options:
+  bundleIdPrefix: org.trackify.client.sample
+  deploymentTarget:
+    iOS: "15.0"
+packages:
+  TrackifyClientSDK:
+    path: ../../core
+targets:
+  TrackifyClientSample:
+    type: application
+    platform: iOS
+    sources: [TrackifyClientSample]
+    info:
+      path: TrackifyClientSample/Info.plist
+      properties:
+        NSLocationWhenInUseUsageDescription: Required for location tracking.
+        NSLocationAlwaysAndWhenInUseUsageDescription: Required for background location tracking.
+        NSMotionUsageDescription: Required for stop detection.
+        UIBackgroundModes:
+          - location
+        UILaunchScreen: {}
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: org.trackify.client.sample
+        TARGETED_DEVICE_FAMILY: "1,2"
+        SWIFT_VERSION: "5.5"
+        IPHONEOS_DEPLOYMENT_TARGET: "15.0"
+        MARKETING_VERSION: "0.1"
+        CURRENT_PROJECT_VERSION: "1"
+        OTHER_LDFLAGS: -lsqlite3
+    dependencies:
+      - package: TrackifyClientSDK
+        product: TrackifyClientSDK
+    preBuildScripts:
+      - name: Build TrackifyClientSDK XCFramework
+        basedOnDependencyAnalysis: false
+        script: |
+          export PATH="/opt/homebrew/bin:/usr/local/bin:$PATH"
+          cd "$SRCROOT/../.."
+          ./gradlew :core:assembleTrackifyClientSDKReleaseXCFramework

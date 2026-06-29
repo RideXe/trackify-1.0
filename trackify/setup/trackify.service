@@ -1,0 +1,16 @@
+[Unit]
+Description=trackify
+After=network.target
+
+[Service]
+Type=simple
+WorkingDirectory=/opt/trackify
+ExecStart=/opt/trackify/jre/bin/java -jar tracker-server.jar conf/trackify.xml
+SyslogIdentifier=trackify
+SuccessExitStatus=143
+WatchdogSec=600
+Restart=on-failure
+RestartSec=10
+
+[Install]
+WantedBy=multi-user.target

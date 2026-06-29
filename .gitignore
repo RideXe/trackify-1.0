@@ -1,0 +1,57 @@
+# ----------------------------------------------------------------------
+# Trackify Unified .gitignore
+# ----------------------------------------------------------------------
+
+# System Files
+.DS_Store
+Thumbs.db
+*~
+*.swp
+
+# IDEs and Editors
+.idea/
+.vscode/
+*.iml
+*.ipr
+*.iws
+
+# ----------------------------------------------------------------------
+# Backend Server (Java / Gradle)
+# ----------------------------------------------------------------------
+.gradle/
+build/
+target/
+out/
+logs/
+data/
+!gradle/wrapper/gradle-wrapper.jar
+
+# ----------------------------------------------------------------------
+# Web Dashboard (Node / Vite)
+# ----------------------------------------------------------------------
+trackify-web/node_modules/
+trackify/trackify-web/node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+.eslintcache
+dist/
+build/
+
+# ----------------------------------------------------------------------
+# Mobile Client (Flutter / Dart)
+# ----------------------------------------------------------------------
+.dart_tool/
+.packages
+.pub-cache/
+.pub/
+build/
+android/.gradle/
+android/app/src/main/gen/
+android/app/build/
+ios/Flutter/.last_build_id
+ios/.symlinks/
+ios/Pods/
+ios/.generated/
+.flutter-plugins
+.flutter-plugins-dependencies

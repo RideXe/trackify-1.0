@@ -1,0 +1,74 @@
+/*
+ * Copyright 2012 - 2025 Anton Tananaev (anton@trackify.org)
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+package org.trackify.handler;
+
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.trackify.config.Config;
+import org.trackify.config.Keys;
+import org.trackify.geocoder.Geocoder;
+import org.trackify.model.Position;
+import org.trackify.session.cache.CacheManager;
+
+public class GeocoderHandler extends BasePositionHandler {
+
+    private static final Logger LOGGER = LoggerFactory.getLogger(GeocoderHandler.class);
+
+    private final Geocoder geocoder;
+    private final CacheManager cacheManager;
+    private final boolean ignorePositions;
+    private final int reuseDistance;
+
+    public GeocoderHandler(Config config, Geocoder geocoder, CacheManager cacheManager) {
+        this.geocoder = geocoder;
+        this.cacheManager = cacheManager;
+        ignorePositions = config.getBoolean(Keys.GEOCODER_IGNORE_POSITIONS);
+        reuseDistance = config.getInteger(Keys.GEOCODER_REUSE_DISTANCE, 0);
+    }
+
+    @Override
+    public void onPosition(Position position, Callback callback) {
+        if (!ignorePositions) {
+            if (reuseDistance != 0) {
+                Position lastPosition = cacheManager.getPosition(position.getDeviceId());
+                if (lastPosition != null && lastPosition.getAddress() != null
+                        && position.getDouble(Position.KEY_DISTANCE) <= reuseDistance) {
+                    position.setAddress(lastPosition.getAddress());
+                    callback.processed(false);
+                    return;
+                }
+            }
+
+            geocoder.getAddress(position.getLatitude(), position.getLongitude(),
+                    new Geocoder.ReverseGeocoderCallback() {
+                @Override
+                public void onSuccess(String address) {
+                    position.setAddress(address);
+                    callback.processed(false);
+                }
+
+                @Override
+                public void onFailure(Throwable e) {
+                    LOGGER.warn("Geocoding failed", e);
+                    callback.processed(false);
+                }
+            });
+        } else {
+            callback.processed(false);
+        }
+    }
+
+}

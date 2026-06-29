@@ -1,0 +1,13 @@
+CREATE TABLE State (
+    id INTEGER PRIMARY KEY NOT NULL CHECK (id = 1),
+    json TEXT NOT NULL
+);
+
+selectState:
+SELECT json FROM State WHERE id = 1;
+
+saveState:
+INSERT OR REPLACE INTO State(id, json) VALUES (1, :json);
+
+clearState:
+DELETE FROM State WHERE id = 1;

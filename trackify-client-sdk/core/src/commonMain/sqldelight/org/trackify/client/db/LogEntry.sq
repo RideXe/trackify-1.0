@@ -1,0 +1,20 @@
+CREATE TABLE LogEntry (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    time INTEGER NOT NULL,
+    message TEXT NOT NULL
+);
+
+insert:
+INSERT INTO LogEntry(time, message) VALUES (?, ?);
+
+selectAll:
+SELECT time, message
+FROM LogEntry
+ORDER BY id ASC;
+
+clear:
+DELETE FROM LogEntry;
+
+trim:
+DELETE FROM LogEntry
+WHERE id <= (SELECT MAX(id) - :keep FROM LogEntry);

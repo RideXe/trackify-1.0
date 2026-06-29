@@ -1,0 +1,39 @@
+name: trackify_client
+description: "Trackify Client"
+publish_to: 'none'
+version: 10.0.0+140
+
+environment:
+  sdk: ^3.7.2
+
+dependencies:
+  flutter:
+    sdk: flutter
+  flutter_localizations:
+    sdk: flutter
+  intl: any
+  trackify_client_sdk:
+    path: ../trackify-client-sdk/flutter
+  shared_preferences: ^2.5.5
+  firebase_core: ^4.9.0
+  firebase_messaging: ^16.2.2
+  firebase_analytics: ^12.4.1
+  firebase_crashlytics: ^5.2.2
+  quick_actions: ^1.1.0
+  rate_my_app: ^2.4.0
+  shared_preferences_android: ^2.4.23
+  mobile_scanner: ^7.2.0
+  flutter_secure_storage: ^10.2.0
+  app_links: ^7.0.0
+  app_settings: ^7.0.0
+  share_plus: ^13.1.0
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^6.0.0
+  flutter_launcher_icons: ^0.14.4
+
+flutter:
+  uses-material-design: true
+  generate: true

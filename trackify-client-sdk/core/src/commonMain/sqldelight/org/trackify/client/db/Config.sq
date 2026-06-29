@@ -1,0 +1,13 @@
+CREATE TABLE Config (
+    id INTEGER PRIMARY KEY NOT NULL CHECK (id = 1),
+    json TEXT NOT NULL
+);
+
+selectConfig:
+SELECT json FROM Config WHERE id = 1;
+
+saveConfig:
+INSERT OR REPLACE INTO Config(id, json) VALUES (1, :json);
+
+clearConfig:
+DELETE FROM Config WHERE id = 1;

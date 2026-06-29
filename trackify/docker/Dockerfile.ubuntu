@@ -1,0 +1,15 @@
+FROM alpine AS package
+ARG VERSION
+COPY trackify-other-$VERSION.zip /tmp/trackify.zip
+RUN unzip -qo /tmp/trackify.zip -d /trackify
+
+FROM eclipse-temurin:25 AS jdk
+RUN jlink --add-modules java.se,jdk.charsets,jdk.crypto.ec,jdk.unsupported \
+    --strip-debug --no-header-files --no-man-pages --compress=2 --output /jre
+
+FROM ubuntu:latest
+COPY --from=package /trackify /opt/trackify
+COPY --from=jdk /jre /opt/trackify/jre
+WORKDIR /opt/trackify
+ENTRYPOINT ["/opt/trackify/jre/bin/java"]
+CMD ["-jar", "tracker-server.jar", "conf/trackify.xml"]

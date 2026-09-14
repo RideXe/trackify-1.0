@@ -1,0 +1,24 @@
+services:
+
+  # ── Trackify: Java backend + React frontend in one container ─
+  trackify-server:
+    build:
+      context: .                   # build context is repo root
+      dockerfile: trackify/Dockerfile
+    container_name: trackify-server
+    restart: unless-stopped
+    dns:
+      - 169.254.169.253            # AWS VPC internal DNS resolver
+    # Config is mounted as a volume below
+    volumes:
+      - ./trackify/setup/trackify.xml:/opt/trackify/conf/trackify.xml:ro
+      - trackify-data:/opt/trackify/data
+      - trackify-logs:/opt/trackify/logs
+    ports:
+      - "8082:8082"                # Web UI + REST API → http://localhost:8082
+      - "5000-5150:5000-5150"      # GPS device protocol ports
+
+volumes:
+  trackify-data:    # persists application data between restarts
+  trackify-logs:    # persists server logs
+

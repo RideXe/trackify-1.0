@@ -1,0 +1,262 @@
+:root {
+  color-scheme: dark;
+  font-family: Bahnschrift, 'Arial Narrow', ui-sans-serif, system-ui, sans-serif;
+  background: #09121b;
+  color: #f2f0e9;
+  --accent: #ffb454;
+  --muted: #93a2ad;
+  --panel: #101f2c;
+  --line: #263b49;
+}
+
+* {
+  box-sizing: border-box;
+}
+body {
+  margin: 0;
+  min-height: 100vh;
+  background: radial-gradient(circle at 70% 10%, #243041, #09121b 44%);
+}
+button,
+input {
+  font: inherit;
+}
+button {
+  cursor: pointer;
+}
+.hidden {
+  display: none !important;
+}
+.section-label {
+  color: var(--accent);
+  font-size: 0.82rem;
+  font-weight: 650;
+}
+.muted,
+small {
+  color: var(--muted);
+}
+.login {
+  width: min(520px, calc(100% - 40px));
+  margin: 15vh auto;
+}
+.mark,
+.brand {
+  display: inline-grid;
+  place-items: center;
+  width: 42px;
+  height: 42px;
+  border: 1px solid var(--accent);
+  color: var(--accent);
+  font-weight: 900;
+}
+.login h1 {
+  font-size: clamp(2.8rem, 8vw, 5.8rem);
+  line-height: 0.92;
+  letter-spacing: -0.06em;
+  margin: 28px 0;
+}
+.login button {
+  margin-top: 30px;
+  border: 0;
+  background: var(--accent);
+  color: #09121b;
+  padding: 15px 22px;
+  font-weight: 800;
+}
+.error {
+  color: #ff8b7c;
+  min-height: 1.5em;
+}
+.shell {
+  min-height: 100vh;
+  display: grid;
+  grid-template: 70px 1fr / 330px 1fr;
+}
+header {
+  grid-column: 1 / -1;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 24px;
+  border-bottom: 1px solid var(--line);
+  background: #09121bdd;
+}
+header > div {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+.header-actions {
+  gap: 20px;
+}
+.status::before {
+  content: '';
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--accent);
+  margin-right: 8px;
+  box-shadow: 0 0 12px var(--accent);
+}
+.secondary {
+  color: #d7e3e1;
+  border: 1px solid var(--line);
+  background: transparent;
+  padding: 9px 13px;
+}
+aside {
+  padding: 28px 18px;
+  border-right: 1px solid var(--line);
+  background: #0b1722dd;
+  overflow: auto;
+}
+aside h2 {
+  margin: 5px 0 20px;
+}
+input {
+  width: 100%;
+  color: white;
+  background: #09121b;
+  border: 1px solid var(--line);
+  padding: 12px;
+  outline: none;
+}
+input:focus {
+  border-color: var(--accent);
+}
+.device-list {
+  display: grid;
+  gap: 8px;
+  margin-top: 18px;
+}
+.device {
+  display: grid;
+  grid-template-columns: 12px 1fr;
+  gap: 12px;
+  align-items: center;
+  text-align: left;
+  padding: 14px;
+  border: 1px solid transparent;
+  background: transparent;
+  color: white;
+}
+.device:hover {
+  border-color: var(--line);
+  background: var(--panel);
+}
+.device span:last-child {
+  display: grid;
+  gap: 5px;
+}
+.dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: #50626a;
+}
+.dot.online {
+  background: var(--accent);
+  box-shadow: 0 0 10px var(--accent);
+}
+.map-panel {
+  position: relative;
+  overflow: hidden;
+}
+#map {
+  width: 100%;
+  height: calc(100vh - 70px);
+  background: #0b1a26;
+}
+.map-title {
+  position: absolute;
+  top: 25px;
+  left: 30px;
+}
+.map-title h2 {
+  margin: 4px 0;
+  font-size: 1.8rem;
+}
+.marker {
+  cursor: pointer;
+}
+.marker circle {
+  fill: #09121b;
+  stroke: var(--accent);
+  stroke-width: 3;
+}
+.marker path {
+  fill: var(--accent);
+}
+.route {
+  fill: none;
+  stroke: #63d6c5;
+  stroke-width: 5;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  opacity: 0.8;
+}
+.detail {
+  position: absolute;
+  right: 24px;
+  bottom: 24px;
+  width: 360px;
+  padding: 22px;
+  border: 1px solid var(--line);
+  background: #0b1722f2;
+  backdrop-filter: blur(14px);
+}
+.detail h2 {
+  margin: 5px 0 18px;
+}
+.metric {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+}
+.metric strong {
+  font-size: 3rem;
+  color: var(--accent);
+}
+.activity {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 8px;
+  margin: 18px 0;
+}
+.activity span {
+  display: grid;
+  gap: 3px;
+  padding: 10px;
+  border: 1px solid var(--line);
+}
+.event-list p {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  margin: 0;
+  padding: 9px 0;
+  border-top: 1px solid var(--line);
+}
+
+@media (max-width: 760px) {
+  .shell {
+    grid-template: 64px 42vh 1fr / 1fr;
+  }
+  header {
+    grid-column: 1;
+  }
+  aside {
+    border-right: 0;
+    border-bottom: 1px solid var(--line);
+  }
+  #map {
+    height: 58vh;
+  }
+  .detail {
+    width: calc(100% - 32px);
+    right: 16px;
+    bottom: 16px;
+  }
+}

@@ -1,0 +1,38 @@
+name: Platform checks
+
+on:
+  pull_request:
+    paths: ['platform/**', '.github/workflows/platform-ci.yml']
+  push:
+    branches: [main]
+    paths: ['platform/**', '.github/workflows/platform-ci.yml']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: platform-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: platform
+    env:
+      AWS_EC2_METADATA_DISABLED: 'true'
+      CDK_DISABLE_CLI_TELEMETRY: 'true'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+          cache-dependency-path: platform/package-lock.json
+      - run: npm ci --no-audit --no-fund
+      - run: npm run check

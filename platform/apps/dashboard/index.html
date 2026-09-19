@@ -1,0 +1,62 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="theme-color" content="#071018" />
+    <title>Trackify Fleet</title>
+    <link rel="stylesheet" href="./styles.css" />
+  </head>
+  <body>
+    <main id="app">
+      <section class="login" id="login">
+        <div class="mark">T</div>
+        <p class="section-label">Fleet operations</p>
+        <h1>Know where every vehicle is.</h1>
+        <p class="muted">A live fleet view built for dispatch teams.</p>
+        <button id="sign-in">Sign in securely</button>
+        <p id="login-error" class="error" role="alert"></p>
+      </section>
+
+      <section class="shell hidden" id="dashboard">
+        <header>
+          <div><span class="brand">T</span><strong>Trackify</strong></div>
+          <div class="header-actions">
+            <span id="connection" class="status">Connecting</span>
+            <button class="secondary" id="sign-out">Sign out</button>
+          </div>
+        </header>
+        <aside>
+          <p class="section-label">Live fleet</p>
+          <h2 id="fleet-name">Vehicles</h2>
+          <input
+            id="search"
+            type="search"
+            placeholder="Search vehicle"
+            aria-label="Search vehicle"
+          />
+          <div id="device-list" class="device-list"></div>
+        </aside>
+        <section class="map-panel">
+          <svg id="map" viewBox="0 0 1200 800" role="img" aria-label="Fleet position map">
+            <defs>
+              <pattern id="grid" width="60" height="60" patternUnits="userSpaceOnUse">
+                <path d="M 60 0 L 0 0 0 60" fill="none" stroke="#1f3443" stroke-width="1" />
+              </pattern>
+            </defs>
+            <rect width="1200" height="800" fill="url(#grid)" />
+            <polyline id="route" class="route" points="" />
+            <g id="markers"></g>
+          </svg>
+          <div class="map-title">
+            <p class="section-label">Operations map</p>
+            <h2 id="map-summary">Loading vehicles…</h2>
+          </div>
+          <article id="detail" class="detail hidden"></article>
+        </section>
+      </section>
+    </main>
+    <script src="./config.js"></script>
+    <script type="module" src="./app.js"></script>
+  </body>
+</html>

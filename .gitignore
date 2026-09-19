@@ -8,6 +8,9 @@ Thumbs.db
 *~
 *.swp
 
+# Secrets for docker compose (RDS endpoint, user, password) — never commit
+.env
+
 # IDEs and Editors
 .idea/
 .vscode/

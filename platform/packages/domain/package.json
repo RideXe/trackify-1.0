@@ -1,0 +1,17 @@
+{
+  "name": "@trackify/domain",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Shared message contracts (positions, events) for the Trackify platform",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit -p tsconfig.json",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "zod": "^4.6.5"
+  }
+}

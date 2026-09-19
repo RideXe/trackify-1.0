@@ -1,0 +1,15 @@
+{
+  "name": "@trackify/process",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "typecheck": "tsc --noEmit -p tsconfig.json",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@trackify/data": "0.1.0",
+    "@trackify/domain": "0.1.0",
+    "@trackify/realtime": "0.1.0"
+  }
+}

@@ -43,17 +43,38 @@ export default function App() {
   const auth = useMemo(() => new CognitoPasswordClient(config), []);
 
   useEffect(() => {
-    void SecureStore.getItemAsync('tokens').then((value) => {
-      if (value) setTokens(JSON.parse(value) as Tokens);
-      setLoading(false);
-    });
+    void restoreSession();
   }, []);
+
+  async function restoreSession() {
+    try {
+      const value = await SecureStore.getItemAsync('tokens');
+      if (value) setTokens(JSON.parse(value) as Tokens);
+    } catch {
+      await SecureStore.deleteItemAsync('tokens');
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function signOut(message = '') {
+    await SecureStore.deleteItemAsync('tokens');
+    setTokens(undefined);
+    setDevices([]);
+    setSelected(undefined);
+    setError(message);
+  }
+
   useEffect(() => {
-    if (tokens)
-      void client.devices().then((fleet) => {
-        setDevices(fleet.items);
-        setSelected(fleet.items[0]);
-      });
+    if (tokens) {
+      void client
+        .devices()
+        .then((fleet) => {
+          setDevices(fleet.items);
+          setSelected(fleet.items[0]);
+        })
+        .catch(() => void signOut('Your session expired. Please sign in again.'));
+    }
   }, [client, tokens]);
 
   async function signIn(username: string, password: string) {
@@ -86,18 +107,21 @@ export default function App() {
   useEffect(() => {
     if (!tokens) return;
     let close: () => void = () => undefined;
-    void client.me().then((membership) => {
-      close = client.subscribeFleet(membership.tenantId, (update) => {
-        setDevices((current) =>
-          current.map((device) =>
-            device.deviceId === update.deviceId ? { ...device, state: update } : device,
-          ),
-        );
-        setSelected((current) =>
-          current?.deviceId === update.deviceId ? { ...current, state: update } : current,
-        );
-      });
-    });
+    void client
+      .me()
+      .then((membership) => {
+        close = client.subscribeFleet(membership.tenantId, (update) => {
+          setDevices((current) =>
+            current.map((device) =>
+              device.deviceId === update.deviceId ? { ...device, state: update } : device,
+            ),
+          );
+          setSelected((current) =>
+            current?.deviceId === update.deviceId ? { ...current, state: update } : current,
+          );
+        });
+      })
+      .catch(() => void signOut('Your session expired. Please sign in again.'));
     return () => close();
   }, [client, tokens]);
 
@@ -122,7 +146,12 @@ export default function App() {
       <StatusBar style="light" />
       <View style={styles.top}>
         <Text style={styles.brand}>Trackify</Text>
-        <Text style={styles.live}>{positioned.length} live</Text>
+        <View style={styles.topActions}>
+          <Text style={styles.live}>{positioned.length} live</Text>
+          <Pressable accessibilityRole="button" onPress={() => void signOut()}>
+            <Text style={styles.signOut}>Sign out</Text>
+          </Pressable>
+        </View>
       </View>
       <MapView
         style={styles.map}
@@ -301,6 +330,8 @@ const styles = StyleSheet.create({
   },
   brand: { color: '#edf0e8', fontSize: 20, fontWeight: '900' },
   live: { color: '#5cd5c4' },
+  topActions: { flexDirection: 'row', alignItems: 'center', gap: 18 },
+  signOut: { color: '#ffb44a', fontWeight: '800' },
   map: { flex: 1 },
   sheet: { minHeight: 190, padding: 20, backgroundColor: '#081721' },
   heading: { color: '#edf0e8', fontSize: 26, fontWeight: '800', marginBottom: 14 },

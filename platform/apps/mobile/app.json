@@ -6,8 +6,29 @@
     "version": "1.0.0",
     "orientation": "portrait",
     "userInterfaceStyle": "dark",
-    "ios": { "supportsTablet": true, "bundleIdentifier": "com.ridexe.trackify" },
-    "android": { "package": "com.ridexe.trackify" },
-    "plugins": ["expo-secure-store"]
+    "icon": "./assets/icon.png",
+    "splash": {
+      "image": "./assets/splash.png",
+      "resizeMode": "contain",
+      "backgroundColor": "#06131c"
+    },
+    "ios": {
+      "supportsTablet": true,
+      "bundleIdentifier": "com.ridexe.trackify"
+    },
+    "android": {
+      "package": "com.ridexe.trackify",
+      "adaptiveIcon": {
+        "foregroundImage": "./assets/adaptive-icon.png",
+        "backgroundColor": "#06131c"
+      }
+    },
+    "plugins": ["expo-secure-store"],
+    "extra": {
+      "eas": {
+        "projectId": "767c8688-3514-4ec9-ad52-0ad54e8d7a1e"
+      }
+    },
+    "owner": "santhoshrdevadiga"
   }
 }

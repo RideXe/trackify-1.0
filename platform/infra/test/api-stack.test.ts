@@ -25,6 +25,11 @@ describe('ApiStack', () => {
       AuthorizerType: 'JWT',
       IdentitySource: ['$request.header.Authorization'],
     });
+    template.hasResourceProperties('AWS::ApiGatewayV2::Api', {
+      CorsConfiguration: {
+        AllowOrigins: ['http://localhost:5173'],
+      },
+    });
     template.hasResourceProperties('AWS::ApiGatewayV2::Route', {
       AuthorizationType: 'JWT',
       RouteKey: Match.stringLikeRegexp('GET /devices'),

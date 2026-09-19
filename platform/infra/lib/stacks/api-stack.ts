@@ -23,6 +23,11 @@ export class ApiStack extends Stack {
 
   constructor(scope: Construct, id: string, props: ApiStackProps) {
     super(scope, id, props);
+    const dashboardUrl = props.dashboardUrl ?? props.config.dashboardUrl;
+    const browserOrigins =
+      props.config.envName === 'dev'
+        ? [...new Set([dashboardUrl, 'http://localhost:5173'])]
+        : [dashboardUrl];
     const handler = new NodejsFunction(this, 'FleetApiHandler', {
       entry: `${props.platformPath}/services/api/src/handler.ts`,
       runtime: Runtime.NODEJS_24_X,
@@ -55,7 +60,7 @@ export class ApiStack extends Stack {
     );
     this.api = new HttpApi(this, 'FleetApi', {
       corsPreflight: {
-        allowOrigins: [props.dashboardUrl ?? props.config.dashboardUrl],
+        allowOrigins: browserOrigins,
         allowHeaders: ['authorization', 'content-type'],
         allowMethods: [CorsHttpMethod.GET, CorsHttpMethod.POST, CorsHttpMethod.OPTIONS],
       },

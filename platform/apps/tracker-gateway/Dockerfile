@@ -2,7 +2,7 @@ FROM node:24-alpine AS build
 WORKDIR /app
 COPY . .
 RUN npm ci --no-audit --no-fund
-RUN npx esbuild apps/gateway/src/main.ts --bundle --platform=node --target=node24 --format=esm --outfile=dist/main.mjs
+RUN npx esbuild apps/tracker-gateway/src/main.ts --bundle --platform=node --target=node24 --format=esm --outfile=dist/main.mjs
 
 FROM node:24-alpine
 RUN addgroup -S trackify && adduser -S -G trackify trackify

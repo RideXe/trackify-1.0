@@ -29,6 +29,6 @@ describe('IngestStack', () => {
       FunctionResponseTypes: ['ReportBatchItemFailures'],
       EventSourceArn: Match.anyValue(),
     });
-    template.resourceCountIs('AWS::Lambda::Url', 1);
+    template.resourceCountIs('AWS::Lambda::Url', 0);
   });
 });

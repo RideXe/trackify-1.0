@@ -22,6 +22,7 @@ deploy anything. Output is ignored under `infra/cdk.out/`.
 ## Navigation
 
 - [Plan and delivery gates](docs/PLAN.md)
+- [Web, mobile, backend, and tracker deployment](docs/deployment-architecture.md)
 - [Draft data access patterns](docs/data-access-patterns.md)
 - [Cost model and assumptions](docs/cost-model.md)
 - [AWS setup and manual deployment](docs/aws-setup.md)
@@ -30,6 +31,17 @@ deploy anything. Output is ignored under `infra/cdk.out/`.
 CI runs the same checks with read-only repository permissions and no AWS credentials.
 Budget alerts are notifications, not spending caps. The raw TCP gateway is deliberately disabled
 by default because its Fargate task and Network Load Balancer have idle cost.
+
+## Local dashboard against the development backend
+
+The development Cognito client and API allow `http://localhost:5173`. Start the static dashboard
+from `apps/dashboard` with `python3 -m http.server 5173`, open `http://localhost:5173`, and sign in
+with the same Trackify administrator account. The browser runs locally while authentication,
+tracking data, processing, and realtime updates use the deployed development services.
+
+The new dashboard is in `apps/dashboard-web`. Run `npm run dev -w @trackify/dashboard-web` from
+this folder for the Next.js development server. The previous static dashboard remains available
+during the Amplify migration.
 
 ## Development deployment and first administrator
 

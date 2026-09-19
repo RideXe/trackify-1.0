@@ -1,0 +1,13 @@
+{
+  "expo": {
+    "name": "Trackify Fleet",
+    "slug": "trackify-fleet",
+    "scheme": "trackify",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "userInterfaceStyle": "dark",
+    "ios": { "supportsTablet": true, "bundleIdentifier": "com.ridexe.trackify" },
+    "android": { "package": "com.ridexe.trackify" },
+    "plugins": ["expo-secure-store"]
+  }
+}

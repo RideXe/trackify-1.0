@@ -5,7 +5,15 @@ import tseslint from 'typescript-eslint';
 
 export default defineConfig(
   {
-    ignores: ['**/node_modules/**', '**/dist/**', '**/coverage/**', '**/cdk.out/**'],
+    ignores: [
+      '**/node_modules/**',
+      '**/dist/**',
+      '**/coverage/**',
+      '**/cdk.out/**',
+      '**/.next/**',
+      '**/out/**',
+      '**/.expo/**',
+    ],
   },
   js.configs.recommended,
   tseslint.configs.recommendedTypeChecked,

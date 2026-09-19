@@ -4,3 +4,7 @@ coverage/
 cdk.out/
 *.tsbuildinfo
 .eslintcache
+.next/
+out/
+.expo/
+cdk-outputs-*.json

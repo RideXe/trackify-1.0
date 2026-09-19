@@ -45,7 +45,9 @@ export class GatewayStack extends Stack {
     });
     const logs = new LogGroup(this, 'GatewayLogs', { retention: RetentionDays.ONE_WEEK });
     const container = task.addContainer('Gateway', {
-      image: ContainerImage.fromAsset(props.platformPath, { file: 'apps/gateway/Dockerfile' }),
+      image: ContainerImage.fromAsset(props.platformPath, {
+        file: 'apps/tracker-gateway/Dockerfile',
+      }),
       environment: {
         CORE_TABLE: props.data.core.tableName,
         INGEST_QUEUE_URL: props.ingest.queue.queueUrl,

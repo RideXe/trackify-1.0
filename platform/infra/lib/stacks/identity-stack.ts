@@ -23,6 +23,10 @@ export class IdentityStack extends Stack {
   constructor(scope: Construct, id: string, props: IdentityStackProps) {
     super(scope, id, props);
     const dashboardUrl = props.dashboardUrl ?? props.config.dashboardUrl;
+    const browserUrls =
+      props.config.envName === 'dev'
+        ? [...new Set([dashboardUrl, 'http://localhost:5173', 'trackify://auth/callback'])]
+        : [dashboardUrl];
     this.userPool = new UserPool(this, 'Users', {
       selfSignUpEnabled: false,
       signInAliases: { email: true },
@@ -44,12 +48,12 @@ export class IdentityStack extends Stack {
       idTokenValidity: Duration.hours(1),
       refreshTokenValidity: Duration.days(30),
       supportedIdentityProviders: [UserPoolClientIdentityProvider.COGNITO],
-      authFlows: { userSrp: true },
+      authFlows: { userSrp: true, userPassword: true },
       oAuth: {
         flows: { authorizationCodeGrant: true },
         scopes: [OAuthScope.OPENID, OAuthScope.EMAIL, OAuthScope.PROFILE],
-        callbackUrls: [dashboardUrl],
-        logoutUrls: [dashboardUrl],
+        callbackUrls: browserUrls,
+        logoutUrls: browserUrls,
       },
     });
     const domain = this.userPool.addDomain('ManagedLoginDomain', {

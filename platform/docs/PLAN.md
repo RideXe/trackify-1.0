@@ -113,7 +113,10 @@ a measured regional estimate for idle, steady-state, reconnect burst, storage, a
 
 ```
 platform/
-  apps/gateway/            (phase 1) Node.js TCP/UDP gateway
+  apps/tracker-gateway/    Node.js TCP/UDP tracker gateway
+  apps/dashboard-web/      Next.js static dashboard for Amplify
+  apps/mobile/             Expo Android and iOS application
+  packages/api-client/     shared browser/mobile API client
   apps/dashboard/          static dashboard with live map, replay and reports
   services/*               Lambda services: ingest, process, API, realtime auth, maintenance
   packages/domain/         shared message contracts

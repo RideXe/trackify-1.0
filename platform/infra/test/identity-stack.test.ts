@@ -17,7 +17,14 @@ describe('IdentityStack', () => {
     });
     template.hasResourceProperties('AWS::Cognito::UserPoolClient', {
       GenerateSecret: false,
+      ExplicitAuthFlows: [
+        'ALLOW_USER_PASSWORD_AUTH',
+        'ALLOW_USER_SRP_AUTH',
+        'ALLOW_REFRESH_TOKEN_AUTH',
+      ],
       AllowedOAuthFlows: ['code'],
+      CallbackURLs: ['http://localhost:5173', 'trackify://auth/callback'],
+      LogoutURLs: ['http://localhost:5173', 'trackify://auth/callback'],
     });
   });
 });

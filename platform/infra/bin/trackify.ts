@@ -36,13 +36,15 @@ const data = new DataStack(app, `Trackify-${config.envName}-Data`, {
   terminationProtection: config.envName === 'prod',
   tags,
 });
-new ArchiveStack(app, `Trackify-${config.envName}-Archive`, {
-  env: { account: config.account, region: config.region },
-  config,
-  data,
-  terminationProtection: config.envName === 'prod',
-  tags,
-});
+if (config.enableArchive) {
+  new ArchiveStack(app, `Trackify-${config.envName}-Archive`, {
+    env: { account: config.account, region: config.region },
+    config,
+    data,
+    terminationProtection: config.envName === 'prod',
+    tags,
+  });
+}
 const platformPath = new URL('../..', import.meta.url).pathname;
 const hosting = new HostingStack(app, `Trackify-${config.envName}-Hosting`, {
   env: { account: config.account, region: config.region },

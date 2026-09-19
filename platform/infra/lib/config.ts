@@ -41,6 +41,8 @@ export interface EnvConfig {
   enableGateway: boolean;
   /** Temporary phone compatibility endpoint. Never enabled by default in production. */
   allowLegacyPhoneIngest: boolean;
+  /** Cold archive depends on account-level Firehose activation and is opt-in. */
+  enableArchive: boolean;
   /** Browser origin used by Cognito callbacks and API CORS. */
   dashboardUrl: string;
   /** Globally unique prefix for the Cognito managed-login domain. */
@@ -115,13 +117,15 @@ export function loadConfig(readContext: ContextReader): EnvConfig {
   const anomalyAlerts = readAnomalyAlerts(read, errors);
   const switches = readSwitches(read, defaults.switches, errors);
   const enableGateway = parseBoolean(read('enableGateway'), false);
-  const allowLegacyPhoneIngest = parseBoolean(read('allowLegacyPhoneIngest'), envName === 'dev');
+  const allowLegacyPhoneIngest = parseBoolean(read('allowLegacyPhoneIngest'), false);
+  const enableArchive = parseBoolean(read('enableArchive'), false);
   const dashboardUrl = read('dashboardUrl') ?? 'http://localhost:5173';
   const cognitoDomainPrefix =
     read('cognitoDomainPrefix') ?? `trackify-${String(account)}-${String(envName)}`;
   if (enableGateway === undefined) errors.push('enableGateway must be true or false');
   if (allowLegacyPhoneIngest === undefined)
     errors.push('allowLegacyPhoneIngest must be true or false');
+  if (enableArchive === undefined) errors.push('enableArchive must be true or false');
   if (envName === 'prod' && allowLegacyPhoneIngest) {
     errors.push(
       'allowLegacyPhoneIngest cannot be enabled in prod; phase 2 device authentication is required',
@@ -161,6 +165,7 @@ export function loadConfig(readContext: ContextReader): EnvConfig {
     monthlyBudgetUsd: monthlyBudgetUsd as number,
     enableGateway: enableGateway ?? false,
     allowLegacyPhoneIngest: allowLegacyPhoneIngest ?? false,
+    enableArchive: enableArchive ?? false,
     dashboardUrl: dashboardUrl as string,
     cognitoDomainPrefix: cognitoDomainPrefix as string,
     anomalyAlerts,

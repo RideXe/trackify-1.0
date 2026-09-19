@@ -74,6 +74,7 @@ const api = new ApiStack(app, `Trackify-${config.envName}-Api`, {
   identity,
   platformPath,
   dashboardUrl: hosting.dashboardUrl,
+  additionalBrowserOrigins: [config.dashboardUrl],
   tags,
 });
 new DashboardAssetsStack(app, `Trackify-${config.envName}-DashboardAssets`, {

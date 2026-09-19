@@ -16,6 +16,7 @@ export interface ApiStackProps extends StackProps {
   identity: IdentityStack;
   platformPath: string;
   dashboardUrl?: string;
+  additionalBrowserOrigins?: string[];
 }
 
 export class ApiStack extends Stack {
@@ -26,8 +27,14 @@ export class ApiStack extends Stack {
     const dashboardUrl = props.dashboardUrl ?? props.config.dashboardUrl;
     const browserOrigins =
       props.config.envName === 'dev'
-        ? [...new Set([dashboardUrl, 'http://localhost:5173'])]
-        : [dashboardUrl];
+        ? [
+            ...new Set([
+              dashboardUrl,
+              'http://localhost:5173',
+              ...(props.additionalBrowserOrigins ?? []),
+            ]),
+          ]
+        : [...new Set([dashboardUrl, ...(props.additionalBrowserOrigins ?? [])])];
     const handler = new NodejsFunction(this, 'FleetApiHandler', {
       entry: `${props.platformPath}/services/api/src/handler.ts`,
       runtime: Runtime.NODEJS_24_X,

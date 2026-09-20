@@ -1,5 +1,6 @@
-import { App } from 'aws-cdk-lib';
+import { App, Stack } from 'aws-cdk-lib';
 import { Match, Template } from 'aws-cdk-lib/assertions';
+import { Queue } from 'aws-cdk-lib/aws-sqs';
 import { describe, it } from 'vitest';
 import { loadConfig } from '../lib/config';
 import { ApiStack } from '../lib/stacks/api-stack';
@@ -14,11 +15,13 @@ describe('ApiStack', () => {
     const config = loadConfig((key) => context[key as keyof typeof context]);
     const data = new DataStack(app, 'Data', { config });
     const identity = new IdentityStack(app, 'Identity', { config });
+    const ingestQueue = new Queue(new Stack(app, 'QueueStack'), 'IngestQueue');
     const stack = new ApiStack(app, 'Api', {
       config,
       data,
       identity,
       platformPath: new URL('../..', import.meta.url).pathname,
+      ingestQueue,
     });
     const template = Template.fromStack(stack);
     template.hasResourceProperties('AWS::ApiGatewayV2::Authorizer', {

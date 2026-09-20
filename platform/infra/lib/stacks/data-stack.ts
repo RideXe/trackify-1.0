@@ -22,6 +22,7 @@ export class DataStack extends Stack {
   readonly dailyStats: Table;
   readonly commands: Table;
   readonly gatewaySessions: Table;
+  readonly onboarding: Table;
 
   constructor(scope: Construct, id: string, props: DataStackProps) {
     super(scope, id, props);
@@ -93,6 +94,23 @@ export class DataStack extends Stack {
       timeToLiveAttribute: 'expiresAt',
       billingMode: BillingMode.PAY_PER_REQUEST,
       removalPolicy,
+    });
+    this.onboarding = new Table(this, 'Onboarding', {
+      partitionKey: { name: 'codeHash', type: AttributeType.STRING },
+      timeToLiveAttribute: 'expiresAt',
+      billingMode: BillingMode.PAY_PER_REQUEST,
+      removalPolicy,
+    });
+    this.onboarding.addGlobalSecondaryIndex({
+      indexName: 'byDevice',
+      partitionKey: { name: 'devicePk', type: AttributeType.STRING },
+      sortKey: { name: 'createdAt', type: AttributeType.NUMBER },
+      projectionType: ProjectionType.ALL,
+    });
+    this.onboarding.addGlobalSecondaryIndex({
+      indexName: 'byCredential',
+      partitionKey: { name: 'credentialHash', type: AttributeType.STRING },
+      projectionType: ProjectionType.ALL,
     });
   }
 }

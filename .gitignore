@@ -27,6 +27,9 @@ target/
 out/
 logs/
 data/
+!platform/packages/data/
+!platform/packages/data/src/
+!platform/packages/data/src/onboarding-store.ts
 !gradle/wrapper/gradle-wrapper.jar
 
 # ----------------------------------------------------------------------

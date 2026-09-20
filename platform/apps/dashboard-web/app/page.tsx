@@ -23,7 +23,6 @@ import {
   ListItemButton,
   ListItemIcon,
   ListItemText,
-  MenuItem,
   Paper,
   Stack,
   Step,
@@ -43,6 +42,7 @@ import {
   ChevronRight,
   CircleDot,
   Clock3,
+  Copy,
   Eye,
   EyeOff,
   Gauge,
@@ -52,8 +52,10 @@ import {
   Navigation,
   Plus,
   Radio,
+  QrCode,
   Route,
   Search,
+  Share2,
   Settings,
   ShieldCheck,
   Smartphone,
@@ -65,11 +67,11 @@ import {
 import {
   CognitoPasswordClient,
   TrackifyClient,
-  type CreateDeviceInput,
   type Device,
   type Tokens,
 } from '@trackify/api-client';
 import { useCallback, useEffect, useMemo, useState } from 'react';
+import QRCode from 'qrcode';
 
 const drawerWidth = 256;
 const config = {
@@ -93,6 +95,17 @@ interface Membership {
   role: string;
   email?: string;
 }
+
+interface DeviceInvitation {
+  invitationId: string;
+  code: string;
+  link: string;
+  status: 'waiting' | 'activated' | 'expired' | 'revoked';
+  createdAt: number;
+  expiresAt: number;
+}
+
+type CreatedDevice = Device & { onboarding?: DeviceInvitation };
 
 const navItems = [
   { label: 'Overview', icon: Gauge, active: true },
@@ -707,6 +720,10 @@ function VehicleList({
 
 function VehicleDetails({ device, client }: { device: Device; client: TrackifyClient }) {
   const [activity, setActivity] = useState({ trips: 0, events: 0, distanceKm: 0 });
+  const [pairing, setPairing] = useState<DeviceInvitation>();
+  const [pairingQr, setPairingQr] = useState('');
+  const [pairingBusy, setPairingBusy] = useState(false);
+  const [pairingError, setPairingError] = useState('');
   useEffect(() => {
     const now = Date.now();
     void Promise.all([
@@ -722,6 +739,26 @@ function VehicleDetails({ device, client }: { device: Device; client: TrackifyCl
       }),
     );
   }, [client, device.deviceId]);
+  async function createPairing() {
+    const token = readTokens()?.access_token;
+    if (!token) return;
+    setPairingBusy(true);
+    setPairingError('');
+    try {
+      const response = await fetch(
+        `${config.apiUrl}/devices/${encodeURIComponent(device.deviceId)}/invitations`,
+        { method: 'POST', headers: { authorization: `Bearer ${token}` } },
+      );
+      const invitation = (await response.json()) as DeviceInvitation & { message?: string };
+      if (!response.ok) throw new Error(invitation.message || 'Could not create setup code');
+      setPairing(invitation);
+      setPairingQr(await QRCode.toDataURL(invitation.link, { width: 240, margin: 1 }));
+    } catch (reason) {
+      setPairingError(reason instanceof Error ? reason.message : 'Could not create setup code');
+    } finally {
+      setPairingBusy(false);
+    }
+  }
   return (
     <Paper sx={{ p: 2.5 }}>
       <Stack
@@ -753,7 +790,77 @@ function VehicleDetails({ device, client }: { device: Device; client: TrackifyCl
             <Typography sx={{ fontWeight: 700 }}>{value}</Typography>
           </Box>
         ))}
+        <Button
+          disabled={pairingBusy}
+          onClick={() => void createPairing()}
+          startIcon={<Smartphone size={17} />}
+          variant="outlined"
+        >
+          {pairingBusy ? 'Creating…' : 'Connect driver phone'}
+        </Button>
       </Stack>
+      {pairingError && (
+        <Alert severity="error" sx={{ mt: 2 }}>
+          {pairingError}
+        </Alert>
+      )}
+      <Dialog open={Boolean(pairing)} onClose={() => setPairing(undefined)} fullWidth maxWidth="xs">
+        <DialogTitle component="div">
+          <Typography component="h2" variant="h5">
+            Connect {device.name}
+          </Typography>
+          <Typography color="text.secondary" variant="body2">
+            Share this one-time code with the driver.
+          </Typography>
+        </DialogTitle>
+        <DialogContent>
+          <Stack spacing={2} sx={{ alignItems: 'center', textAlign: 'center', py: 1 }}>
+            {pairingQr && (
+              <Box
+                component="img"
+                src={pairingQr}
+                alt={`Setup QR for ${device.name}`}
+                sx={{ width: 210, height: 210 }}
+              />
+            )}
+            <Typography component="div" sx={{ fontSize: 32, fontWeight: 900, letterSpacing: 6 }}>
+              {pairing?.code}
+            </Typography>
+            <Typography color="text.secondary" variant="body2">
+              Single use · expires in 24 hours · no driver login required
+            </Typography>
+            <Stack direction="row" spacing={1} sx={{ width: '100%' }}>
+              <Button
+                fullWidth
+                variant="outlined"
+                startIcon={<Copy size={17} />}
+                onClick={() => void navigator.clipboard.writeText(pairing!.link)}
+              >
+                Copy
+              </Button>
+              <Button
+                fullWidth
+                variant="contained"
+                startIcon={<Share2 size={17} />}
+                onClick={() =>
+                  void (navigator.share
+                    ? navigator.share({
+                        title: `Connect ${device.name}`,
+                        text: `Use Trackify setup code ${pairing!.code}.`,
+                        url: pairing!.link,
+                      })
+                    : navigator.clipboard.writeText(pairing!.link))
+                }
+              >
+                Share
+              </Button>
+            </Stack>
+          </Stack>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setPairing(undefined)}>Done</Button>
+        </DialogActions>
+      </Dialog>
     </Paper>
   );
 }
@@ -941,9 +1048,9 @@ function DeviceOnboarding({
   onCreated: () => Promise<void>;
 }) {
   const [name, setName] = useState('');
-  const [uniqueId, setUniqueId] = useState('');
-  const [protocol, setProtocol] = useState<CreateDeviceInput['protocol']>('gt06');
-  const [created, setCreated] = useState<Device>();
+  const [created, setCreated] = useState<CreatedDevice>();
+  const [qrDataUrl, setQrDataUrl] = useState('');
+  const [invitationStatus, setInvitationStatus] = useState<DeviceInvitation['status']>('waiting');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   const close = () => {
@@ -951,7 +1058,8 @@ function DeviceOnboarding({
     setTimeout(() => {
       setCreated(undefined);
       setName('');
-      setUniqueId('');
+      setQrDataUrl('');
+      setInvitationStatus('waiting');
       setError('');
     }, 250);
   };
@@ -959,17 +1067,72 @@ function DeviceOnboarding({
     setBusy(true);
     setError('');
     try {
-      const device = await client.createDevice({
+      const device = (await client.createDevice({
         name: name.trim(),
-        uniqueId: uniqueId.trim(),
-        protocol,
+        uniqueId: `phone-${crypto.randomUUID()}`,
+        protocol: 'osmand',
         retentionDays: 90,
         groupId: 'UNGROUPED',
-      });
+      })) as CreatedDevice;
       setCreated(device);
+      if (device.onboarding?.link) {
+        setInvitationStatus(device.onboarding.status);
+        setQrDataUrl(await QRCode.toDataURL(device.onboarding.link, { width: 240, margin: 1 }));
+      }
       await onCreated();
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : 'Vehicle could not be added');
+    } finally {
+      setBusy(false);
+    }
+  }
+  useEffect(() => {
+    if (!created?.onboarding || invitationStatus !== 'waiting') return;
+    const timer = window.setInterval(() => {
+      const token = readTokens()?.access_token;
+      if (!token) return;
+      void fetch(`${config.apiUrl}/devices/${encodeURIComponent(created.deviceId)}/invitations`, {
+        headers: { authorization: `Bearer ${token}` },
+      })
+        .then((response) => (response.ok ? response.json() : undefined))
+        .then((value: { items?: DeviceInvitation[] } | undefined) => {
+          const current = value?.items?.find(
+            (item) => item.invitationId === created.onboarding?.invitationId,
+          );
+          if (current) setInvitationStatus(current.status);
+        });
+    }, 5000);
+    return () => window.clearInterval(timer);
+  }, [created, invitationStatus]);
+
+  async function revokeInvitation() {
+    if (!created?.onboarding) return;
+    const token = readTokens()?.access_token;
+    if (!token) return;
+    const result = await fetch(`${config.apiUrl}/invitations/${created.onboarding.invitationId}`, {
+      method: 'DELETE',
+      headers: { authorization: `Bearer ${token}` },
+    });
+    if (result.ok) setInvitationStatus('revoked');
+  }
+
+  async function createReplacementInvitation() {
+    if (!created) return;
+    const token = readTokens()?.access_token;
+    if (!token) return;
+    setBusy(true);
+    try {
+      const response = await fetch(
+        `${config.apiUrl}/devices/${encodeURIComponent(created.deviceId)}/invitations`,
+        { method: 'POST', headers: { authorization: `Bearer ${token}` } },
+      );
+      const invitation = (await response.json()) as DeviceInvitation & { message?: string };
+      if (!response.ok) throw new Error(invitation.message || 'Could not create setup link');
+      setCreated({ ...created, onboarding: invitation });
+      setInvitationStatus(invitation.status);
+      setQrDataUrl(await QRCode.toDataURL(invitation.link, { width: 240, margin: 1 }));
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : 'Could not create setup link');
     } finally {
       setBusy(false);
     }
@@ -1007,8 +1170,8 @@ function DeviceOnboarding({
         {!created ? (
           <Stack spacing={2.5}>
             <Typography color="text.secondary">
-              Register the identifier printed on your GPS tracker. Trackify will use it to route
-              location updates to this vehicle.
+              Enter the vehicle name. Trackify will create a secure, one-time setup code that you
+              can share with the driver. No IMEI or driver login is required.
             </Typography>
             <TextField
               autoFocus
@@ -1019,40 +1182,10 @@ function DeviceOnboarding({
               required
               value={name}
             />
-            <TextField
-              fullWidth
-              label="Tracking method"
-              onChange={(event) => setProtocol(event.target.value as CreateDeviceInput['protocol'])}
-              select
-              value={protocol}
-            >
-              <MenuItem value="gt06">
-                <Stack direction="row" spacing={1.25} sx={{ alignItems: 'center' }}>
-                  <Radio size={18} />
-                  <span>GT06-compatible GPS tracker</span>
-                </Stack>
-              </MenuItem>
-              <MenuItem value="teltonika">
-                <Stack direction="row" spacing={1.25} sx={{ alignItems: 'center' }}>
-                  <Wifi size={18} />
-                  <span>Teltonika GPS tracker</span>
-                </Stack>
-              </MenuItem>
-              <MenuItem value="osmand">
-                <Stack direction="row" spacing={1.25} sx={{ alignItems: 'center' }}>
-                  <Smartphone size={18} />
-                  <span>Android or iOS phone</span>
-                </Stack>
-              </MenuItem>
-            </TextField>
-            <TextField
-              fullWidth
-              label={protocol === 'osmand' ? 'Phone device ID' : 'Tracker IMEI'}
-              onChange={(event) => setUniqueId(event.target.value)}
-              placeholder={protocol === 'osmand' ? 'Choose a unique ID' : 'Usually 15 digits'}
-              required
-              value={uniqueId}
-            />
+            <Alert severity="info" icon={<Smartphone />}>
+              After adding the vehicle, share its QR code or six-character code with the driver. The
+              Trackify app connects directly without asking for an account.
+            </Alert>
             {error && <Alert severity="error">{error}</Alert>}
           </Stack>
         ) : (
@@ -1066,20 +1199,75 @@ function DeviceOnboarding({
                 Its status will change to online after Trackify receives the first valid GPS update.
               </Typography>
             </Box>
-            <Alert
-              severity="warning"
-              icon={created.protocol === 'osmand' ? <Smartphone /> : <Radio />}
-              sx={{ textAlign: 'left' }}
-            >
-              <b>
-                {created.protocol === 'osmand'
-                  ? 'Phone ingestion is currently disabled.'
-                  : 'The hardware gateway is currently disabled.'}
-              </b>{' '}
-              {created.protocol === 'osmand'
-                ? 'Enable the controlled phone pilot before configuring this device.'
-                : 'Enable the TCP gateway when you are ready to test physical trackers; it has an ongoing AWS idle cost.'}
-            </Alert>
+            {created.protocol === 'osmand' && created.onboarding ? (
+              <Paper variant="outlined" sx={{ width: '100%', p: 2.5, borderRadius: 3 }}>
+                <Stack spacing={2} sx={{ alignItems: 'center' }}>
+                  <QrCode size={22} />
+                  <Typography sx={{ fontWeight: 800 }}>Driver setup code</Typography>
+                  {qrDataUrl && (
+                    <Box
+                      alt={`QR code for ${created.name}`}
+                      component="img"
+                      src={qrDataUrl}
+                      sx={{ width: 200, height: 200, borderRadius: 2 }}
+                    />
+                  )}
+                  <Typography
+                    component="div"
+                    sx={{ fontSize: 32, fontWeight: 900, letterSpacing: 6 }}
+                  >
+                    {created.onboarding.code}
+                  </Typography>
+                  <Typography color="text.secondary" variant="body2">
+                    {invitationStatus === 'waiting' && 'Waiting for driver · expires in 24 hours'}
+                    {invitationStatus === 'activated' && 'Activated · this phone is connected'}
+                    {invitationStatus === 'expired' && 'Expired · create a new setup link'}
+                    {invitationStatus === 'revoked' && 'Revoked · this link can no longer be used'}
+                  </Typography>
+                  <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1} sx={{ width: '100%' }}>
+                    <Button
+                      fullWidth
+                      startIcon={<Copy size={17} />}
+                      onClick={() => void navigator.clipboard.writeText(created.onboarding!.link)}
+                      variant="outlined"
+                    >
+                      Copy link
+                    </Button>
+                    <Button
+                      fullWidth
+                      startIcon={<Share2 size={17} />}
+                      onClick={() =>
+                        void (navigator.share
+                          ? navigator.share({
+                              title: `Set up ${created.name} in Trackify`,
+                              text: `Use code ${created.onboarding!.code} to connect ${created.name}.`,
+                              url: created.onboarding!.link,
+                            })
+                          : navigator.clipboard.writeText(created.onboarding!.link))
+                      }
+                      variant="contained"
+                    >
+                      Share with driver
+                    </Button>
+                  </Stack>
+                  {invitationStatus === 'waiting' && (
+                    <Button color="error" onClick={() => void revokeInvitation()} size="small">
+                      Revoke setup link
+                    </Button>
+                  )}
+                  {(invitationStatus === 'expired' || invitationStatus === 'revoked') && (
+                    <Button onClick={() => void createReplacementInvitation()} size="small">
+                      Create new setup link
+                    </Button>
+                  )}
+                </Stack>
+              </Paper>
+            ) : (
+              <Alert severity="info" icon={<Radio />} sx={{ textAlign: 'left' }}>
+                Configure the physical tracker with its Trackify gateway address. Its status changes
+                to online after the first valid GPS update.
+              </Alert>
+            )}
           </Stack>
         )}
       </DialogContent>
@@ -1090,7 +1278,7 @@ function DeviceOnboarding({
               Cancel
             </Button>
             <Button
-              disabled={busy || !name.trim() || uniqueId.trim().length < 5}
+              disabled={busy || !name.trim()}
               onClick={() => void submit()}
               variant="contained"
             >

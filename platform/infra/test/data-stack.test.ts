@@ -11,7 +11,7 @@ describe('DataStack', () => {
     const app = new App();
     const config = loadConfig((key) => context[key as keyof typeof context]);
     const template = Template.fromStack(new DataStack(app, 'Data', { config }));
-    template.resourceCountIs('AWS::DynamoDB::Table', 8);
+    template.resourceCountIs('AWS::DynamoDB::Table', 9);
     template.hasResourceProperties('AWS::DynamoDB::Table', {
       BillingMode: 'PAY_PER_REQUEST',
       TimeToLiveSpecification: { AttributeName: 'expiresAt', Enabled: true },

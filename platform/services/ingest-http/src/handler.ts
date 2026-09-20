@@ -1,7 +1,11 @@
 import { createHash } from 'node:crypto';
 import type { APIGatewayProxyEventV2, APIGatewayProxyStructuredResultV2 } from 'aws-lambda';
 import { SQSClient, SendMessageCommand } from '@aws-sdk/client-sqs';
-import { createDocumentClient, DynamoDeviceDirectory, type DeviceDirectory } from '@trackify/data';
+import {
+  createDocumentClient,
+  DynamoOnboardingStore,
+  type OnboardingInvitation,
+} from '@trackify/data';
 import { parsePositionMessage, type PositionMessage } from '@trackify/domain';
 import { ulid } from 'ulid';
 
@@ -10,7 +14,9 @@ interface QueueWriter {
 }
 
 interface Dependencies {
-  devices: DeviceDirectory;
+  credentials: {
+    resolveCredential(credentialHash: string): Promise<OnboardingInvitation | undefined>;
+  };
   queue: QueueWriter;
   now: () => number;
 }
@@ -19,9 +25,12 @@ export function createHandler(deps: Dependencies) {
   return async (event: APIGatewayProxyEventV2): Promise<APIGatewayProxyStructuredResultV2> => {
     try {
       const input = parseInput(event);
-      const uniqueId = required(input, 'id');
-      const device = await deps.devices.resolve(uniqueId);
-      if (!device || device.protocol !== 'osmand') return response(404, 'unknown device');
+      const token = bearerToken(event.headers.authorization ?? event.headers.Authorization);
+      if (!token) return response(401, 'device credential required');
+      const device = await deps.credentials.resolveCredential(hash(token));
+      if (!device) return response(401, 'invalid device credential');
+      const uniqueId = device.uniqueId;
+      if (input.id && input.id !== uniqueId) return response(403, 'device credential mismatch');
       const receivedAt = deps.now();
       const raw = canonicalInput(input);
       const candidate = {
@@ -80,13 +89,22 @@ class SqsQueueWriter implements QueueWriter {
 }
 
 function dependenciesFromEnvironment(): Dependencies {
-  const coreTable = requiredEnv('CORE_TABLE');
+  const onboardingTable = requiredEnv('ONBOARDING_TABLE');
   const queueUrl = requiredEnv('INGEST_QUEUE_URL');
   return {
-    devices: new DynamoDeviceDirectory(createDocumentClient(), coreTable),
+    credentials: new DynamoOnboardingStore(createDocumentClient(), onboardingTable),
     queue: new SqsQueueWriter(new SQSClient({}), queueUrl),
     now: Date.now,
   };
+}
+
+function bearerToken(value: string | undefined) {
+  const match = value?.match(/^Bearer\s+(.+)$/i);
+  return match?.[1]?.trim();
+}
+
+function hash(value: string) {
+  return createHash('sha256').update(value).digest('hex');
 }
 
 export const handler = createHandler(dependenciesFromEnvironment());

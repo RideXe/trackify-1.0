@@ -67,6 +67,14 @@ const realtime = new RealtimeStack(app, `Trackify-${config.envName}-Realtime`, {
   platformPath,
   tags,
 });
+const ingest = new IngestStack(app, `Trackify-${config.envName}-Ingest`, {
+  env: { account: config.account, region: config.region },
+  config,
+  data,
+  platformPath,
+  realtime,
+  tags,
+});
 const api = new ApiStack(app, `Trackify-${config.envName}-Api`, {
   env: { account: config.account, region: config.region },
   config,
@@ -75,6 +83,7 @@ const api = new ApiStack(app, `Trackify-${config.envName}-Api`, {
   platformPath,
   dashboardUrl: hosting.dashboardUrl,
   additionalBrowserOrigins: [config.dashboardUrl],
+  ingestQueue: ingest.queue,
   tags,
 });
 new DashboardAssetsStack(app, `Trackify-${config.envName}-DashboardAssets`, {
@@ -84,14 +93,6 @@ new DashboardAssetsStack(app, `Trackify-${config.envName}-DashboardAssets`, {
   api,
   realtime,
   platformPath,
-  tags,
-});
-const ingest = new IngestStack(app, `Trackify-${config.envName}-Ingest`, {
-  env: { account: config.account, region: config.region },
-  config,
-  data,
-  platformPath,
-  realtime,
   tags,
 });
 new OperationsStack(app, `Trackify-${config.envName}-Operations`, {

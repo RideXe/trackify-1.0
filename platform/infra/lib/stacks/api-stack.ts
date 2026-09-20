@@ -5,6 +5,7 @@ import { HttpLambdaIntegration } from 'aws-cdk-lib/aws-apigatewayv2-integrations
 import { Architecture, Runtime } from 'aws-cdk-lib/aws-lambda';
 import { NodejsFunction } from 'aws-cdk-lib/aws-lambda-nodejs';
 import { LogGroup, RetentionDays } from 'aws-cdk-lib/aws-logs';
+import type { IQueue } from 'aws-cdk-lib/aws-sqs';
 import type { Construct } from 'constructs';
 import type { EnvConfig } from '../config';
 import type { DataStack } from './data-stack';
@@ -17,6 +18,7 @@ export interface ApiStackProps extends StackProps {
   platformPath: string;
   dashboardUrl?: string;
   additionalBrowserOrigins?: string[];
+  ingestQueue: IQueue;
 }
 
 export class ApiStack extends Stack {
@@ -49,6 +51,8 @@ export class ApiStack extends Stack {
         TRIPS_TABLE: props.data.trips.tableName,
         DAILY_STATS_TABLE: props.data.dailyStats.tableName,
         COMMANDS_TABLE: props.data.commands.tableName,
+        ONBOARDING_TABLE: props.data.onboarding.tableName,
+        ONBOARDING_WEB_URL: dashboardUrl,
       },
       logGroup: new LogGroup(this, 'FleetApiLogs', { retention: RetentionDays.ONE_WEEK }),
       bundling: { minify: true, sourceMap: true },
@@ -60,6 +64,7 @@ export class ApiStack extends Stack {
     props.data.trips.grantReadData(handler);
     props.data.dailyStats.grantReadData(handler);
     props.data.commands.grantReadWriteData(handler);
+    props.data.onboarding.grantReadWriteData(handler);
     const authorizer = new HttpJwtAuthorizer(
       'CognitoAuthorizer',
       `https://cognito-idp.${this.region}.amazonaws.com/${props.identity.userPool.userPoolId}`,
@@ -69,13 +74,30 @@ export class ApiStack extends Stack {
       corsPreflight: {
         allowOrigins: browserOrigins,
         allowHeaders: ['authorization', 'content-type'],
-        allowMethods: [CorsHttpMethod.GET, CorsHttpMethod.POST, CorsHttpMethod.OPTIONS],
+        allowMethods: [
+          CorsHttpMethod.GET,
+          CorsHttpMethod.POST,
+          CorsHttpMethod.DELETE,
+          CorsHttpMethod.OPTIONS,
+        ],
       },
     });
     const integration = new HttpLambdaIntegration('FleetApiIntegration', handler);
     this.api.addRoutes({
       path: '/me',
       methods: [HttpMethod.GET],
+      integration,
+      authorizer,
+    });
+    this.api.addRoutes({
+      path: '/devices/{deviceId}/invitations',
+      methods: [HttpMethod.GET, HttpMethod.POST],
+      integration,
+      authorizer,
+    });
+    this.api.addRoutes({
+      path: '/invitations/{invitationId}',
+      methods: [HttpMethod.DELETE],
       integration,
       authorizer,
     });
@@ -91,6 +113,47 @@ export class ApiStack extends Stack {
       methods: [HttpMethod.POST],
       integration,
       authorizer,
+    });
+
+    const onboarding = new NodejsFunction(this, 'OnboardingHandler', {
+      entry: `${props.platformPath}/services/onboarding-api/src/handler.ts`,
+      runtime: Runtime.NODEJS_24_X,
+      architecture: Architecture.ARM_64,
+      memorySize: 256,
+      timeout: Duration.seconds(10),
+      environment: {
+        ONBOARDING_TABLE: props.data.onboarding.tableName,
+        API_BASE_URL: this.api.apiEndpoint,
+      },
+      logGroup: new LogGroup(this, 'OnboardingLogs', { retention: RetentionDays.ONE_WEEK }),
+      bundling: { minify: true, sourceMap: true },
+    });
+    props.data.onboarding.grantReadWriteData(onboarding);
+    this.api.addRoutes({
+      path: '/onboard/{code}/redeem',
+      methods: [HttpMethod.POST],
+      integration: new HttpLambdaIntegration('OnboardingIntegration', onboarding),
+    });
+
+    const phoneIngest = new NodejsFunction(this, 'PhoneIngestHandler', {
+      entry: `${props.platformPath}/services/ingest-http/src/handler.ts`,
+      runtime: Runtime.NODEJS_24_X,
+      architecture: Architecture.ARM_64,
+      memorySize: 256,
+      timeout: Duration.seconds(15),
+      environment: {
+        ONBOARDING_TABLE: props.data.onboarding.tableName,
+        INGEST_QUEUE_URL: props.ingestQueue.queueUrl,
+      },
+      logGroup: new LogGroup(this, 'PhoneIngestLogs', { retention: RetentionDays.ONE_WEEK }),
+      bundling: { minify: true, sourceMap: true },
+    });
+    props.data.onboarding.grantReadData(phoneIngest);
+    props.ingestQueue.grantSendMessages(phoneIngest);
+    this.api.addRoutes({
+      path: '/phone/positions',
+      methods: [HttpMethod.POST],
+      integration: new HttpLambdaIntegration('PhoneIngestIntegration', phoneIngest),
     });
     this.api.addRoutes({
       path: '/devices',

@@ -5,6 +5,7 @@ import {
   type Tokens,
 } from '@trackify/api-client';
 import * as SecureStore from 'expo-secure-store';
+import * as Linking from 'expo-linking';
 import { StatusBar } from 'expo-status-bar';
 import { useEffect, useMemo, useState } from 'react';
 import {
@@ -18,6 +19,12 @@ import {
   View,
 } from 'react-native';
 import MapView, { Marker } from 'react-native-maps';
+import { SetupScreen } from './screens/SetupScreen';
+import { TrackerScreen } from './screens/TrackerScreen';
+import { WelcomeScreen } from './screens/WelcomeScreen';
+import { BrandHeader } from './components/BrandHeader';
+import { loadTrackerConfig } from './services/storage';
+import './tasks/location-task';
 
 const clientId = '2h5u12cj2ro3p8n37fmmhfjcpq';
 const config = {
@@ -38,16 +45,36 @@ export default function App() {
   const [selected, setSelected] = useState<Device>();
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
+  const [tab, setTab] = useState<'fleet' | 'tracker' | 'setup'>('tracker');
+  const [trackerReady, setTrackerReady] = useState(false);
+  const [onboarding, setOnboarding] = useState<'scan' | 'code' | 'manual'>();
+  const [onboardingCode, setOnboardingCode] = useState('');
+  const [fleetLoginRequested, setFleetLoginRequested] = useState(false);
   const [challenge, setChallenge] = useState<PasswordChallenge>();
   const client = useMemo(() => new TrackifyClient(config, () => tokens?.access_token), [tokens]);
   const auth = useMemo(() => new CognitoPasswordClient(config), []);
 
   useEffect(() => {
     void restoreSession();
+    void Linking.getInitialURL().then(openOnboardingLink);
+    const subscription = Linking.addEventListener('url', ({ url }) => openOnboardingLink(url));
+    return () => subscription.remove();
   }, []);
+
+  function openOnboardingLink(url: string | null) {
+    if (!url) return;
+    const code = url
+      .toUpperCase()
+      .match(/(?:ONBOARD[/#?=]+)([A-HJ-NP-Z2-9]{6})(?:$|[^A-Z0-9])/)?.[1];
+    if (!code) return;
+    setOnboardingCode(code);
+    setOnboarding('code');
+  }
 
   async function restoreSession() {
     try {
+      const tracker = await loadTrackerConfig();
+      setTrackerReady(Boolean(tracker.uniqueId && tracker.endpoint && tracker.credential));
       const value = await SecureStore.getItemAsync('tokens');
       if (value) setTokens(JSON.parse(value) as Tokens);
     } catch {
@@ -131,6 +158,54 @@ export default function App() {
         <ActivityIndicator color="#ffb44a" />
       </View>
     );
+  if (onboarding)
+    return (
+      <SafeAreaView style={styles.publicApp}>
+        <BrandHeader />
+        <SetupScreen
+          initialMode={onboarding}
+          initialCode={onboardingCode}
+          onCancel={() => setOnboarding(undefined)}
+          onComplete={() => {
+            setTrackerReady(true);
+            setOnboardingCode('');
+            setOnboarding(undefined);
+            setTab('tracker');
+          }}
+        />
+      </SafeAreaView>
+    );
+  if (!trackerReady && !tokens && !fleetLoginRequested)
+    return (
+      <WelcomeScreen
+        onScan={() => setOnboarding('scan')}
+        onCode={() => setOnboarding('code')}
+        onManual={() => setOnboarding('manual')}
+        onFleet={() => {
+          setFleetLoginRequested(true);
+          setTab('fleet');
+        }}
+      />
+    );
+  if (!tokens && tab !== 'fleet')
+    return (
+      <SafeAreaView style={styles.publicApp}>
+        <BrandHeader action="Fleet login" onAction={() => setTab('fleet')} />
+        <View style={styles.publicContent}>
+          {tab === 'tracker' ? (
+            <TrackerScreen />
+          ) : (
+            <SetupScreen
+              onComplete={() => {
+                setTrackerReady(true);
+                setTab('tracker');
+              }}
+            />
+          )}
+        </View>
+        <PublicNav tab={tab} onChange={setTab} />
+      </SafeAreaView>
+    );
   if (!tokens)
     return (
       <LoginScreen
@@ -153,45 +228,82 @@ export default function App() {
           </Pressable>
         </View>
       </View>
-      <MapView
-        style={styles.map}
-        initialRegion={{
-          latitude: positioned[0]?.state?.latitude ?? 12.9716,
-          longitude: positioned[0]?.state?.longitude ?? 77.5946,
-          latitudeDelta: 0.25,
-          longitudeDelta: 0.25,
-        }}
-      >
-        {positioned.map((device) => (
-          <Marker
-            key={device.deviceId}
-            coordinate={{ latitude: device.state!.latitude!, longitude: device.state!.longitude! }}
-            title={device.name}
-            onPress={() => setSelected(device)}
-          />
+      {tab === 'tracker' && <TrackerScreen />}
+      {tab === 'setup' && <SetupScreen />}
+      {tab === 'fleet' && (
+        <>
+          <MapView
+            style={styles.map}
+            initialRegion={{
+              latitude: positioned[0]?.state?.latitude ?? 12.9716,
+              longitude: positioned[0]?.state?.longitude ?? 77.5946,
+              latitudeDelta: 0.25,
+              longitudeDelta: 0.25,
+            }}
+          >
+            {positioned.map((device) => (
+              <Marker
+                key={device.deviceId}
+                coordinate={{
+                  latitude: device.state!.latitude!,
+                  longitude: device.state!.longitude!,
+                }}
+                title={device.name}
+                onPress={() => setSelected(device)}
+              />
+            ))}
+          </MapView>
+          <View style={styles.sheet}>
+            <Text style={styles.heading}>Fleet</Text>
+            <FlatList
+              horizontal
+              data={devices}
+              keyExtractor={(item) => item.deviceId}
+              renderItem={({ item }) => (
+                <Pressable
+                  style={[
+                    styles.vehicle,
+                    selected?.deviceId === item.deviceId && styles.vehicleActive,
+                  ]}
+                  onPress={() => setSelected(item)}
+                >
+                  <Text style={styles.vehicleName}>{item.name}</Text>
+                  <Text style={styles.meta}>
+                    {Math.round(item.state?.speedKmh ?? 0)} km/h · {item.state?.status ?? 'quiet'}
+                  </Text>
+                </Pressable>
+              )}
+            />
+            {!devices.length && <Text style={styles.empty}>No vehicles have been added yet.</Text>}
+          </View>
+        </>
+      )}
+      <View style={styles.nav}>
+        {(['fleet', 'tracker', 'setup'] as const).map((item) => (
+          <Pressable key={item} style={styles.navItem} onPress={() => setTab(item)}>
+            <Text style={[styles.navText, tab === item && styles.navActive]}>{item}</Text>
+          </Pressable>
         ))}
-      </MapView>
-      <View style={styles.sheet}>
-        <Text style={styles.heading}>Fleet</Text>
-        <FlatList
-          horizontal
-          data={devices}
-          keyExtractor={(item) => item.deviceId}
-          renderItem={({ item }) => (
-            <Pressable
-              style={[styles.vehicle, selected?.deviceId === item.deviceId && styles.vehicleActive]}
-              onPress={() => setSelected(item)}
-            >
-              <Text style={styles.vehicleName}>{item.name}</Text>
-              <Text style={styles.meta}>
-                {Math.round(item.state?.speedKmh ?? 0)} km/h · {item.state?.status ?? 'quiet'}
-              </Text>
-            </Pressable>
-          )}
-        />
-        {!devices.length && <Text style={styles.empty}>No vehicles have been added yet.</Text>}
       </View>
     </SafeAreaView>
+  );
+}
+
+function PublicNav({
+  tab,
+  onChange,
+}: {
+  tab: 'fleet' | 'tracker' | 'setup';
+  onChange: (tab: 'fleet' | 'tracker' | 'setup') => void;
+}) {
+  return (
+    <View style={styles.nav}>
+      {(['tracker', 'setup', 'fleet'] as const).map((item) => (
+        <Pressable key={item} style={styles.navItem} onPress={() => onChange(item)}>
+          <Text style={[styles.navText, tab === item && styles.navActive]}>{item}</Text>
+        </Pressable>
+      ))}
+    </View>
   );
 }
 
@@ -278,33 +390,38 @@ async function persistTokens(tokens: Tokens) {
 }
 
 const styles = StyleSheet.create({
-  app: { flex: 1, backgroundColor: '#06131c' },
-  center: { flex: 1, alignItems: 'center', justifyContent: 'center', backgroundColor: '#06131c' },
-  login: { flex: 1, justifyContent: 'center', padding: 28, backgroundColor: '#06131c' },
+  publicApp: { flex: 1, backgroundColor: '#F5F7FA' },
+  publicContent: { flex: 1 },
+  app: { flex: 1, backgroundColor: '#F5F7FA' },
+  center: { flex: 1, alignItems: 'center', justifyContent: 'center', backgroundColor: '#F5F7FA' },
+  login: { flex: 1, justifyContent: 'center', padding: 28, backgroundColor: '#F5F7FA' },
   mark: {
     width: 48,
     height: 48,
     borderWidth: 1,
-    borderColor: '#ffb44a',
-    color: '#ffb44a',
+    borderColor: '#155EEF',
+    backgroundColor: '#155EEF',
+    color: '#FFFFFF',
     fontSize: 24,
     fontWeight: '900',
     textAlign: 'center',
     paddingTop: 8,
   },
   hero: {
-    color: '#edf0e8',
+    color: '#101828',
     fontSize: 48,
     lineHeight: 46,
     fontWeight: '900',
     letterSpacing: -2.5,
     marginTop: 34,
   },
-  copy: { color: '#8da0a8', fontSize: 17, lineHeight: 25, marginTop: 22, maxWidth: 320 },
+  copy: { color: '#667085', fontSize: 17, lineHeight: 25, marginTop: 22, maxWidth: 320 },
   input: {
-    color: '#edf0e8',
+    color: '#101828',
+    backgroundColor: '#FFFFFF',
+    borderRadius: 12,
     borderWidth: 1,
-    borderColor: '#2b4553',
+    borderColor: '#D0D5DD',
     padding: 15,
     marginTop: 30,
   },
@@ -312,32 +429,61 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     borderWidth: 1,
-    borderColor: '#2b4553',
+    borderColor: '#D0D5DD',
+    backgroundColor: '#FFFFFF',
+    borderRadius: 12,
     marginTop: 12,
   },
-  passwordInput: { flex: 1, color: '#edf0e8', padding: 15 },
-  show: { color: '#ffb44a', fontWeight: '800', padding: 15 },
+  passwordInput: { flex: 1, color: '#101828', padding: 15 },
+  show: { color: '#155EEF', fontWeight: '800', padding: 15 },
   error: { color: '#ff877b', marginTop: 12 },
-  primary: { backgroundColor: '#ffb44a', padding: 17, marginTop: 20, alignSelf: 'stretch' },
+  primary: {
+    backgroundColor: '#155EEF',
+    padding: 17,
+    marginTop: 20,
+    alignSelf: 'stretch',
+    borderRadius: 12,
+  },
   disabled: { opacity: 0.55 },
-  primaryText: { color: '#06131c', fontWeight: '900' },
+  primaryText: { color: '#FFFFFF', fontWeight: '900' },
   top: {
     height: 60,
     paddingHorizontal: 20,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
+    backgroundColor: '#FFFFFF',
+    borderBottomWidth: 1,
+    borderBottomColor: '#E4E7EC',
   },
-  brand: { color: '#edf0e8', fontSize: 20, fontWeight: '900' },
-  live: { color: '#5cd5c4' },
+  brand: { color: '#101828', fontSize: 20, fontWeight: '900' },
+  live: { color: '#039855' },
   topActions: { flexDirection: 'row', alignItems: 'center', gap: 18 },
-  signOut: { color: '#ffb44a', fontWeight: '800' },
+  signOut: { color: '#155EEF', fontWeight: '800' },
+  nav: {
+    height: 64,
+    flexDirection: 'row',
+    backgroundColor: '#FFFFFF',
+    borderTopWidth: 1,
+    borderTopColor: '#E4E7EC',
+  },
+  navItem: { flex: 1, alignItems: 'center', justifyContent: 'center' },
+  navText: { color: '#667085', fontWeight: '700', textTransform: 'capitalize' },
+  navActive: { color: '#155EEF' },
   map: { flex: 1 },
-  sheet: { minHeight: 190, padding: 20, backgroundColor: '#081721' },
-  heading: { color: '#edf0e8', fontSize: 26, fontWeight: '800', marginBottom: 14 },
-  vehicle: { width: 180, padding: 14, marginRight: 8, borderWidth: 1, borderColor: '#1d3542' },
-  vehicleActive: { borderColor: '#ffb44a' },
-  vehicleName: { color: '#edf0e8', fontWeight: '800', fontSize: 16 },
-  meta: { color: '#8da0a8', marginTop: 7 },
-  empty: { color: '#8da0a8' },
+  sheet: { minHeight: 190, padding: 20, backgroundColor: '#FFFFFF' },
+  heading: { color: '#101828', fontSize: 26, fontWeight: '800', marginBottom: 14 },
+  vehicle: {
+    width: 180,
+    padding: 14,
+    marginRight: 8,
+    borderWidth: 1,
+    borderColor: '#E4E7EC',
+    borderRadius: 14,
+    backgroundColor: '#FFFFFF',
+  },
+  vehicleActive: { borderColor: '#155EEF', borderWidth: 2 },
+  vehicleName: { color: '#101828', fontWeight: '800', fontSize: 16 },
+  meta: { color: '#667085', marginTop: 7 },
+  empty: { color: '#667085' },
 });

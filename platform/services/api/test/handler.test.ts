@@ -8,6 +8,8 @@ process.env.EVENTS_TABLE = 'events';
 process.env.TRIPS_TABLE = 'trips';
 process.env.DAILY_STATS_TABLE = 'daily';
 process.env.COMMANDS_TABLE = 'commands';
+process.env.ONBOARDING_TABLE = 'onboarding';
+process.env.ONBOARDING_WEB_URL = 'https://trackify.example';
 const { createHandler } = await import('../src/handler');
 
 function event(method: string, rawPath: string, sub = 'user-1') {
@@ -29,7 +31,20 @@ function store(role: 'admin' | 'viewer' = 'admin') {
   return {
     membership: vi.fn().mockResolvedValue({ tenantId: 'tenant-a', userId: 'user-1', role }),
     listDevices: vi.fn().mockResolvedValue([{ deviceId: 'device-1' }]),
-    createDevice: vi.fn().mockResolvedValue({ deviceId: 'device-2' }),
+    createDevice: vi.fn().mockResolvedValue({
+      deviceId: 'device-2',
+      name: 'Demo Car',
+      uniqueId: 'phone-demo-1',
+      protocol: 'osmand',
+      retentionDays: 90,
+    }),
+    getDevice: vi.fn().mockResolvedValue({
+      deviceId: 'device-1',
+      name: 'Demo Car',
+      uniqueId: 'phone-demo-1',
+      protocol: 'osmand',
+      retentionDays: 90,
+    }),
     positions: vi.fn().mockResolvedValue([{ fixTime: 1 }]),
     events: vi.fn().mockResolvedValue([]),
     trips: vi.fn().mockResolvedValue([]),

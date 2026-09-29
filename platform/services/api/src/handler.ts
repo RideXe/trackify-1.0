@@ -14,6 +14,7 @@ interface FleetStore {
   listDevices(tenantId: string): Promise<unknown[]>;
   createDevice(tenantId: string, input: DeviceInput): Promise<unknown>;
   updateDevice(tenantId: string, deviceId: string, changes: DeviceChanges): Promise<unknown>;
+  deleteDevice(tenantId: string, deviceId: string): Promise<boolean>;
   getDevice(
     tenantId: string,
     deviceId: string,
@@ -115,6 +116,11 @@ export function createHandler(
         const changes = parseDeviceChanges(event.body);
         const device = await store.updateDevice(membership.tenantId, deviceMatch[1], changes);
         return device ? response(200, device) : response(404, { message: 'device not found' });
+      }
+      if (method === 'DELETE' && deviceMatch?.[1]) {
+        if (membership.role !== 'admin') return response(403, { message: 'admin role required' });
+        const deleted = await store.deleteDevice(membership.tenantId, deviceMatch[1]);
+        return deleted ? response(204, undefined) : response(404, { message: 'device not found' });
       }
       const invitationMatch = path.match(/^\/devices\/([^/]+)\/invitations$/);
       if (invitationMatch?.[1] && method === 'GET') {

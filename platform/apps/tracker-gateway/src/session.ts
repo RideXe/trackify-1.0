@@ -77,6 +77,7 @@ function normalize(
   receivedAt: number,
 ): PositionMessage {
   const { satellites, ignition, motion, ...io } = decoded.attributes;
+  const satelliteCount = typeof satellites === 'number' ? satellites : undefined;
   const parsed = parsePositionMessage({
     v: 1,
     ingestId: ulid(receivedAt),
@@ -95,8 +96,9 @@ function normalize(
     altitudeM: decoded.altitudeM,
     speedKmh: decoded.speedKmh,
     courseDeg: decoded.courseDeg,
+    accuracyM: estimateAccuracyFromSatellites(satelliteCount),
     attributes: {
-      satellites: typeof satellites === 'number' ? satellites : undefined,
+      satellites: satelliteCount,
       ignition: typeof ignition === 'boolean' ? ignition : undefined,
       motion: typeof motion === 'boolean' ? motion : undefined,
       io,
@@ -105,4 +107,22 @@ function normalize(
   if (!parsed.success)
     throw new Error(`decoder produced invalid position: ${parsed.error.message}`);
   return parsed.data;
+}
+
+/**
+ * GT06 and Teltonika trackers report how many satellites they can see but not real HDOP, so the
+ * server-side drift filter (packages/geo movedBeyondDrift) has nothing to work with and falls back
+ * to a flat minimum for every fix. Fewer visible satellites means a worse position fix, so this
+ * gives a rough accuracy figure from satellite count instead — the same fallback technique other
+ * GPS tracking backends use when a protocol has no real accuracy field. Bands are deliberately
+ * conservative (biased toward "less accurate") so real drift is never under-filtered.
+ */
+export function estimateAccuracyFromSatellites(satellites: number | undefined): number | undefined {
+  if (satellites === undefined || satellites <= 0) return undefined;
+  if (satellites <= 4) return 50;
+  if (satellites <= 5) return 30;
+  if (satellites <= 6) return 20;
+  if (satellites <= 7) return 15;
+  if (satellites <= 8) return 10;
+  return 6;
 }

@@ -181,6 +181,35 @@ export class DynamoFleetStore {
     }
   }
 
+  /**
+   * Removes a vehicle. Frees its uniqueId for reuse by deleting the reservation lock alongside the
+   * device record, atomically. Historical positions/events/trips are left to expire on their own
+   * retention TTL rather than deleted here. Returns false when the device does not exist.
+   */
+  async deleteDevice(tenantId: string, deviceId: string): Promise<boolean> {
+    const device = await this.getDevice(tenantId, deviceId);
+    if (!device) return false;
+    await this.client.send(
+      new TransactWriteCommand({
+        TransactItems: [
+          {
+            Delete: {
+              TableName: this.coreTable,
+              Key: { pk: tenantPartitionKey(tenantId), sk: `DEVICE#${deviceId}` },
+            },
+          },
+          {
+            Delete: {
+              TableName: this.coreTable,
+              Key: { pk: uniqueIdLookupKey(device.uniqueId), sk: 'LOCK' },
+            },
+          },
+        ],
+      }),
+    );
+    return true;
+  }
+
   async getDevice(tenantId: string, deviceId: string): Promise<FleetDevice | undefined> {
     const result = await this.client.send(
       new GetCommand({

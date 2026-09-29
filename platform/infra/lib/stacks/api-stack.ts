@@ -164,7 +164,7 @@ export class ApiStack extends Stack {
     });
     this.api.addRoutes({
       path: '/devices/{deviceId}',
-      methods: [HttpMethod.PATCH],
+      methods: [HttpMethod.PATCH, HttpMethod.DELETE],
       integration,
       authorizer,
     });

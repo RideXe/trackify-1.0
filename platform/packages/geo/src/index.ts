@@ -42,6 +42,24 @@ export function contains(shape: GeofenceShape, point: GeoPoint): boolean {
   return inside;
 }
 
+/** Smallest move that counts as movement, even with a perfect GPS fix. */
+export const MIN_MOVEMENT_M = 25;
+
+/**
+ * GPS readings wander around the true spot, most of all indoors where phones fall back to Wi-Fi
+ * and cell towers. A reading only counts as movement when it is farther from the last accepted
+ * position than both readings' reported uncertainty (accuracy radius), and never less than
+ * MIN_MOVEMENT_M. Trackers that do not report accuracy get the minimum.
+ */
+export function movedBeyondDrift(
+  from: GeoPoint & { accuracyM?: number },
+  to: GeoPoint & { accuracyM?: number },
+  minMeters = MIN_MOVEMENT_M,
+): boolean {
+  const uncertaintyM = (from.accuracyM ?? 0) + (to.accuracyM ?? 0);
+  return distanceMeters(from, to) > Math.max(minMeters, uncertaintyM);
+}
+
 export function plausibleDistance(
   from: GeoPoint & { fixTime: number },
   to: GeoPoint & { fixTime: number },

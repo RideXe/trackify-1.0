@@ -1,9 +1,9 @@
 import type { StoredPosition } from '@trackify/api-client';
-import { distanceMeters } from '@trackify/geo';
+import { distanceMeters, movedBeyondDrift } from '@trackify/geo';
 
 export type RoutePoint = Pick<
   StoredPosition,
-  'fixTime' | 'latitude' | 'longitude' | 'altitudeM' | 'speedKmh' | 'courseDeg'
+  'fixTime' | 'latitude' | 'longitude' | 'altitudeM' | 'speedKmh' | 'courseDeg' | 'accuracyM'
 >;
 
 /** The positions API returns at most this many fixes per request. */
@@ -54,30 +54,52 @@ export async function loadRoute(
   const located = fixes.filter((fix) => fix.valid !== false);
   located.sort((a, b) => a.fixTime - b.fixTime);
   return {
-    points: located.map(({ fixTime, latitude, longitude, altitudeM, speedKmh, courseDeg }) => ({
-      fixTime,
-      latitude,
-      longitude,
-      altitudeM,
-      speedKmh,
-      courseDeg,
-    })),
+    points: located.map(
+      ({ fixTime, latitude, longitude, altitudeM, speedKmh, courseDeg, accuracyM }) => ({
+        fixTime,
+        latitude,
+        longitude,
+        altitudeM,
+        speedKmh,
+        courseDeg,
+        accuracyM,
+      }),
+    ),
     skipped: fixes.length - located.length,
     truncated,
   };
 }
 
+/**
+ * The route the vehicle actually drove, using the same rule as live tracking: readings within GPS
+ * drift of the last accepted position are dropped, so a parked vehicle stays one point instead of
+ * a scribble. A clearly more accurate reading (twice as precise) may refine that point.
+ */
+export function withoutDrift(points: RoutePoint[]): RoutePoint[] {
+  const route: RoutePoint[] = [];
+  for (const point of points) {
+    const anchor = route.at(-1);
+    if (!anchor || movedBeyondDrift(anchor, point)) route.push(point);
+    else if (point.accuracyM !== undefined && point.accuracyM <= (anchor.accuracyM ?? Infinity) / 2)
+      route[route.length - 1] = { ...point, fixTime: anchor.fixTime };
+  }
+  return route;
+}
+
+/** Distance and top speed come from the drift-free route; duration spans every reading. */
 export function summarizeRoute(points: RoutePoint[]) {
+  const route = withoutDrift(points);
   let distanceM = 0;
   let maxSpeedKmh = 0;
-  let previous: RoutePoint | undefined;
-  for (const point of points) {
-    if (previous) distanceM += distanceMeters(previous, point);
+  route.forEach((point, index) => {
+    const previous = route[index - 1];
+    if (!previous) return;
+    distanceM += distanceMeters(previous, point);
     maxSpeedKmh = Math.max(maxSpeedKmh, point.speedKmh ?? 0);
-    previous = point;
-  }
+  });
   const first = points[0];
-  const durationMs = first && previous ? previous.fixTime - first.fixTime : 0;
+  const last = points.at(-1);
+  const durationMs = first && last ? last.fixTime - first.fixTime : 0;
   return { distanceM, durationMs, maxSpeedKmh };
 }
 
@@ -144,9 +166,14 @@ export function routeToCsv(points: RoutePoint[]): string {
       point.speedKmh ?? '',
       point.courseDeg ?? '',
       point.altitudeM ?? '',
+      point.accuracyM ?? '',
     ].join(','),
   );
-  return ['time_utc,latitude,longitude,speed_kmh,course_deg,altitude_m', ...rows, ''].join('\r\n');
+  return [
+    'time_utc,latitude,longitude,speed_kmh,course_deg,altitude_m,accuracy_m',
+    ...rows,
+    '',
+  ].join('\r\n');
 }
 
 /** For example `van-12-route-2026-09-26-0000-to-2026-09-26-1830.kml`, in local time. */

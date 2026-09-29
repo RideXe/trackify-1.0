@@ -37,15 +37,27 @@ const valid = {
 };
 
 describe('position processor', () => {
-  it('saves valid positions', async () => {
-    const process = vi.fn().mockResolvedValue({ duplicate: false, eventCount: 0 });
+  it('saves valid positions and publishes where the vehicle now shows', async () => {
+    const live = { latitude: 1.5, longitude: 2.5, speedKmh: 0 };
+    const process = vi.fn().mockResolvedValue({ duplicate: false, eventCount: 0, live });
     const publish = vi.fn().mockResolvedValue(undefined);
     const result = await createHandler({ process } satisfies FleetProcessingStore, { publish })({
       Records: [record('a', valid)],
     });
     expect(result.batchItemFailures).toEqual([]);
     expect(process).toHaveBeenCalledWith(expect.objectContaining({ deviceId: valid.deviceId }));
-    expect(publish).toHaveBeenCalledWith(expect.objectContaining({ deviceId: valid.deviceId }));
+    expect(publish).toHaveBeenCalledWith(
+      expect.objectContaining({ deviceId: valid.deviceId, ...live }),
+    );
+  });
+
+  it('does not publish readings that only went into history', async () => {
+    const process = vi.fn().mockResolvedValue({ duplicate: false, eventCount: 0 });
+    const publish = vi.fn().mockResolvedValue(undefined);
+    await createHandler({ process } satisfies FleetProcessingStore, { publish })({
+      Records: [record('a', valid)],
+    });
+    expect(publish).not.toHaveBeenCalled();
   });
 
   it('returns a failure and all later messages in the same FIFO group', async () => {

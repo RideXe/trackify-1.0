@@ -28,6 +28,7 @@ import {
   routeToGpx,
   routeToKml,
   summarizeRoute,
+  withoutDrift,
   type LoadedRoute,
 } from './route-data';
 import { RouteMap } from './route-map';
@@ -102,8 +103,10 @@ export function RouteHistory({ device, client }: { device: Device; client: Track
 
   const points = useMemo(() => route?.points ?? [], [route]);
   const summary = useMemo(() => summarizeRoute(points), [points]);
-  const current = points[index];
-  const lastIndex = Math.max(points.length - 1, 0);
+  // What is drawn, replayed and downloaded: the route without GPS drift while parked.
+  const driven = useMemo(() => withoutDrift(points), [points]);
+  const current = driven[index];
+  const lastIndex = Math.max(driven.length - 1, 0);
 
   useEffect(() => {
     if (!playing) return;
@@ -123,10 +126,10 @@ export function RouteHistory({ device, client }: { device: Device; client: Track
     const title = `${device.name} route`;
     const content =
       kind === 'kml'
-        ? routeToKml(title, route.points)
+        ? routeToKml(title, driven)
         : kind === 'gpx'
-          ? routeToGpx(title, route.points)
-          : routeToCsv(route.points);
+          ? routeToGpx(title, driven)
+          : routeToCsv(driven);
     const url = URL.createObjectURL(new Blob([content], { type: downloads[kind].type }));
     const link = document.createElement('a');
     link.href = url;
@@ -248,7 +251,7 @@ export function RouteHistory({ device, client }: { device: Device; client: Track
               ))}
             </Stack>
 
-            <RouteMap points={route.points} current={current} />
+            <RouteMap points={driven} current={current} />
 
             <Stack
               direction={{ xs: 'column', md: 'row' }}
@@ -299,6 +302,12 @@ export function RouteHistory({ device, client }: { device: Device; client: Track
               <Typography color="text.secondary" variant="body2">
                 {new Date(current.fixTime).toLocaleString()} · {Math.round(current.speedKmh ?? 0)}{' '}
                 km/h · {current.latitude.toFixed(5)}, {current.longitude.toFixed(5)}
+              </Typography>
+            )}
+            {points.length > driven.length && (
+              <Typography color="text.secondary" variant="caption">
+                {(points.length - driven.length).toLocaleString()} readings within GPS drift of a
+                parked position are not drawn or counted as distance.
               </Typography>
             )}
             {route.skipped > 0 && (

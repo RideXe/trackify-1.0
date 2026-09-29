@@ -80,3 +80,74 @@ describe('fleet transition', () => {
     ]);
   });
 });
+
+describe('GPS drift while parked', () => {
+  // A phone indoors: Wi-Fi/cell fixes with ~80 m accuracy and noisy speed, no motion sensor.
+  const phone = {
+    ...base,
+    protocol: 'osmand',
+    source: 'http',
+    latitude: 12.9335805,
+    longitude: 77.5362201,
+    accuracyM: 82,
+    speedKmh: undefined,
+    attributes: {},
+  } satisfies PositionMessage;
+  const metresNorth = (metres: number) => phone.latitude + metres / 111_195;
+  const reading = (second: number, extra: Partial<PositionMessage>): PositionMessage => ({
+    ...phone,
+    messageId: `drift-${String(second).padStart(12, '0')}`,
+    fixTime: 1_000 + second * 1_000,
+    receivedAt: 1_000 + second * 1_000,
+    ...extra,
+  });
+
+  it('keeps a parked phone in place: no distance, trips, movement events or speed', () => {
+    let state = evaluatePosition(undefined, phone, { geofences: [] }).state;
+    const types: string[] = [];
+    const wander = [60, -40, 90, 10, -70, 120, -20];
+    wander.forEach((metres, index) => {
+      const next = evaluatePosition(
+        state,
+        reading((index + 1) * 30, {
+          latitude: metresNorth(metres),
+          accuracyM: 75 + index,
+          speedKmh: 11,
+        }),
+        { geofences: [] },
+      );
+      types.push(...next.events.map((event) => event.type));
+      state = next.state;
+    });
+    expect(types).toEqual([]);
+    expect(state.odometerM).toBe(0);
+    expect(state.trip).toBeUndefined();
+    expect(state.speedKmh).toBe(0);
+    expect(state.latitude).toBe(phone.latitude);
+    expect(state.fixTime).toBe(1_000 + 7 * 30 * 1_000);
+  });
+
+  it('counts a real drive once the vehicle leaves the drift zone', () => {
+    const parked = evaluatePosition(undefined, phone, { geofences: [] }).state;
+    const driving = evaluatePosition(
+      parked,
+      reading(30, { latitude: metresNorth(300), accuracyM: 8, speedKmh: 36 }),
+      { geofences: [] },
+    );
+    expect(driving.events.map((event) => event.type)).toEqual(['deviceMoving', 'tripStarted']);
+    expect(driving.state.odometerM).toBeGreaterThan(290);
+    expect(driving.state.speedKmh).toBe(36);
+  });
+
+  it('lets a more accurate reading refine the parked position without adding distance', () => {
+    const parked = evaluatePosition(undefined, phone, { geofences: [] }).state;
+    const refined = evaluatePosition(
+      parked,
+      reading(30, { latitude: metresNorth(50), accuracyM: 6 }),
+      { geofences: [] },
+    ).state;
+    expect(refined.latitude).toBe(metresNorth(50));
+    expect(refined.accuracyM).toBe(6);
+    expect(refined.odometerM).toBe(0);
+  });
+});

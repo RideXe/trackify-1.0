@@ -1,6 +1,12 @@
 import { createHash } from 'node:crypto';
 import type { EventMessage, EventType, PositionMessage } from '@trackify/domain';
-import { contains, distanceMeters, plausibleDistance, type GeofenceShape } from '@trackify/geo';
+import {
+  contains,
+  distanceMeters,
+  movedBeyondDrift,
+  plausibleDistance,
+  type GeofenceShape,
+} from '@trackify/geo';
 
 export interface GeofenceRule {
   id: string;
@@ -11,9 +17,14 @@ export interface FleetRules {
   geofences: GeofenceRule[];
 }
 export interface FleetState {
+  /** Time of the latest reading, even when GPS drift kept the position below unchanged. */
   fixTime: number;
+  /** Last accepted position; readings within GPS drift of it do not move the vehicle. */
   latitude: number;
   longitude: number;
+  accuracyM?: number;
+  /** Zero while the vehicle is not moving, so drift does not show as speed. */
+  speedKmh?: number;
   motion: boolean;
   ignition?: boolean;
   overspeeding: boolean;
@@ -61,20 +72,31 @@ export function evaluatePosition(
   position: PositionMessage,
   rules: FleetRules,
 ): FleetTransition {
-  const motion = position.attributes.motion ?? (position.speedKmh ?? 0) >= 3;
+  // A reading within GPS drift of the last accepted position is the same place: it keeps the
+  // vehicle online but adds no distance and cannot start a trip on a noisy speed reading.
+  const moved = !previous || movedBeyondDrift(previous, position);
+  const motion = position.attributes.motion ?? (moved && (position.speedKmh ?? 0) >= 3);
+  const speedKmh = motion ? (position.speedKmh ?? 0) : 0;
   const ignition = position.attributes.ignition;
-  const segmentM = previous
-    ? plausibleDistance(
-        { latitude: previous.latitude, longitude: previous.longitude, fixTime: previous.fixTime },
-        position,
-      )
-    : 0;
+  const segmentM =
+    previous && moved
+      ? plausibleDistance(
+          { latitude: previous.latitude, longitude: previous.longitude, fixTime: previous.fixTime },
+          position,
+        )
+      : 0;
+  // While parked, a clearly more accurate reading (at least twice as precise) may refine where
+  // the vehicle is shown; marginally better readings would just make the dot wander again.
+  const refines =
+    previous !== undefined &&
+    position.accuracyM !== undefined &&
+    position.accuracyM <= (previous.accuracyM ?? Infinity) / 2;
+  const located = !previous || moved || refines ? position : previous;
   const inside = rules.geofences
     .filter((rule) => contains(rule.shape, position))
     .map((rule) => rule.id)
     .sort();
-  const overspeeding =
-    rules.speedLimitKmh !== undefined && (position.speedKmh ?? 0) > rules.speedLimitKmh;
+  const overspeeding = rules.speedLimitKmh !== undefined && speedKmh > rules.speedLimitKmh;
   const events: EventMessage[] = [];
   const emit = (type: EventType, extra: Partial<EventMessage> = {}) =>
     events.push({
@@ -109,14 +131,14 @@ export function evaluatePosition(
       startLatitude: position.latitude,
       startLongitude: position.longitude,
       distanceM: 0,
-      maxSpeedKmh: position.speedKmh ?? 0,
+      maxSpeedKmh: speedKmh,
     };
     emit('tripStarted');
   } else if (motion && trip) {
     trip = {
       ...trip,
       distanceM: trip.distanceM + segmentM,
-      maxSpeedKmh: Math.max(trip.maxSpeedKmh, position.speedKmh ?? 0),
+      maxSpeedKmh: Math.max(trip.maxSpeedKmh, speedKmh),
     };
   } else if (!motion && trip) {
     completedTrip = {
@@ -132,8 +154,10 @@ export function evaluatePosition(
   return {
     state: {
       fixTime: position.fixTime,
-      latitude: position.latitude,
-      longitude: position.longitude,
+      latitude: located.latitude,
+      longitude: located.longitude,
+      accuracyM: located.accuracyM,
+      speedKmh,
       motion,
       ignition,
       overspeeding,

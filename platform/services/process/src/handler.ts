@@ -21,7 +21,10 @@ export function createHandler(store: FleetProcessingStore, publisher?: PositionP
         const parsed = parsePositionMessage(JSON.parse(record.body));
         if (!parsed.success) throw new Error('invalid position message');
         const result = await store.process(parsed.data);
-        if (!result.duplicate) await publisher?.publish(parsed.data);
+        // Publish where the vehicle now shows, not the raw fix: GPS drift must not move the live
+        // map, and readings that only went into history must not move it at all.
+        if (!result.duplicate && result.live)
+          await publisher?.publish({ ...parsed.data, ...result.live });
       } catch (error) {
         console.error('position processing failed', { messageId: record.messageId, error });
         failedGroups.add(groupId);

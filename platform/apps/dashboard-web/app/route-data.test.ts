@@ -9,6 +9,7 @@ import {
   routeToGpx,
   routeToKml,
   summarizeRoute,
+  withoutDrift,
 } from './route-data';
 
 function fix(fixTime: number, extra: Partial<StoredPosition> = {}): StoredPosition {
@@ -126,9 +127,9 @@ describe('route downloads', () => {
 
   it('writes CSV with a header and empty cells for missing values', () => {
     expect(routeToCsv(points).split('\r\n')).toEqual([
-      'time_utc,latitude,longitude,speed_kmh,course_deg,altitude_m',
-      '2026-09-26T04:00:00.000Z,12.97,77.59,,,920',
-      '2026-09-26T04:05:00.000Z,12.98,77.6,42.5,,',
+      'time_utc,latitude,longitude,speed_kmh,course_deg,altitude_m,accuracy_m',
+      '2026-09-26T04:00:00.000Z,12.97,77.59,,,920,',
+      '2026-09-26T04:05:00.000Z,12.98,77.6,42.5,,,',
       '',
     ]);
   });
@@ -138,5 +139,39 @@ describe('route downloads', () => {
       /^van-12-north-route-\d{4}-\d{2}-\d{2}-\d{4}-to-\d{4}-\d{2}-\d{2}-\d{4}\.gpx$/,
     );
     expect(routeFileName('***', 0, 0, 'kml')).toMatch(/^vehicle-route-/);
+  });
+});
+
+describe('GPS drift in route history', () => {
+  const metresNorth = (metres: number) => 12.9335805 + metres / 111_195;
+  // A phone parked indoors for 8 hours: readings wander up to ~120 m with ~80 m accuracy.
+  const parkedDay = [0, 60, -40, 90, 10, -70, 120, -20].map((metres, index) => ({
+    fixTime: index * 3_600_000,
+    latitude: metresNorth(metres),
+    longitude: 77.5362201,
+    accuracyM: 80,
+    speedKmh: 11,
+  }));
+
+  it('draws a parked vehicle as one point and adds no distance or speed', () => {
+    expect(withoutDrift(parkedDay)).toHaveLength(1);
+    expect(summarizeRoute(parkedDay)).toEqual({
+      distanceM: 0,
+      durationMs: 7 * 3_600_000,
+      maxSpeedKmh: 0,
+    });
+  });
+
+  it('keeps a real drive after the parked period', () => {
+    const drive = [500, 1_000, 1_500].map((metres, index) => ({
+      fixTime: 8 * 3_600_000 + (index + 1) * 60_000,
+      latitude: metresNorth(metres),
+      longitude: 77.5362201,
+      accuracyM: 6,
+      speedKmh: 30,
+    }));
+    const route = withoutDrift([...parkedDay, ...drive]);
+    expect(route).toHaveLength(4);
+    expect(summarizeRoute([...parkedDay, ...drive]).distanceM / 1000).toBeCloseTo(1.5, 1);
   });
 });

@@ -15,8 +15,18 @@ import {
 } from '@trackify/fleet';
 import { devicePartitionKey, positionSortKey, tenantPartitionKey, ttlSeconds } from './keys';
 
+/** Where the vehicle now shows on the map; drift-filtered, so it can differ from the raw fix. */
+export interface LivePosition {
+  latitude: number;
+  longitude: number;
+  speedKmh: number;
+}
+
 export interface FleetProcessingStore {
-  process(position: PositionMessage): Promise<{ duplicate: boolean; eventCount: number }>;
+  /** `live` is set only when this reading updated the vehicle's live state. */
+  process(
+    position: PositionMessage,
+  ): Promise<{ duplicate: boolean; eventCount: number; live?: LivePosition }>;
 }
 
 export class DynamoFleetProcessingStore implements FleetProcessingStore {
@@ -32,7 +42,9 @@ export class DynamoFleetProcessingStore implements FleetProcessingStore {
     },
   ) {}
 
-  async process(position: PositionMessage): Promise<{ duplicate: boolean; eventCount: number }> {
+  async process(
+    position: PositionMessage,
+  ): Promise<{ duplicate: boolean; eventCount: number; live?: LivePosition }> {
     const pk = devicePartitionKey(position.tenantId, position.deviceId);
     const [stateResult, deviceResult, geofenceResult] = await Promise.all([
       this.client.send(
@@ -150,7 +162,12 @@ export class DynamoFleetProcessingStore implements FleetProcessingStore {
     }
     try {
       await this.client.send(new TransactWriteCommand({ TransactItems: transaction }));
-      return { duplicate: false, eventCount: transition.events.length };
+      const { latitude, longitude, speedKmh = 0 } = transition.state;
+      return {
+        duplicate: false,
+        eventCount: transition.events.length,
+        live: { latitude, longitude, speedKmh },
+      };
     } catch (error) {
       if (isTransactionCanceled(error)) return { duplicate: true, eventCount: 0 };
       throw error;
@@ -189,6 +206,8 @@ function toFleetState(item: Record<string, unknown> | undefined): FleetState | u
     fixTime: item.fixTime,
     latitude: Number(item.latitude),
     longitude: Number(item.longitude),
+    accuracyM: typeof item.accuracyM === 'number' ? item.accuracyM : undefined,
+    speedKmh: typeof item.speedKmh === 'number' ? item.speedKmh : undefined,
     motion: item.motion === true,
     ignition: typeof item.ignition === 'boolean' ? item.ignition : undefined,
     overspeeding: item.overspeeding === true,

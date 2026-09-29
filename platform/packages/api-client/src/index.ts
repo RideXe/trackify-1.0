@@ -1,3 +1,12 @@
+import type { VehicleType } from '@trackify/domain/vehicle';
+
+export {
+  defaultVehicleType,
+  toVehicleType,
+  vehicleTypes,
+  type VehicleType,
+} from '@trackify/domain/vehicle';
+
 export interface TrackifyConfig {
   apiUrl: string;
   awsRegion: string;
@@ -19,6 +28,14 @@ export interface DeviceState {
   longitude?: number;
   speedKmh?: number;
   courseDeg?: number;
+  fixTime?: number;
+  accuracyM?: number;
+  /** Server-side movement decision; GPS drift while parked does not count. */
+  motion?: boolean;
+  /** Total distance tracked for this vehicle. */
+  odometerM?: number;
+  /** The trip in progress, if the vehicle is moving. */
+  trip?: { startTime: number; distanceM: number; maxSpeedKmh: number };
 }
 
 /** One stored GPS fix, as returned by the position history API. */
@@ -40,6 +57,8 @@ export interface Device {
   uniqueId: string;
   protocol: string;
   groupId: string;
+  /** Missing from servers deployed before vehicle types existed; treat as the default. */
+  vehicleType?: VehicleType;
   state?: DeviceState;
 }
 
@@ -49,6 +68,7 @@ export interface CreateDeviceInput {
   protocol: 'gt06' | 'teltonika' | 'osmand';
   retentionDays?: number;
   groupId?: string;
+  vehicleType?: VehicleType;
 }
 
 export type SignInResult =
@@ -137,6 +157,14 @@ export class TrackifyClient {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify(input),
+    });
+  }
+  /** Administrators only. */
+  updateDevice(deviceId: string, changes: { name?: string; vehicleType?: VehicleType }) {
+    return this.request<Device>(`/devices/${encodeURIComponent(deviceId)}`, {
+      method: 'PATCH',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify(changes),
     });
   }
   /** Newest first; at most `limit` (max 5,000) fixes per call. */

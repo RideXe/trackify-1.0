@@ -204,4 +204,20 @@ describe('fleet client', () => {
       }),
     );
   });
+
+  it('changes a vehicle type with PATCH', async () => {
+    const fetch = vi
+      .fn<typeof globalThis.fetch>()
+      .mockResolvedValue(
+        new Response(JSON.stringify({ deviceId: 'device-1', vehicleType: 'bus' })),
+      );
+    vi.stubGlobal('fetch', fetch);
+    await new TrackifyClient(apiConfig, () => 'access-token').updateDevice('device 1', {
+      vehicleType: 'bus',
+    });
+    expect(fetch.mock.calls[0]?.[0]).toBe('https://api.example.com/devices/device%201');
+    expect(fetch.mock.calls[0]?.[1]).toEqual(
+      expect.objectContaining({ method: 'PATCH', body: JSON.stringify({ vehicleType: 'bus' }) }),
+    );
+  });
 });

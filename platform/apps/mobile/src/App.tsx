@@ -27,7 +27,7 @@ import * as SecureStore from './services/secure-store';
 import { loadTrackerConfig } from './services/storage';
 
 // OpenFreeMap: OpenStreetMap-based tiles with no API key, account, or usage billing.
-const mapStyle = 'https://tiles.openfreemap.org/styles/liberty';
+const mapStyle = 'https://tiles.openfreemap.org/styles/bright';
 const clientId = '2h5u12cj2ro3p8n37fmmhfjcpq';
 const config = {
   apiUrl: 'https://f128plufw8.execute-api.ap-south-1.amazonaws.com',

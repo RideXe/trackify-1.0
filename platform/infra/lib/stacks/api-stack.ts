@@ -77,6 +77,7 @@ export class ApiStack extends Stack {
         allowMethods: [
           CorsHttpMethod.GET,
           CorsHttpMethod.POST,
+          CorsHttpMethod.PATCH,
           CorsHttpMethod.DELETE,
           CorsHttpMethod.OPTIONS,
         ],
@@ -158,6 +159,12 @@ export class ApiStack extends Stack {
     this.api.addRoutes({
       path: '/devices',
       methods: [HttpMethod.GET, HttpMethod.POST],
+      integration,
+      authorizer,
+    });
+    this.api.addRoutes({
+      path: '/devices/{deviceId}',
+      methods: [HttpMethod.PATCH],
       integration,
       authorizer,
     });

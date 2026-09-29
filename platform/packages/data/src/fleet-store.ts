@@ -3,8 +3,10 @@ import {
   PutCommand,
   QueryCommand,
   TransactWriteCommand,
+  UpdateCommand,
   type DynamoDBDocumentClient,
 } from '@aws-sdk/lib-dynamodb';
+import { defaultVehicleType, toVehicleType, type VehicleType } from '@trackify/domain';
 import { ulid } from 'ulid';
 import { cognitoLookupKey, tenantPartitionKey, uniqueIdLookupKey } from './keys';
 
@@ -26,6 +28,7 @@ export interface FleetDevice {
   retentionDays: number;
   enabled: boolean;
   groupId: string;
+  vehicleType: VehicleType;
 }
 
 export interface DeviceState {
@@ -107,10 +110,18 @@ export class DynamoFleetStore {
 
   async createDevice(
     tenantId: string,
-    input: Pick<FleetDevice, 'name' | 'uniqueId' | 'protocol' | 'retentionDays' | 'groupId'>,
+    input: Pick<FleetDevice, 'name' | 'uniqueId' | 'protocol' | 'retentionDays' | 'groupId'> & {
+      vehicleType?: VehicleType;
+    },
   ): Promise<FleetDevice> {
     const deviceId = ulid();
-    const device: FleetDevice = { ...input, tenantId, deviceId, enabled: true };
+    const device: FleetDevice = {
+      ...input,
+      vehicleType: input.vehicleType ?? defaultVehicleType,
+      tenantId,
+      deviceId,
+      enabled: true,
+    };
     await this.client.send(
       new TransactWriteCommand({
         TransactItems: [
@@ -138,6 +149,36 @@ export class DynamoFleetStore {
       }),
     );
     return device;
+  }
+
+  /** Renames a vehicle or changes its type. Returns undefined when it does not exist. */
+  async updateDevice(
+    tenantId: string,
+    deviceId: string,
+    changes: Partial<Pick<FleetDevice, 'name' | 'vehicleType'>>,
+  ): Promise<FleetDevice | undefined> {
+    const fields = Object.entries(changes).filter(([, value]) => value !== undefined);
+    if (!fields.length) return this.getDevice(tenantId, deviceId);
+    try {
+      const result = await this.client.send(
+        new UpdateCommand({
+          TableName: this.coreTable,
+          Key: { pk: tenantPartitionKey(tenantId), sk: `DEVICE#${deviceId}` },
+          UpdateExpression: `SET ${fields.map(([key]) => `#${key} = :${key}`).join(', ')}`,
+          ConditionExpression: 'attribute_exists(pk)',
+          ExpressionAttributeNames: Object.fromEntries(fields.map(([key]) => [`#${key}`, key])),
+          ExpressionAttributeValues: Object.fromEntries(
+            fields.map(([key, value]) => [`:${key}`, value]),
+          ),
+          ReturnValues: 'ALL_NEW',
+        }),
+      );
+      return result.Attributes ? toDevice(result.Attributes) : undefined;
+    } catch (error) {
+      if (error instanceof Error && error.name === 'ConditionalCheckFailedException')
+        return undefined;
+      throw error;
+    }
   }
 
   async getDevice(tenantId: string, deviceId: string): Promise<FleetDevice | undefined> {
@@ -272,6 +313,7 @@ function toDevice(item: Record<string, unknown>): FleetDevice {
     retentionDays: Number(item.retentionDays ?? 90),
     enabled: item.enabled !== false,
     groupId: typeof item.groupId === 'string' ? item.groupId : 'UNGROUPED',
+    vehicleType: toVehicleType(item.vehicleType),
   };
 }
 

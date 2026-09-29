@@ -73,6 +73,7 @@ import {
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import QRCode from 'qrcode';
 import { RouteHistory } from './route-history';
+import { VehicleMap } from './vehicle-map';
 
 const drawerWidth = 256;
 const config = {
@@ -602,13 +603,6 @@ function FleetMap({
   const current = selected && hasPosition(selected) ? selected : positioned[0];
   const lat = current?.state?.latitude ?? 0;
   const lon = current?.state?.longitude ?? 0;
-  const bounds = [
-    Math.max(-180, lon - 0.015),
-    Math.max(-85, lat - 0.01),
-    Math.min(180, lon + 0.015),
-    Math.min(85, lat + 0.01),
-  ].join(',');
-  const mapUrl = `https://www.openstreetmap.org/export/embed.html?bbox=${encodeURIComponent(bounds)}&layer=mapnik&marker=${lat},${lon}`;
   return (
     <Paper sx={{ overflow: 'hidden' }}>
       <Stack
@@ -637,12 +631,7 @@ function FleetMap({
         )}
       </Stack>
       {current ? (
-        <Box
-          component="iframe"
-          title={`GPS location of ${current.name}`}
-          src={mapUrl}
-          sx={{ border: 0, width: '100%', height: { xs: 360, md: 500 }, display: 'block' }}
-        />
+        <VehicleMap latitude={lat} longitude={lon} title={`GPS location of ${current.name}`} />
       ) : (
         <Stack
           sx={{ minHeight: 360, alignItems: 'center', justifyContent: 'center', px: 3 }}

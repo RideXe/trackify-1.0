@@ -37,5 +37,12 @@ describe('ApiStack', () => {
       AuthorizationType: 'JWT',
       RouteKey: Match.stringLikeRegexp('GET /devices'),
     });
+    template.hasResourceProperties('AWS::ApiGatewayV2::Route', {
+      AuthorizationType: 'JWT',
+      RouteKey: 'PATCH /devices/{deviceId}',
+    });
+    template.hasResourceProperties('AWS::ApiGatewayV2::Api', {
+      CorsConfiguration: { AllowMethods: Match.arrayWith(['PATCH']) },
+    });
   });
 });

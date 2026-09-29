@@ -7,11 +7,13 @@ import {
   type Membership,
   type OnboardingInvitation,
 } from '@trackify/data';
+import { defaultVehicleType, isVehicleType, type VehicleType } from '@trackify/domain';
 
 interface FleetStore {
   membership(subject: string): Promise<Membership | undefined>;
   listDevices(tenantId: string): Promise<unknown[]>;
   createDevice(tenantId: string, input: DeviceInput): Promise<unknown>;
+  updateDevice(tenantId: string, deviceId: string, changes: DeviceChanges): Promise<unknown>;
   getDevice(
     tenantId: string,
     deviceId: string,
@@ -68,6 +70,12 @@ interface DeviceInput {
   protocol: string;
   retentionDays: number;
   groupId: string;
+  vehicleType: VehicleType;
+}
+
+interface DeviceChanges {
+  name?: string;
+  vehicleType?: VehicleType;
 }
 
 export function createHandler(
@@ -100,6 +108,13 @@ export function createHandler(
           onboardingWebUrl,
         );
         return response(201, { ...(device as object), onboarding });
+      }
+      const deviceMatch = path.match(/^\/devices\/([^/]+)$/);
+      if (method === 'PATCH' && deviceMatch?.[1]) {
+        if (membership.role !== 'admin') return response(403, { message: 'admin role required' });
+        const changes = parseDeviceChanges(event.body);
+        const device = await store.updateDevice(membership.tenantId, deviceMatch[1], changes);
+        return device ? response(200, device) : response(404, { message: 'device not found' });
       }
       const invitationMatch = path.match(/^\/devices\/([^/]+)\/invitations$/);
       if (invitationMatch?.[1] && method === 'GET') {
@@ -265,7 +280,7 @@ function day(value: string) {
   return value;
 }
 
-function parseDevice(body: string | undefined): DeviceInput {
+function jsonObject(body: string | undefined): Record<string, unknown> {
   if (!body) throw new InputError('request body is required');
   let value: unknown;
   try {
@@ -274,6 +289,25 @@ function parseDevice(body: string | undefined): DeviceInput {
     throw new InputError('request body must be JSON');
   }
   if (!isRecord(value)) throw new InputError('request body must be an object');
+  return value;
+}
+
+function vehicleType(value: unknown): VehicleType {
+  if (!isVehicleType(value)) throw new InputError('vehicleType is unsupported');
+  return value;
+}
+
+function parseDeviceChanges(body: string | undefined): DeviceChanges {
+  const value = jsonObject(body);
+  const changes: DeviceChanges = {};
+  if (value.name !== undefined) changes.name = text(value.name, 'name', 1, 100);
+  if (value.vehicleType !== undefined) changes.vehicleType = vehicleType(value.vehicleType);
+  if (!Object.keys(changes).length) throw new InputError('name or vehicleType is required');
+  return changes;
+}
+
+function parseDevice(body: string | undefined): DeviceInput {
+  const value = jsonObject(body);
   const name = text(value.name, 'name', 1, 100);
   const uniqueId = text(value.uniqueId, 'uniqueId', 5, 64);
   const protocol = text(value.protocol, 'protocol', 2, 32);
@@ -281,7 +315,9 @@ function parseDevice(body: string | undefined): DeviceInput {
     throw new InputError('protocol is unsupported');
   const retentionDays = boundedNumber(value.retentionDays, 90, 1, 3_650);
   const groupId = value.groupId === undefined ? 'UNGROUPED' : text(value.groupId, 'groupId', 1, 64);
-  return { name, uniqueId, protocol, retentionDays, groupId };
+  const type =
+    value.vehicleType === undefined ? defaultVehicleType : vehicleType(value.vehicleType);
+  return { name, uniqueId, protocol, retentionDays, groupId, vehicleType: type };
 }
 
 function boundedNumber(value: unknown, fallback: number, min: number, max: number): number {

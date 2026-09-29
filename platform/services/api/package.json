@@ -8,6 +8,7 @@
     "test": "vitest run"
   },
   "dependencies": {
-    "@trackify/data": "0.1.0"
+    "@trackify/data": "0.1.0",
+    "@trackify/domain": "0.1.0"
   }
 }

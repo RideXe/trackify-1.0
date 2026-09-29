@@ -50,8 +50,61 @@ function store(role: 'admin' | 'viewer' = 'admin') {
     trips: vi.fn().mockResolvedValue([]),
     dailyStats: vi.fn().mockResolvedValue([]),
     createCommand: vi.fn().mockResolvedValue({ commandId: 'command-1' }),
+    updateDevice: vi.fn().mockResolvedValue({ deviceId: 'device-1', vehicleType: 'bus' }),
   };
 }
+
+describe('vehicle types', () => {
+  const input = { name: 'School Bus 4', uniqueId: 'phone-bus-4', protocol: 'gt06' };
+
+  it('saves a chosen type and defaults new vehicles to car', async () => {
+    const dependencies = store();
+    const handler = createHandler(dependencies);
+    await handler(eventWithBody('POST', '/devices', { ...input, vehicleType: 'schoolBus' }));
+    await handler(eventWithBody('POST', '/devices', input));
+    expect(dependencies.createDevice.mock.calls.map((call) => call[1].vehicleType)).toEqual([
+      'schoolBus',
+      'car',
+    ]);
+  });
+
+  it('rejects a type that is not listed', async () => {
+    const result = await createHandler(store())(
+      eventWithBody('POST', '/devices', { ...input, vehicleType: 'spaceship' }),
+    );
+    expect(result.statusCode).toBe(400);
+  });
+
+  it('lets administrators change a vehicle type', async () => {
+    const dependencies = store();
+    const result = await createHandler(dependencies)(
+      eventWithBody('PATCH', '/devices/device-1', { vehicleType: 'bus' }),
+    );
+    expect(result.statusCode).toBe(200);
+    expect(dependencies.updateDevice).toHaveBeenCalledWith('tenant-a', 'device-1', {
+      vehicleType: 'bus',
+    });
+  });
+
+  it('keeps vehicle changes admin-only, validated and tenant-scoped', async () => {
+    const viewer = store('viewer');
+    const denied = await createHandler(viewer)(
+      eventWithBody('PATCH', '/devices/device-1', { vehicleType: 'bus' }),
+    );
+    expect(denied.statusCode).toBe(403);
+    expect(viewer.updateDevice).not.toHaveBeenCalled();
+
+    const empty = await createHandler(store())(eventWithBody('PATCH', '/devices/device-1', {}));
+    expect(empty.statusCode).toBe(400);
+
+    const missing = store();
+    missing.updateDevice.mockResolvedValue(undefined);
+    const notFound = await createHandler(missing)(
+      eventWithBody('PATCH', '/devices/other-tenant-device', { vehicleType: 'bus' }),
+    );
+    expect(notFound.statusCode).toBe(404);
+  });
+});
 
 describe('fleet API', () => {
   it('derives tenant scope from membership', async () => {

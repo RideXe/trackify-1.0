@@ -4,10 +4,8 @@ import 'maplibre-gl/dist/maplibre-gl.css';
 import { Box } from '@mui/material';
 import type { MapLibreMap, Marker } from 'maplibre-gl';
 import { useEffect, useRef } from 'react';
+import { MAP_STYLE, loadMapLibre } from './map-style';
 import type { RoutePoint } from './route-data';
-
-// OpenFreeMap: OpenStreetMap-based tiles with no API key, account, or usage billing.
-const MAP_STYLE = 'https://tiles.openfreemap.org/styles/liberty';
 
 export function RouteMap({ points, current }: { points: RoutePoint[]; current?: RoutePoint }) {
   const container = useRef<HTMLDivElement>(null);
@@ -18,14 +16,11 @@ export function RouteMap({ points, current }: { points: RoutePoint[]; current?: 
   useEffect(() => {
     let map: MapLibreMap | undefined;
     let disposed = false;
-    // maplibre-gl needs the browser (WebGL and workers), so it is loaded only on the client.
-    void import('maplibre-gl').then((maplibre) => {
+    void loadMapLibre().then((maplibre) => {
       const element = container.current;
       const first = points[0];
       const last = points.at(-1);
       if (disposed || !element || !first || !last) return;
-      // The worker files are copied into public/ by scripts/copy-maplibre-worker.mjs.
-      maplibre.setWorkerUrl(`/maplibre/${maplibre.getVersion()}/maplibre-gl-worker.js`);
       const bounds = new maplibre.LngLatBounds();
       for (const point of points) bounds.extend([point.longitude, point.latitude]);
       map = new maplibre.MapLibreMap({

@@ -220,4 +220,16 @@ describe('fleet client', () => {
       expect.objectContaining({ method: 'PATCH', body: JSON.stringify({ vehicleType: 'bus' }) }),
     );
   });
+
+  it('removes a vehicle with DELETE and does not choke on the empty 204 body', async () => {
+    const fetch = vi
+      .fn<typeof globalThis.fetch>()
+      .mockResolvedValue(new Response(null, { status: 204 }));
+    vi.stubGlobal('fetch', fetch);
+    await expect(
+      new TrackifyClient(apiConfig, () => 'access-token').deleteDevice('device 1'),
+    ).resolves.toBeUndefined();
+    expect(fetch.mock.calls[0]?.[0]).toBe('https://api.example.com/devices/device%201');
+    expect(fetch.mock.calls[0]?.[1]).toEqual(expect.objectContaining({ method: 'DELETE' }));
+  });
 });

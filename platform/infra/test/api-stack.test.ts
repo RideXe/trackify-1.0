@@ -41,8 +41,12 @@ describe('ApiStack', () => {
       AuthorizationType: 'JWT',
       RouteKey: 'PATCH /devices/{deviceId}',
     });
+    template.hasResourceProperties('AWS::ApiGatewayV2::Route', {
+      AuthorizationType: 'JWT',
+      RouteKey: 'DELETE /devices/{deviceId}',
+    });
     template.hasResourceProperties('AWS::ApiGatewayV2::Api', {
-      CorsConfiguration: { AllowMethods: Match.arrayWith(['PATCH']) },
+      CorsConfiguration: { AllowMethods: Match.arrayWith(['PATCH', 'DELETE']) },
     });
   });
 });

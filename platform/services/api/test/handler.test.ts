@@ -51,6 +51,7 @@ function store(role: 'admin' | 'viewer' = 'admin') {
     dailyStats: vi.fn().mockResolvedValue([]),
     createCommand: vi.fn().mockResolvedValue({ commandId: 'command-1' }),
     updateDevice: vi.fn().mockResolvedValue({ deviceId: 'device-1', vehicleType: 'bus' }),
+    deleteDevice: vi.fn().mockResolvedValue(true),
   };
 }
 
@@ -103,6 +104,27 @@ describe('vehicle types', () => {
     const notFound = await createHandler(missing)(
       eventWithBody('PATCH', '/devices/other-tenant-device', { vehicleType: 'bus' }),
     );
+    expect(notFound.statusCode).toBe(404);
+  });
+});
+
+describe('deleting a vehicle', () => {
+  it('lets an administrator remove a vehicle', async () => {
+    const dependencies = store();
+    const result = await createHandler(dependencies)(event('DELETE', '/devices/device-1'));
+    expect(result.statusCode).toBe(204);
+    expect(dependencies.deleteDevice).toHaveBeenCalledWith('tenant-a', 'device-1');
+  });
+
+  it('is admin-only and tenant-scoped, and reports a missing vehicle', async () => {
+    const viewer = store('viewer');
+    const denied = await createHandler(viewer)(event('DELETE', '/devices/device-1'));
+    expect(denied.statusCode).toBe(403);
+    expect(viewer.deleteDevice).not.toHaveBeenCalled();
+
+    const missing = store();
+    missing.deleteDevice.mockResolvedValue(false);
+    const notFound = await createHandler(missing)(event('DELETE', '/devices/other-tenant-device'));
     expect(notFound.statusCode).toBe(404);
   });
 });

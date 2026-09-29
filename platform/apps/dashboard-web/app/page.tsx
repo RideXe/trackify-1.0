@@ -59,6 +59,7 @@ import {
   Settings,
   ShieldCheck,
   Smartphone,
+  Trash2,
   Truck,
   Users,
   Wifi,
@@ -783,6 +784,26 @@ function VehicleDetails({
       setTypeBusy(false);
     }
   }
+  const [deleteBusy, setDeleteBusy] = useState(false);
+  const [deleteError, setDeleteError] = useState('');
+  async function removeVehicle() {
+    if (
+      !window.confirm(
+        `Remove ${device.name}? Its setup code stops working immediately. This cannot be undone.`,
+      )
+    )
+      return;
+    setDeleteBusy(true);
+    setDeleteError('');
+    try {
+      await client.deleteDevice(device.deviceId);
+      // onChanged re-selects by id from the fresh list; the removed device is no longer in it.
+      await onChanged();
+    } catch (reason) {
+      setDeleteError(reason instanceof Error ? reason.message : 'Vehicle could not be removed');
+      setDeleteBusy(false);
+    }
+  }
   const [activity, setActivity] = useState({ trips: 0, events: 0, distanceKm: 0 });
   const [pairing, setPairing] = useState<DeviceInvitation>();
   const [pairingQr, setPairingQr] = useState('');
@@ -940,7 +961,25 @@ function VehicleDetails({
                 : 'Connect driver phone'}
           </Button>
         )}
+        {admin && (
+          <Tooltip title="Remove vehicle">
+            <IconButton
+              aria-label={`Remove ${device.name}`}
+              color="error"
+              disabled={deleteBusy}
+              onClick={() => void removeVehicle()}
+              size="small"
+            >
+              <Trash2 size={18} />
+            </IconButton>
+          </Tooltip>
+        )}
       </Stack>
+      {deleteError && (
+        <Alert severity="error" sx={{ mt: 2 }}>
+          {deleteError}
+        </Alert>
+      )}
       {connectionStatus === 'activated' && (
         <Button
           disabled={pairingBusy}

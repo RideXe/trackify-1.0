@@ -167,6 +167,10 @@ export class TrackifyClient {
       body: JSON.stringify(changes),
     });
   }
+  /** Administrators only. Historical positions/events/trips still expire on their own TTL. */
+  deleteDevice(deviceId: string) {
+    return this.request<void>(`/devices/${encodeURIComponent(deviceId)}`, { method: 'DELETE' });
+  }
   /** Newest first; at most `limit` (max 5,000) fixes per call. */
   positions(deviceId: string, from: number, to: number, limit = 1_000) {
     return this.request<{ items: StoredPosition[] }>(
@@ -252,6 +256,7 @@ export class TrackifyClient {
         isRecord(payload) && typeof payload.message === 'string' ? payload.message : '';
       throw new Error(message || `Request failed (${response.status})`);
     }
+    if (response.status === 204) return undefined as T;
     return response.json() as Promise<T>;
   }
 

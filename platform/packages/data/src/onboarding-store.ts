@@ -1,4 +1,5 @@
 import {
+  GetCommand,
   PutCommand,
   QueryCommand,
   UpdateCommand,
@@ -114,8 +115,18 @@ export class DynamoOnboardingStore {
       }),
     );
     if ((result.Count ?? 0) > 1) throw new Error('duplicate device credential');
-    const item = result.Items?.[0];
-    if (!item || item.status !== 'activated') return undefined;
+    const pointer = result.Items?.[0];
+    if (!pointer) return undefined;
+    const current = await this.client.send(
+      new GetCommand({
+        TableName: this.tableName,
+        Key: { codeHash: String(pointer.codeHash) },
+        ConsistentRead: true,
+      }),
+    );
+    const item = current.Item;
+    if (!item || item.status !== 'activated' || item.credentialHash !== credentialHash)
+      return undefined;
     return toInvitation(item);
   }
 }

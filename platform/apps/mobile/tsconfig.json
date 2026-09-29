@@ -1,11 +1,10 @@
 {
-  "extends": "expo/tsconfig.base",
+  "extends": "@react-native/typescript-config",
   "compilerOptions": {
-    "strict": true,
-    "moduleResolution": "bundler"
+    // Hermes provides fetch, WebSocket, TextEncoder, atob and btoa; @trackify/api-client uses them.
+    "lib": ["DOM", "ESNext"],
+    "types": []
   },
-  "include": [
-    "**/*.ts",
-    "**/*.tsx"
-  ]
+  "include": ["**/*.ts", "**/*.tsx"],
+  "exclude": ["**/node_modules", "android"]
 }

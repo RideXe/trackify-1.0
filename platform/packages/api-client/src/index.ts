@@ -21,6 +21,19 @@ export interface DeviceState {
   courseDeg?: number;
 }
 
+/** One stored GPS fix, as returned by the position history API. */
+export interface StoredPosition {
+  fixTime: number;
+  messageId: string;
+  valid: boolean;
+  latitude: number;
+  longitude: number;
+  altitudeM?: number;
+  speedKmh?: number;
+  courseDeg?: number;
+  accuracyM?: number;
+}
+
 export interface Device {
   deviceId: string;
   name: string;
@@ -103,8 +116,9 @@ export class TrackifyClient {
       body: JSON.stringify(input),
     });
   }
+  /** Newest first; at most `limit` (max 5,000) fixes per call. */
   positions(deviceId: string, from: number, to: number, limit = 1_000) {
-    return this.request<{ items: Array<DeviceState & { fixTime: number }> }>(
+    return this.request<{ items: StoredPosition[] }>(
       `/devices/${encodeURIComponent(deviceId)}/positions?from=${from}&to=${to}&limit=${limit}`,
     );
   }

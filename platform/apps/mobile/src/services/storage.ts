@@ -1,4 +1,4 @@
-import * as SecureStore from 'expo-secure-store';
+import * as SecureStore from './secure-store';
 
 export interface TrackerConfig {
   deviceId: string;
@@ -20,7 +20,7 @@ export const defaultTrackerConfig: TrackerConfig = {
   endpoint: '',
   credential: '',
   accuracy: 'high',
-  distanceMeters: 25,
+  distanceMeters: 0,
   intervalSeconds: 30,
   heartbeatSeconds: 300,
   buffer: true,
@@ -56,4 +56,37 @@ export async function addTrackerLog(message: string) {
 
 export async function clearTrackerLogs() {
   await SecureStore.deleteItemAsync(logsKey);
+}
+
+// Keep each encrypted entry small; SecureStore is intended for small values.
+// A bounded ring retains the newest 120 fixes across app restarts.
+export interface PendingPosition {
+  endpoint: string;
+  deviceId: string;
+  body: string;
+}
+const queueKey = 'tracker-upload-queue-v1';
+export async function readPendingPositions(): Promise<PendingPosition[]> {
+  const head = Number((await SecureStore.getItemAsync(queueKey)) ?? 0);
+  const items: PendingPosition[] = [];
+  for (let i = Math.max(0, head - 120); i < head; i += 1) {
+    const raw = await SecureStore.getItemAsync(`${queueKey}-${i % 120}`);
+    if (raw) items.push(JSON.parse(raw) as PendingPosition);
+  }
+  return items;
+}
+export async function appendPendingPosition(item: PendingPosition) {
+  const head = Number((await SecureStore.getItemAsync(queueKey)) ?? 0);
+  await SecureStore.setItemAsync(`${queueKey}-${head % 120}`, JSON.stringify(item));
+  await SecureStore.setItemAsync(queueKey, String(head + 1));
+}
+export async function removeFirstPendingPosition() {
+  const head = Number((await SecureStore.getItemAsync(queueKey)) ?? 0);
+  for (let i = Math.max(0, head - 120); i < head; i += 1) {
+    const key = `${queueKey}-${i % 120}`;
+    if (await SecureStore.getItemAsync(key)) {
+      await SecureStore.deleteItemAsync(key);
+      return;
+    }
+  }
 }

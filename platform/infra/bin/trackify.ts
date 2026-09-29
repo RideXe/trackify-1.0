@@ -81,8 +81,8 @@ const api = new ApiStack(app, `Trackify-${config.envName}-Api`, {
   data,
   identity,
   platformPath,
-  dashboardUrl: hosting.dashboardUrl,
-  additionalBrowserOrigins: [config.dashboardUrl],
+  dashboardUrl: config.dashboardUrl,
+  additionalBrowserOrigins: [hosting.dashboardUrl],
   ingestQueue: ingest.queue,
   tags,
 });

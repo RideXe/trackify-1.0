@@ -11,6 +11,7 @@ import { colors, shadow } from '../theme';
 
 export function TrackerScreen() {
   const [config, setConfig] = useState<TrackerConfig>();
+  const [busy, setBusy] = useState(false);
   const [active, setActive] = useState(false);
   const [logs, setLogs] = useState<string[]>([]);
   useEffect(() => {
@@ -23,14 +24,21 @@ export function TrackerScreen() {
     );
   }, []);
   async function toggle() {
-    if (!config) return;
+    if (!config || busy) return;
+    setBusy(true);
     try {
       if (active) await stopTracking();
-      else await startTracking(config);
-      setActive(!active);
+      else {
+        await startTracking(config);
+        setActive(true);
+        await sendCurrentPosition(config);
+      }
+      setActive(await trackingStatus());
       setLogs(await readTrackerLogs());
     } catch (e) {
       Alert.alert('Tracking unavailable', e instanceof Error ? e.message : 'Try again');
+    } finally {
+      setBusy(false);
     }
   }
   async function locate() {
@@ -50,8 +58,12 @@ export function TrackerScreen() {
       <View style={[s.hero, active && s.active]}>
         <Text style={s.dot}>●</Text>
         <Text style={s.heroTitle}>{active ? 'Tracking is active' : 'Tracker is paused'}</Text>
-        <Text style={s.copy}>{config?.uniqueId || 'Complete setup before starting.'}</Text>
-        <Pressable style={[s.primary, active && s.stop]} onPress={() => void toggle()}>
+        <Text style={s.copy}>{config?.name || 'Complete setup before starting.'}</Text>
+        <Pressable
+          disabled={busy || !config?.credential}
+          style={[s.primary, active && s.stop]}
+          onPress={() => void toggle()}
+        >
           <Text style={s.primaryText}>{active ? 'Stop tracking' : 'Start tracking'}</Text>
         </Pressable>
         <Pressable style={s.secondary} onPress={() => void locate()}>
@@ -60,8 +72,9 @@ export function TrackerScreen() {
       </View>
       <View style={s.card}>
         <Text style={s.section}>Recent activity</Text>
-        {logs.slice(0, 8).map((x) => (
-          <Text key={x} style={s.log}>
+        {logs.slice(0, 8).map((x, index) => (
+          // Two entries can share the same second and text, so the position keeps keys unique.
+          <Text key={`${index}:${x}`} style={s.log}>
             {x}
           </Text>
         ))}

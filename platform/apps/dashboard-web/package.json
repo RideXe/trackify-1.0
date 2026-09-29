@@ -3,7 +3,9 @@
   "version": "0.1.0",
   "private": true,
   "scripts": {
+    "predev": "node scripts/copy-maplibre-worker.mjs",
     "dev": "next dev -p 5173",
+    "prebuild": "node scripts/copy-maplibre-worker.mjs",
     "build": "next build",
     "typecheck": "tsc --noEmit",
     "test": "vitest run --passWithNoTests"
@@ -16,7 +18,9 @@
     "@mui/material": "^9.4.0",
     "@mui/material-nextjs": "^9.4.0",
     "@trackify/api-client": "0.1.0",
+    "@trackify/geo": "0.1.0",
     "lucide-react": "^1.47.0",
+    "maplibre-gl": "^6.11.2",
     "next": "16.3.5",
     "qrcode": "^1.5.4",
     "react": "19.3.0",

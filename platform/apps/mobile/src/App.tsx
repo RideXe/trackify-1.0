@@ -4,28 +4,29 @@ import {
   type Device,
   type Tokens,
 } from '@trackify/api-client';
-import * as SecureStore from 'expo-secure-store';
-import * as Linking from 'expo-linking';
-import { StatusBar } from 'expo-status-bar';
 import { useEffect, useMemo, useState } from 'react';
 import {
   ActivityIndicator,
   FlatList,
+  Linking,
   Pressable,
   SafeAreaView,
+  StatusBar,
   StyleSheet,
   Text,
   TextInput,
   View,
 } from 'react-native';
-import MapView, { Marker } from 'react-native-maps';
+import { Camera, Map as MapView, Marker } from '@maplibre/maplibre-react-native';
 import { SetupScreen } from './screens/SetupScreen';
 import { TrackerScreen } from './screens/TrackerScreen';
 import { WelcomeScreen } from './screens/WelcomeScreen';
 import { BrandHeader } from './components/BrandHeader';
+import * as SecureStore from './services/secure-store';
 import { loadTrackerConfig } from './services/storage';
-import './tasks/location-task';
 
+// OpenFreeMap: OpenStreetMap-based tiles with no API key, account, or usage billing.
+const mapStyle = 'https://tiles.openfreemap.org/styles/liberty';
 const clientId = '2h5u12cj2ro3p8n37fmmhfjcpq';
 const config = {
   apiUrl: 'https://f128plufw8.execute-api.ap-south-1.amazonaws.com',
@@ -218,7 +219,7 @@ export default function App() {
   const positioned = devices.filter((device) => Number.isFinite(device.state?.latitude));
   return (
     <SafeAreaView style={styles.app}>
-      <StatusBar style="light" />
+      <StatusBar barStyle="light-content" />
       <View style={styles.top}>
         <Text style={styles.brand}>Trackify</Text>
         <View style={styles.topActions}>
@@ -232,25 +233,37 @@ export default function App() {
       {tab === 'setup' && <SetupScreen />}
       {tab === 'fleet' && (
         <>
-          <MapView
-            style={styles.map}
-            initialRegion={{
-              latitude: positioned[0]?.state?.latitude ?? 12.9716,
-              longitude: positioned[0]?.state?.longitude ?? 77.5946,
-              latitudeDelta: 0.25,
-              longitudeDelta: 0.25,
-            }}
-          >
+          <MapView style={styles.map} mapStyle={mapStyle}>
+            <Camera
+              initialViewState={{
+                center: [
+                  positioned[0]?.state?.longitude ?? 77.5946,
+                  positioned[0]?.state?.latitude ?? 12.9716,
+                ],
+                zoom: 10,
+              }}
+            />
             {positioned.map((device) => (
               <Marker
                 key={device.deviceId}
-                coordinate={{
-                  latitude: device.state!.latitude!,
-                  longitude: device.state!.longitude!,
-                }}
-                title={device.name}
+                id={device.deviceId}
+                anchor="bottom"
+                lngLat={[device.state!.longitude!, device.state!.latitude!]}
                 onPress={() => setSelected(device)}
-              />
+              >
+                <View style={styles.pin}>
+                  <Text
+                    numberOfLines={1}
+                    style={[
+                      styles.pinLabel,
+                      selected?.deviceId === device.deviceId && styles.pinLabelActive,
+                    ]}
+                  >
+                    {device.name}
+                  </Text>
+                  <View style={styles.pinDot} />
+                </View>
+              </Marker>
             ))}
           </MapView>
           <View style={styles.sheet}>
@@ -336,7 +349,7 @@ function LoginScreen({
 
   return (
     <SafeAreaView style={styles.login}>
-      <StatusBar style="light" />
+      <StatusBar barStyle="light-content" />
       <Text style={styles.mark}>T</Text>
       <Text style={styles.hero}>{challenge ? 'Set your new password.' : 'Welcome back.'}</Text>
       <Text style={styles.copy}>
@@ -471,6 +484,30 @@ const styles = StyleSheet.create({
   navText: { color: '#667085', fontWeight: '700', textTransform: 'capitalize' },
   navActive: { color: '#155EEF' },
   map: { flex: 1 },
+  pin: { alignItems: 'center' },
+  pinLabel: {
+    maxWidth: 140,
+    overflow: 'hidden',
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: 8,
+    backgroundColor: '#FFFFFF',
+    borderWidth: 1,
+    borderColor: '#D0D5DD',
+    color: '#101828',
+    fontSize: 12,
+    fontWeight: '700',
+  },
+  pinLabelActive: { backgroundColor: '#155EEF', borderColor: '#155EEF', color: '#FFFFFF' },
+  pinDot: {
+    width: 14,
+    height: 14,
+    marginTop: 3,
+    borderRadius: 7,
+    backgroundColor: '#155EEF',
+    borderWidth: 2,
+    borderColor: '#FFFFFF',
+  },
   sheet: { minHeight: 190, padding: 20, backgroundColor: '#FFFFFF' },
   heading: { color: '#101828', fontSize: 26, fontWeight: '800', marginBottom: 14 },
   vehicle: {

@@ -1,11 +1,15 @@
 import { z } from 'zod';
 
 /**
- * Entity IDs are ULIDs: 26 Crockford base32 characters, time-sortable (see ADR 0003).
+ * Entity IDs are ULIDs: 26 Crockford base32 characters, time-sortable (see ADR 0003). Tenants
+ * created by tools/bootstrap-tenant have lowercase UUID ids, so those are accepted as well.
  */
 export const entityIdSchema = z
   .string()
-  .regex(/^[0-9A-HJKMNP-TV-Z]{26}$/, 'must be a ULID (26 Crockford base32 characters)');
+  .regex(
+    /^(?:[0-9A-HJKMNP-TV-Z]{26}|[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})$/,
+    'must be a ULID (26 Crockford base32 characters) or a UUID',
+  );
 
 /** Unix epoch time in milliseconds. */
 export const epochMsSchema = z.number().int().nonnegative();

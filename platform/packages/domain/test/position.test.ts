@@ -75,8 +75,18 @@ describe('position messages', () => {
     expect(parsePositionMessage({ ...validPosition(), v: 2 }).success).toBe(false);
   });
 
-  it('rejects ids that are not ULIDs', () => {
-    expect(parsePositionMessage(validPosition({ deviceId: 'device-1' })).success).toBe(false);
+  it('accepts the UUID tenant ids that bootstrap-tenant creates', () => {
+    const tenantId = '3f2a9c1e-7b4d-4e8a-9c21-5d6e7f8a9b0c';
+    expect(parsePositionMessage(validPosition({ tenantId })).success).toBe(true);
+  });
+
+  it.each([
+    ['a free-form id', 'device-1'],
+    ['an id with a key separator', `${DEVICE_ID}#x`],
+    ['a UUID missing a group', '3f2a9c1e-7b4d-4e8a-5d6e7f8a9b0c'],
+    ['an empty id', ''],
+  ])('rejects %s', (_label, deviceId) => {
+    expect(parsePositionMessage(validPosition({ deviceId })).success).toBe(false);
   });
 
   it('strips unknown top-level fields so newer producers do not break older consumers', () => {
@@ -116,6 +126,11 @@ describe('event messages (shared contract)', () => {
 
   it('accepts a simple event', () => {
     expect(parseEventMessage(validEvent()).success).toBe(true);
+  });
+
+  it('accepts events for a UUID tenant', () => {
+    const tenantId = '3f2a9c1e-7b4d-4e8a-9c21-5d6e7f8a9b0c';
+    expect(parseEventMessage(validEvent({ tenantId })).success).toBe(true);
   });
 
   it('requires the alarm type on alarm events', () => {

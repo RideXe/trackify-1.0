@@ -12,7 +12,8 @@ export default defineConfig(
       '**/cdk.out/**',
       '**/.next/**',
       '**/out/**',
-      '**/.expo/**',
+      'apps/mobile/android/**',
+      'apps/dashboard-web/public/maplibre/**',
     ],
   },
   js.configs.recommended,
@@ -31,8 +32,17 @@ export default defineConfig(
     },
   },
   {
-    files: ['**/*.js'],
+    files: ['**/*.js', '**/*.mjs'],
     extends: [tseslint.configs.disableTypeChecked],
+  },
+  {
+    // Metro and Babel load their config files with require(), so these must stay CommonJS.
+    files: ['apps/mobile/babel.config.js', 'apps/mobile/metro.config.js'],
+    languageOptions: {
+      sourceType: 'commonjs',
+      globals: { require: 'readonly', module: 'writable', __dirname: 'readonly' },
+    },
+    rules: { '@typescript-eslint/no-require-imports': 'off' },
   },
   prettier,
 );

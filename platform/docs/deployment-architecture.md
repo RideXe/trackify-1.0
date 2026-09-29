@@ -5,13 +5,13 @@ code but never host backend business logic.
 
 ## Components
 
-| Component       | Source                             | Deployment                                | Scaling and idle behavior                              |
-| --------------- | ---------------------------------- | ----------------------------------------- | ------------------------------------------------------ |
-| Backend         | `services/`, `packages/`, `infra/` | AWS CDK in `ap-south-1`                   | Lambda, API Gateway, SQS and DynamoDB scale by request |
-| Web dashboard   | `apps/dashboard-web/`              | Amplify Hosting static export             | CDN files only; no Next.js server or SSR compute       |
-| Mobile app      | `apps/mobile/`                     | Expo EAS, Google Play and Apple App Store | Runs on user devices and calls the same backend        |
-| Tracker gateway | `apps/tracker-gateway/`            | ECS Fargate behind NLB                    | Opt-in because persistent TCP requires idle compute    |
-| Shared client   | `packages/api-client/`             | Bundled into web and mobile               | One API/auth contract for both clients                 |
+| Component       | Source                             | Deployment                                 | Scaling and idle behavior                              |
+| --------------- | ---------------------------------- | ------------------------------------------ | ------------------------------------------------------ |
+| Backend         | `services/`, `packages/`, `infra/` | AWS CDK in `ap-south-1`                    | Lambda, API Gateway, SQS and DynamoDB scale by request |
+| Web dashboard   | `apps/dashboard-web/`              | Amplify Hosting static export              | CDN files only; no Next.js server or SSR compute       |
+| Mobile app      | `apps/mobile/`                     | React Native Android (Gradle), Google Play | Runs on user devices and calls the same backend        |
+| Tracker gateway | `apps/tracker-gateway/`            | ECS Fargate behind NLB                     | Opt-in because persistent TCP requires idle compute    |
+| Shared client   | `packages/api-client/`             | Bundled into web and mobile                | One API/auth contract for both clients                 |
 
 ## Backend deployment
 
@@ -49,18 +49,41 @@ not silently enable an always-on gateway or a public endpoint.
 
 ## Mobile builds
 
-The Expo app uses the same custom Cognito login and API as the dashboard. App-store builds require
-Expo, Apple, and Google developer accounts; no store credentials belong in source.
+`apps/mobile` is a plain React Native (0.86) Android app with no Expo dependency. It uses the same
+custom Cognito login and API as the dashboard. iOS is not set up yet (there is no `ios/` project).
+
+Background tracking is app-local native code in
+`android/app/src/main/java/com/ridexe/trackify/location/`: a foreground service receives fused
+location updates and passes each fix to the JS task registered in `index.js`, which queues and
+uploads it (`src/services/upload.ts`). Its JS contract is `src/native/NativeTrackifyLocation.ts`.
+
+Requirements: JDK 17, Android SDK platform 36, and NDK 27.1.12297006 (install through Android
+Studio). The fleet map uses MapLibre with OpenFreeMap tiles (OpenStreetMap data), so no map API key,
+account, or billing is needed. Develop against an emulator or USB device:
 
 ```bash
-cd platform/apps/mobile
-npx expo start
-npx eas build --platform android --profile preview
-npx eas build --platform ios --profile preview
+cd platform
+npm start -w @trackify/mobile          # Metro bundler; leave running
+npm run android -w @trackify/mobile    # build, install and open the debug app
 ```
 
-Use production EAS profiles only after push notification credentials, privacy disclosures, signing,
-real-device authentication, and background-location behavior are reviewed.
+Release builds are signed with the upload keystore, which never belongs in source. Add
+`TRACKIFY_UPLOAD_STORE_FILE`, `TRACKIFY_UPLOAD_STORE_PASSWORD`, `TRACKIFY_UPLOAD_KEY_ALIAS`, and
+`TRACKIFY_UPLOAD_KEY_PASSWORD` to `local.properties` (or pass them as Gradle properties or
+environment variables), then build the Play Store bundle:
+
+```bash
+cd platform/apps/mobile/android
+./gradlew bundleRelease   # app/build/outputs/bundle/release/app-release.aab
+```
+
+Without those values, release builds fall back to the debug key and are for local testing only.
+Raise `versionCode` in `android/app/build.gradle` for every Play upload. If earlier builds were
+published through Expo EAS with EAS-managed signing, download that keystore once with
+`eas credentials` and use it as the upload keystore.
+
+Publish to production only after privacy disclosures, signing, real-device authentication, and
+background-location behavior are reviewed.
 
 ## Scale boundaries
 

@@ -1,0 +1,4 @@
+<resources>
+    <string name="app_name">Trackify Fleet</string>
+    <string name="tracking_channel_name">Location sharing</string>
+</resources>

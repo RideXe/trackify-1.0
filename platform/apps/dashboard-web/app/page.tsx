@@ -72,6 +72,7 @@ import {
 } from '@trackify/api-client';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import QRCode from 'qrcode';
+import { RouteHistory } from './route-history';
 
 const drawerWidth = 256;
 const config = {
@@ -152,7 +153,12 @@ export default function FleetPage() {
   }, []);
 
   useEffect(() => {
-    if (tokens) void loadFleet();
+    if (!tokens) return;
+    void loadFleet();
+    const timer = window.setInterval(() => {
+      if (!document.hidden) void loadFleet();
+    }, 30000);
+    return () => window.clearInterval(timer);
   }, [tokens, loadFleet]);
 
   useEffect(() => {
@@ -220,7 +226,7 @@ export default function FleetPage() {
     );
   }
 
-  const online = devices.filter((device) => device.state?.status === 'online').length;
+  const online = devices.filter((device) => isOnline(device)).length;
   const onboardingVisible =
     onboardingOpen ||
     (!loadingFleet && membership?.role === 'admin' && devices.length === 0 && !onboardingDismissed);
@@ -489,6 +495,7 @@ function Dashboard({
         <VehicleList devices={devices} selected={selected} onSelect={onSelect} />
       </Box>
       {selected && <VehicleDetails client={client} device={selected} />}
+      {selected && <RouteHistory client={client} device={selected} />}
     </Stack>
   );
 }
@@ -576,71 +583,89 @@ function FleetMap({
   selected?: Device;
   onSelect: (device: Device) => void;
 }) {
-  const positioned = devices.filter((device) => Number.isFinite(device.state?.latitude));
+  const positioned = devices.filter(hasPosition);
+  const current = selected && hasPosition(selected) ? selected : positioned[0];
+  const lat = current?.state?.latitude ?? 0;
+  const lon = current?.state?.longitude ?? 0;
+  const bounds = [
+    Math.max(-180, lon - 0.015),
+    Math.max(-85, lat - 0.01),
+    Math.min(180, lon + 0.015),
+    Math.min(85, lat + 0.01),
+  ].join(',');
+  const mapUrl = `https://www.openstreetmap.org/export/embed.html?bbox=${encodeURIComponent(bounds)}&layer=mapnik&marker=${lat},${lon}`;
   return (
     <Paper sx={{ overflow: 'hidden' }}>
       <Stack
         direction="row"
-        sx={{ alignItems: 'center', justifyContent: 'space-between', px: 2.5, py: 2 }}
+        spacing={2}
+        sx={{ alignItems: 'center', justifyContent: 'space-between', p: 2 }}
       >
         <Box>
-          <Typography sx={{ fontWeight: 700 }}>Live operations map</Typography>
+          <Typography sx={{ fontWeight: 700 }}>Vehicle location</Typography>
           <Typography color="text.secondary" variant="caption">
-            {positioned.length} vehicles reporting a position
+            {current
+              ? `${current.name} · ${isOnline(current) ? 'Recent GPS update' : 'Last known position'}`
+              : 'Waiting for the first GPS signal'}
           </Typography>
         </Box>
-        <Button size="small" startIcon={<Map size={16} />} variant="outlined">
-          Full map
-        </Button>
-      </Stack>
-      <Divider />
-      <Box
-        sx={{
-          position: 'relative',
-          minHeight: { xs: 360, md: 500 },
-          overflow: 'hidden',
-          bgcolor: '#EAF1F5',
-          backgroundImage:
-            'linear-gradient(32deg, transparent 46%, #D4E0E7 47%, #D4E0E7 49%, transparent 50%), linear-gradient(122deg, transparent 46%, #D4E0E7 47%, #D4E0E7 49%, transparent 50%), radial-gradient(circle at 30% 30%, #F8FAFC 0 9%, transparent 10%), radial-gradient(circle at 75% 66%, #F8FAFC 0 12%, transparent 13%)',
-          backgroundSize: '180px 180px, 210px 210px, 360px 360px, 420px 420px',
-        }}
-      >
-        {!positioned.length && (
-          <Stack
-            spacing={1}
-            sx={{ position: 'absolute', inset: 0, alignItems: 'center', justifyContent: 'center' }}
+        {current && (
+          <Button
+            component="a"
+            href={`https://www.openstreetmap.org/?mlat=${lat}&mlon=${lon}#map=17/${lat}/${lon}`}
+            target="_blank"
+            rel="noopener noreferrer"
+            variant="outlined"
           >
-            <Avatar sx={{ bgcolor: 'white', color: 'text.secondary', boxShadow: 2 }}>
-              <Navigation size={20} />
-            </Avatar>
-            <Typography sx={{ fontWeight: 650 }}>Waiting for the first GPS signal</Typography>
-            <Typography color="text.secondary" variant="body2">
-              Registered vehicles will appear here automatically.
-            </Typography>
-          </Stack>
+            Full map
+          </Button>
         )}
-        {positioned.map((device, index) => (
-          <Tooltip key={device.deviceId} title={device.name}>
-            <IconButton
-              onClick={() => onSelect(device)}
-              sx={{
-                position: 'absolute',
-                left: `${20 + ((index * 23) % 65)}%`,
-                top: `${20 + ((index * 31) % 62)}%`,
-                bgcolor:
-                  selected?.deviceId === device.deviceId ? 'primary.main' : 'background.paper',
-                color: selected?.deviceId === device.deviceId ? 'white' : 'primary.main',
-                boxShadow: 3,
-                '&:hover': { bgcolor: 'primary.dark', color: 'white' },
-              }}
-            >
-              <CarFront size={19} />
-            </IconButton>
-          </Tooltip>
+      </Stack>
+      {current ? (
+        <Box
+          component="iframe"
+          title={`GPS location of ${current.name}`}
+          src={mapUrl}
+          sx={{ border: 0, width: '100%', height: { xs: 360, md: 500 }, display: 'block' }}
+        />
+      ) : (
+        <Stack
+          sx={{ minHeight: 360, alignItems: 'center', justifyContent: 'center', px: 3 }}
+          spacing={2}
+        >
+          <Navigation size={28} />
+          <Typography>Connect the phone and allow location sharing to see its position.</Typography>
+          <Typography color="text.secondary">The vehicle does not need to move.</Typography>
+        </Stack>
+      )}
+      <Stack direction="row" spacing={1} sx={{ p: 2, flexWrap: 'wrap', gap: 1 }}>
+        {positioned.map((device) => (
+          <Chip
+            key={device.deviceId}
+            label={device.name}
+            color={current?.deviceId === device.deviceId ? 'primary' : 'default'}
+            onClick={() => onSelect(device)}
+          />
         ))}
-      </Box>
+      </Stack>
+      {current && (
+        <Typography variant="caption" component="p" sx={{ px: 2, pb: 2 }}>
+          {lat.toFixed(6)}, {lon.toFixed(6)} · Updated{' '}
+          {current.state?.lastSeenAt
+            ? new Date(current.state.lastSeenAt).toLocaleString()
+            : 'at the last GPS fix'}
+        </Typography>
+      )}
     </Paper>
   );
+}
+
+function hasPosition(device: Device) {
+  return Number.isFinite(device.state?.latitude) && Number.isFinite(device.state?.longitude);
+}
+function isOnline(device: Device) {
+  const seen = device.state?.lastSeenAt;
+  return Boolean(seen && Date.now() - seen < 300_000 && device.state?.status !== 'offline');
 }
 
 function VehicleList({
@@ -678,7 +703,7 @@ function VehicleList({
       <List disablePadding>
         {devices.map((device) => {
           const active = selected?.deviceId === device.deviceId;
-          const online = device.state?.status === 'online';
+          const online = isOnline(device);
           return (
             <ListItemButton
               key={device.deviceId}
@@ -724,6 +749,7 @@ function VehicleDetails({ device, client }: { device: Device; client: TrackifyCl
   const [pairingQr, setPairingQr] = useState('');
   const [pairingBusy, setPairingBusy] = useState(false);
   const [pairingError, setPairingError] = useState('');
+  const [connectionStatus, setConnectionStatus] = useState<DeviceInvitation['status']>();
   useEffect(() => {
     const now = Date.now();
     void Promise.all([
@@ -739,12 +765,66 @@ function VehicleDetails({ device, client }: { device: Device; client: TrackifyCl
       }),
     );
   }, [client, device.deviceId]);
+  useEffect(() => {
+    let active = true;
+    setConnectionStatus(undefined);
+    setPairing(undefined);
+    setPairingError('');
+    const refresh = async () => {
+      const token = readTokens()?.access_token;
+      if (!token) return;
+      const response = await fetch(
+        `${config.apiUrl}/devices/${encodeURIComponent(device.deviceId)}/invitations`,
+        { headers: { authorization: `Bearer ${token}` } },
+      );
+      if (!response.ok || !active) return;
+      const value = (await response.json()) as { items?: DeviceInvitation[] };
+      const latest = value.items?.find((item) => item.status === 'activated') ?? value.items?.[0];
+      if (active) {
+        setConnectionStatus(latest?.status);
+        setPairingError('');
+      }
+    };
+    const check = () =>
+      void refresh().catch(() => {
+        if (active) setPairingError('Connection status unavailable. Retrying…');
+      });
+    check();
+    const timer = window.setInterval(() => {
+      if (!document.hidden) check();
+    }, 15000);
+    return () => {
+      active = false;
+      window.clearInterval(timer);
+    };
+  }, [device.deviceId]);
   async function createPairing() {
     const token = readTokens()?.access_token;
     if (!token) return;
     setPairingBusy(true);
     setPairingError('');
     try {
+      const existingResponse = await fetch(
+        `${config.apiUrl}/devices/${encodeURIComponent(device.deviceId)}/invitations`,
+        { headers: { authorization: `Bearer ${token}` } },
+      );
+      if (!existingResponse.ok) throw new Error('Could not check the existing connection');
+      const existing = (await existingResponse.json()) as { items: DeviceInvitation[] };
+      if (
+        existing.items.some((item) => item.status === 'activated') &&
+        !window.confirm('Replace the connected phone? The previous phone will lose access.')
+      )
+        return;
+      for (const item of existing.items.filter(
+        (item) => item.status === 'waiting' || item.status === 'activated',
+      )) {
+        const revoked = await fetch(`${config.apiUrl}/invitations/${item.invitationId}`, {
+          method: 'DELETE',
+          headers: { authorization: `Bearer ${token}` },
+        });
+        if (!revoked.ok && revoked.status !== 404)
+          throw new Error('Could not revoke the previous connection');
+      }
       const response = await fetch(
         `${config.apiUrl}/devices/${encodeURIComponent(device.deviceId)}/invitations`,
         { method: 'POST', headers: { authorization: `Bearer ${token}` } },
@@ -752,6 +832,7 @@ function VehicleDetails({ device, client }: { device: Device; client: TrackifyCl
       const invitation = (await response.json()) as DeviceInvitation & { message?: string };
       if (!response.ok) throw new Error(invitation.message || 'Could not create setup code');
       setPairing(invitation);
+      setConnectionStatus(invitation.status);
       setPairingQr(await QRCode.toDataURL(invitation.link, { width: 240, margin: 1 }));
     } catch (reason) {
       setPairingError(reason instanceof Error ? reason.message : 'Could not create setup code');
@@ -790,15 +871,43 @@ function VehicleDetails({ device, client }: { device: Device; client: TrackifyCl
             <Typography sx={{ fontWeight: 700 }}>{value}</Typography>
           </Box>
         ))}
+        {isOnline(device) ? (
+          <Chip color="success" icon={<CheckCircle2 size={15} />} label="Tracking online" />
+        ) : connectionStatus === 'activated' ? (
+          <Chip
+            color="warning"
+            icon={<Clock3 size={15} />}
+            label={
+              hasPosition(device)
+                ? 'Phone connected · last known location'
+                : 'Connected · waiting for GPS'
+            }
+          />
+        ) : (
+          <Button
+            disabled={pairingBusy}
+            onClick={() => void createPairing()}
+            startIcon={<Smartphone size={17} />}
+            variant="outlined"
+          >
+            {pairingBusy
+              ? 'Creating…'
+              : connectionStatus === 'waiting'
+                ? 'Generate replacement code'
+                : 'Connect driver phone'}
+          </Button>
+        )}
+      </Stack>
+      {connectionStatus === 'activated' && (
         <Button
           disabled={pairingBusy}
+          size="small"
+          sx={{ mt: 2 }}
           onClick={() => void createPairing()}
-          startIcon={<Smartphone size={17} />}
-          variant="outlined"
         >
-          {pairingBusy ? 'Creating…' : 'Connect driver phone'}
+          Replace connected phone
         </Button>
-      </Stack>
+      )}
       {pairingError && (
         <Alert severity="error" sx={{ mt: 2 }}>
           {pairingError}
@@ -1100,7 +1209,8 @@ function DeviceOnboarding({
             (item) => item.invitationId === created.onboarding?.invitationId,
           );
           if (current) setInvitationStatus(current.status);
-        });
+        })
+        .catch(() => setError('Unable to refresh pairing status. Please retry.'));
     }, 5000);
     return () => window.clearInterval(timer);
   }, [created, invitationStatus]);

@@ -120,7 +120,11 @@ function parseInput(event: APIGatewayProxyEventV2): Record<string, string | unde
     const parsedBody = JSON.parse(body) as Record<string, unknown>;
     return {
       ...query,
-      ...Object.fromEntries(Object.entries(parsedBody).map(([k, v]) => [k, String(v)])),
+      ...Object.fromEntries(
+        Object.entries(parsedBody)
+          .filter(([, v]) => v != null)
+          .map(([k, v]) => [k, String(v)]),
+      ),
     };
   }
   return { ...query, ...Object.fromEntries(new URLSearchParams(body)) };

@@ -61,3 +61,6 @@ ios/Pods/
 ios/.generated/
 .flutter-plugins
 .flutter-plugins-dependencies
+
+!platform/packages/data/test/
+!platform/packages/data/test/onboarding-store.test.ts

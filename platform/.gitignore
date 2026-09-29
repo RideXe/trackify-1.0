@@ -6,5 +6,18 @@ cdk.out/
 .eslintcache
 .next/
 out/
-.expo/
+# React Native Android build output and machine-local secrets
+apps/mobile/android/.gradle/
+apps/mobile/android/.kotlin/
+apps/mobile/android/.idea/
+apps/mobile/android/build/
+apps/mobile/android/app/build/
+apps/mobile/android/app/.cxx/
+apps/mobile/android/local.properties
+*.iml
+*.hprof
+*.keystore
+!apps/mobile/android/app/debug.keystore
 cdk-outputs-*.json
+# Copied from node_modules by apps/dashboard-web/scripts/copy-maplibre-worker.mjs
+apps/dashboard-web/public/maplibre/

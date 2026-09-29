@@ -88,3 +88,29 @@ describe('phone HTTP ingest', () => {
     expect(send).toHaveBeenCalledOnce();
   });
 });
+
+it('accepts nullable optional sensors on a stationary phone', async () => {
+  const send = vi.fn().mockResolvedValue(undefined);
+  const handler = createHandler({
+    credentials: { resolveCredential: vi.fn().mockResolvedValue(device) },
+    queue: { send },
+    now: Date.now,
+  });
+  const result = await handler({
+    ...event({}),
+    headers: { authorization: 'Bearer valid-device-secret', 'content-type': 'application/json' },
+    body: JSON.stringify({
+      id: device.uniqueId,
+      lat: 12.9,
+      lon: 77.5,
+      speed: 0,
+      bearing: null,
+      altitude: null,
+      accuracy: null,
+    }),
+  });
+  expect(result.statusCode).toBe(202);
+  expect(send).toHaveBeenCalledWith(
+    expect.objectContaining({ latitude: 12.9, longitude: 77.5, speedKmh: 0 }),
+  );
+});

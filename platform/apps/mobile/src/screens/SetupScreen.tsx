@@ -1,8 +1,8 @@
-import { CameraView, useCameraPermissions } from 'expo-camera';
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import {
   Alert,
   Modal,
+  PermissionsAndroid,
   Pressable,
   SafeAreaView,
   ScrollView,
@@ -12,6 +12,7 @@ import {
   TextInput,
   View,
 } from 'react-native';
+import { Camera } from 'react-native-camera-kit';
 import {
   defaultTrackerConfig,
   loadTrackerConfig,
@@ -19,6 +20,7 @@ import {
   type TrackerConfig,
 } from '../services/storage';
 import { colors, shadow } from '../theme';
+import { sendCurrentPosition, startTracking } from '../services/tracking';
 
 export function SetupScreen({
   initialMode = 'manual',
@@ -31,25 +33,30 @@ export function SetupScreen({
   onComplete?: () => void;
   onCancel?: () => void;
 }) {
+  const redeemLock = useRef(false);
   const [c, setC] = useState<TrackerConfig>(defaultTrackerConfig);
   const [scan, setScan] = useState(false);
   const [setupCode, setSetupCode] = useState(initialCode);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
-  const [permission, request] = useCameraPermissions();
+  const [activating, setActivating] = useState(false);
   useEffect(() => {
-    void loadTrackerConfig().then(setC);
-    if (initialMode === 'scan') void request().then(() => setScan(true));
-    if (initialCode) void apply(initialCode);
+    void loadTrackerConfig().then((saved) => {
+      setC(saved);
+      if (initialCode && !saved.credential) void apply(initialCode);
+      else if (initialMode === 'scan' && !saved.credential) void requestCamera().then(setScan);
+    });
   }, []);
   const set = (k: keyof TrackerConfig, v: string | number | boolean) =>
     setC((x) => ({ ...x, [k]: v }));
   async function apply(raw: string) {
+    if (redeemLock.current) return;
     const code = extractCode(raw);
     if (!code) {
       setError('Enter the 6-character setup code or paste the full Trackify link.');
       return;
     }
+    redeemLock.current = true;
     setBusy(true);
     setError('');
     setScan(false);
@@ -64,17 +71,21 @@ export function SetupScreen({
       if (!response.ok) throw new Error(value.message || `Setup failed (${response.status})`);
       if (!value.deviceId || !value.uniqueId || !value.name || !value.endpoint || !value.credential)
         throw new Error('Trackify returned incomplete setup information');
-      setC((x) => ({
-        ...x,
-        deviceId: value.deviceId!,
-        uniqueId: value.uniqueId!,
-        endpoint: value.endpoint!,
-        credential: value.credential!,
-        name: value.name!,
-      }));
+      const connected: TrackerConfig = {
+        ...c,
+        deviceId: value.deviceId,
+        uniqueId: value.uniqueId,
+        endpoint: value.endpoint,
+        credential: value.credential,
+        name: value.name,
+      };
+      // Persist immediately: the code is already consumed, even before permissions.
+      await saveTrackerConfig(connected);
+      setC(connected);
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : 'Unable to complete setup');
     } finally {
+      redeemLock.current = false;
       setBusy(false);
     }
   }
@@ -121,7 +132,11 @@ export function SetupScreen({
           <Pressable
             style={s.action}
             onPress={() => {
-              void request().then(() => setScan(true));
+              void requestCamera().then((granted) => {
+                setScan(granted);
+                if (!granted)
+                  setError('Camera access is needed to scan. You can enter the code instead.');
+              });
             }}
           >
             <Text style={s.actionTitle}>Scan setup QR</Text>
@@ -146,31 +161,44 @@ export function SetupScreen({
             <Switch value={c.buffer} onValueChange={(v) => set('buffer', v)} />
           </View>
           <Pressable
-            style={s.primary}
+            disabled={activating}
+            style={[s.primary, activating && s.disabled]}
             onPress={() => {
               if (!c.uniqueId || !c.endpoint || !c.credential) {
                 Alert.alert('Setup incomplete', 'Use a valid setup code first.');
                 return;
               }
-              void saveTrackerConfig(c).then(() => {
-                Alert.alert('Vehicle connected', `${c.name} is ready to start tracking.`);
-                onComplete?.();
-              });
+              setActivating(true);
+              setError('');
+              void saveTrackerConfig(c)
+                .then(async () => {
+                  await startTracking(c);
+                  await sendCurrentPosition(c);
+                  Alert.alert('Tracking started', `${c.name} is now sharing its location.`);
+                  onComplete?.();
+                })
+                .catch((reason: unknown) => {
+                  setError(reason instanceof Error ? reason.message : 'Unable to start tracking');
+                })
+                .finally(() => setActivating(false));
             }}
           >
-            <Text style={s.primaryText}>Confirm and continue</Text>
+            <Text style={s.primaryText}>
+              {activating ? 'Starting location sharing…' : 'Confirm and start tracking'}
+            </Text>
           </Pressable>
+          {error ? <Text style={s.error}>{error}</Text> : null}
         </View>
       )}
       <Modal visible={scan} onRequestClose={() => setScan(false)}>
         <SafeAreaView style={s.scanner}>
-          {permission?.granted && (
-            <CameraView
-              style={{ flex: 1 }}
-              barcodeScannerSettings={{ barcodeTypes: ['qr'] }}
-              onBarcodeScanned={({ data }) => void apply(data)}
-            />
-          )}
+          {/* Only opened after requestCamera() succeeds. */}
+          <Camera
+            style={{ flex: 1 }}
+            scanBarcode
+            allowedBarcodeTypes={['qr']}
+            onReadCode={({ nativeEvent }) => void apply(nativeEvent.codeStringValue)}
+          />
           <Pressable style={s.primary} onPress={() => setScan(false)}>
             <Text style={s.primaryText}>Cancel</Text>
           </Pressable>
@@ -178,6 +206,11 @@ export function SetupScreen({
       </Modal>
     </ScrollView>
   );
+}
+
+async function requestCamera() {
+  const result = await PermissionsAndroid.request(PermissionsAndroid.PERMISSIONS.CAMERA);
+  return result === PermissionsAndroid.RESULTS.GRANTED;
 }
 
 function extractCode(raw: string) {

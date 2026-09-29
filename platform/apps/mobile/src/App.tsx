@@ -1,5 +1,6 @@
 import {
   CognitoPasswordClient,
+  SessionExpiredError,
   TrackifyClient,
   type Device,
   type Tokens,
@@ -52,8 +53,23 @@ export default function App() {
   const [onboardingCode, setOnboardingCode] = useState('');
   const [fleetLoginRequested, setFleetLoginRequested] = useState(false);
   const [challenge, setChallenge] = useState<PasswordChallenge>();
-  const client = useMemo(() => new TrackifyClient(config, () => tokens?.access_token), [tokens]);
   const auth = useMemo(() => new CognitoPasswordClient(config), []);
+  const client = useMemo(
+    () =>
+      // Access tokens last an hour; the client renews them with the refresh token on a 401.
+      new TrackifyClient(
+        config,
+        () => tokens?.access_token,
+        async () => {
+          if (!tokens?.refresh_token) return undefined;
+          const next = await auth.refresh(tokens.refresh_token);
+          await persistTokens(next);
+          setTokens(next);
+          return next.access_token;
+        },
+      ),
+    [auth, tokens],
+  );
 
   useEffect(() => {
     void restoreSession();
@@ -85,6 +101,11 @@ export default function App() {
     }
   }
 
+  /** Only an expired sign-in ends the session; a dropped connection keeps the user signed in. */
+  function endSessionIfExpired(reason: unknown) {
+    if (reason instanceof SessionExpiredError) void signOut(reason.message);
+  }
+
   async function signOut(message = '') {
     await SecureStore.deleteItemAsync('tokens');
     setTokens(undefined);
@@ -101,7 +122,7 @@ export default function App() {
           setDevices(fleet.items);
           setSelected(fleet.items[0]);
         })
-        .catch(() => void signOut('Your session expired. Please sign in again.'));
+        .catch(endSessionIfExpired);
     }
   }, [client, tokens]);
 
@@ -149,7 +170,7 @@ export default function App() {
           );
         });
       })
-      .catch(() => void signOut('Your session expired. Please sign in again.'));
+      .catch(endSessionIfExpired);
     return () => close();
   }, [client, tokens]);
 

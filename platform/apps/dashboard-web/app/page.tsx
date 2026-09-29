@@ -84,6 +84,9 @@ const config = {
     process.env.NEXT_PUBLIC_REALTIME_DNS ??
     'qax2znhhijftphzcymk3fvufqa.appsync-realtime-api.ap-south-1.amazonaws.com',
 };
+const auth = new CognitoPasswordClient(config);
+/** Fired when a renewal replaces or ends the stored session, so the page can follow it. */
+const sessionEvent = 'trackify:session';
 
 interface PasswordChallenge {
   username: string;
@@ -129,8 +132,20 @@ export default function FleetPage() {
   const [mobileNav, setMobileNav] = useState(false);
   const [onboardingOpen, setOnboardingOpen] = useState(false);
   const [onboardingDismissed, setOnboardingDismissed] = useState(false);
-  const client = useMemo(() => new TrackifyClient(config, () => tokens?.access_token), [tokens]);
-  const auth = useMemo(() => new CognitoPasswordClient(config), []);
+  const client = useMemo(
+    () => new TrackifyClient(config, () => readTokens()?.access_token, renewStoredSession),
+    [tokens],
+  );
+
+  useEffect(() => {
+    const follow = () => {
+      const current = readTokens();
+      setTokens(current);
+      if (!current) setError('Your session expired. Please sign in again.');
+    };
+    window.addEventListener(sessionEvent, follow);
+    return () => window.removeEventListener(sessionEvent, follow);
+  }, []);
 
   const loadFleet = useCallback(async () => {
     try {
@@ -771,11 +786,8 @@ function VehicleDetails({ device, client }: { device: Device; client: TrackifyCl
     setPairing(undefined);
     setPairingError('');
     const refresh = async () => {
-      const token = readTokens()?.access_token;
-      if (!token) return;
-      const response = await fetch(
-        `${config.apiUrl}/devices/${encodeURIComponent(device.deviceId)}/invitations`,
-        { headers: { authorization: `Bearer ${token}` } },
+      const response = await apiFetch(
+        `/devices/${encodeURIComponent(device.deviceId)}/invitations`,
       );
       if (!response.ok || !active) return;
       const value = (await response.json()) as { items?: DeviceInvitation[] };
@@ -799,14 +811,11 @@ function VehicleDetails({ device, client }: { device: Device; client: TrackifyCl
     };
   }, [device.deviceId]);
   async function createPairing() {
-    const token = readTokens()?.access_token;
-    if (!token) return;
     setPairingBusy(true);
     setPairingError('');
     try {
-      const existingResponse = await fetch(
-        `${config.apiUrl}/devices/${encodeURIComponent(device.deviceId)}/invitations`,
-        { headers: { authorization: `Bearer ${token}` } },
+      const existingResponse = await apiFetch(
+        `/devices/${encodeURIComponent(device.deviceId)}/invitations`,
       );
       if (!existingResponse.ok) throw new Error('Could not check the existing connection');
       const existing = (await existingResponse.json()) as { items: DeviceInvitation[] };
@@ -818,16 +827,15 @@ function VehicleDetails({ device, client }: { device: Device; client: TrackifyCl
       for (const item of existing.items.filter(
         (item) => item.status === 'waiting' || item.status === 'activated',
       )) {
-        const revoked = await fetch(`${config.apiUrl}/invitations/${item.invitationId}`, {
+        const revoked = await apiFetch(`/invitations/${item.invitationId}`, {
           method: 'DELETE',
-          headers: { authorization: `Bearer ${token}` },
         });
         if (!revoked.ok && revoked.status !== 404)
           throw new Error('Could not revoke the previous connection');
       }
-      const response = await fetch(
-        `${config.apiUrl}/devices/${encodeURIComponent(device.deviceId)}/invitations`,
-        { method: 'POST', headers: { authorization: `Bearer ${token}` } },
+      const response = await apiFetch(
+        `/devices/${encodeURIComponent(device.deviceId)}/invitations`,
+        { method: 'POST' },
       );
       const invitation = (await response.json()) as DeviceInvitation & { message?: string };
       if (!response.ok) throw new Error(invitation.message || 'Could not create setup code');
@@ -1198,11 +1206,7 @@ function DeviceOnboarding({
   useEffect(() => {
     if (!created?.onboarding || invitationStatus !== 'waiting') return;
     const timer = window.setInterval(() => {
-      const token = readTokens()?.access_token;
-      if (!token) return;
-      void fetch(`${config.apiUrl}/devices/${encodeURIComponent(created.deviceId)}/invitations`, {
-        headers: { authorization: `Bearer ${token}` },
-      })
+      void apiFetch(`/devices/${encodeURIComponent(created.deviceId)}/invitations`)
         .then((response) => (response.ok ? response.json() : undefined))
         .then((value: { items?: DeviceInvitation[] } | undefined) => {
           const current = value?.items?.find(
@@ -1217,24 +1221,19 @@ function DeviceOnboarding({
 
   async function revokeInvitation() {
     if (!created?.onboarding) return;
-    const token = readTokens()?.access_token;
-    if (!token) return;
-    const result = await fetch(`${config.apiUrl}/invitations/${created.onboarding.invitationId}`, {
+    const result = await apiFetch(`/invitations/${created.onboarding.invitationId}`, {
       method: 'DELETE',
-      headers: { authorization: `Bearer ${token}` },
     });
     if (result.ok) setInvitationStatus('revoked');
   }
 
   async function createReplacementInvitation() {
     if (!created) return;
-    const token = readTokens()?.access_token;
-    if (!token) return;
     setBusy(true);
     try {
-      const response = await fetch(
-        `${config.apiUrl}/devices/${encodeURIComponent(created.deviceId)}/invitations`,
-        { method: 'POST', headers: { authorization: `Bearer ${token}` } },
+      const response = await apiFetch(
+        `/devices/${encodeURIComponent(created.deviceId)}/invitations`,
+        { method: 'POST' },
       );
       const invitation = (await response.json()) as DeviceInvitation & { message?: string };
       if (!response.ok) throw new Error(invitation.message || 'Could not create setup link');
@@ -1412,6 +1411,43 @@ function readTokens() {
 }
 function saveTokens(tokens: Tokens) {
   sessionStorage.setItem('tokens', JSON.stringify(tokens));
+}
+
+let renewal: Promise<string | undefined> | undefined;
+
+/**
+ * Access tokens last an hour. Renews the stored session with its refresh token; callers that
+ * expire together share one renewal. Returns the new access token, or undefined if it failed.
+ */
+function renewStoredSession(): Promise<string | undefined> {
+  renewal ??= (async () => {
+    try {
+      const refreshToken = readTokens()?.refresh_token;
+      if (!refreshToken) throw new Error('This sign-in cannot be renewed');
+      const next = await auth.refresh(refreshToken);
+      saveTokens(next);
+      return next.access_token;
+    } catch (error) {
+      // A network failure is temporary; any other failure means the sign-in is no longer valid.
+      if (!(error instanceof TypeError)) sessionStorage.removeItem('tokens');
+      return undefined;
+    } finally {
+      window.dispatchEvent(new Event(sessionEvent));
+    }
+  })().finally(() => {
+    renewal = undefined;
+  });
+  return renewal;
+}
+
+/** fetch() for API routes the shared client does not cover yet; renews an expired session once. */
+async function apiFetch(path: string, init: { method?: string } = {}) {
+  const send = (token = '') =>
+    fetch(`${config.apiUrl}${path}`, { ...init, headers: { authorization: `Bearer ${token}` } });
+  const response = await send(readTokens()?.access_token);
+  if (response.status !== 401) return response;
+  const renewed = await renewStoredSession();
+  return renewed ? send(renewed) : response;
 }
 function signOut() {
   sessionStorage.clear();

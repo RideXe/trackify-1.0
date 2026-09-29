@@ -60,6 +60,9 @@ class TrackifyLocationService : Service() {
       client.removeLocationUpdates(callback)
       client.requestLocationUpdates(
           LocationRequest.Builder(settings.priority, settings.intervalMs)
+              // Without this Android may deliver fixes several times faster than the chosen
+              // interval, costing battery and data. Distance 0 keeps parked vehicles reporting.
+              .setMinUpdateIntervalMillis(settings.intervalMs)
               .setMinUpdateDistanceMeters(0f)
               .build(),
           callback,

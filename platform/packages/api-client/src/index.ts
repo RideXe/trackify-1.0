@@ -81,6 +81,17 @@ export class CognitoPasswordClient {
     return readAuthenticationResult(response);
   }
 
+  /** Fresh access and ID tokens. Cognito only returns a new refresh token when it rotates them. */
+  async refresh(refreshToken: string): Promise<Tokens> {
+    const response = await this.call('InitiateAuth', {
+      AuthFlow: 'REFRESH_TOKEN_AUTH',
+      ClientId: this.config.clientId,
+      AuthParameters: { REFRESH_TOKEN: refreshToken },
+    });
+    const tokens = readAuthenticationResult(response);
+    return { ...tokens, refresh_token: tokens.refresh_token ?? refreshToken };
+  }
+
   private async call(operation: string, body: Record<string, unknown>) {
     const response = await fetch(`https://cognito-idp.${this.config.awsRegion}.amazonaws.com/`, {
       method: 'POST',
@@ -97,10 +108,22 @@ export class CognitoPasswordClient {
   }
 }
 
+/** The API rejected the sign-in and it could not be renewed; the user must sign in again. */
+export class SessionExpiredError extends Error {
+  constructor() {
+    super('Your session expired. Please sign in again.');
+    this.name = 'SessionExpiredError';
+  }
+}
+
 export class TrackifyClient {
+  private renewal: Promise<string | undefined> | undefined;
+
   constructor(
     readonly config: TrackifyConfig,
     private readonly accessToken: () => string | undefined,
+    /** Called when the API answers 401. Returns a fresh access token, or undefined to give up. */
+    private readonly renewAccessToken?: () => Promise<string | undefined>,
   ) {}
 
   me() {
@@ -181,12 +204,20 @@ export class TrackifyClient {
 
   private async request<T>(path: string, init?: RequestInit): Promise<T> {
     const token = this.accessToken();
-    if (!token) throw new Error('Sign in required');
-    const response = await fetch(`${this.config.apiUrl}${path}`, {
-      ...init,
-      headers: { authorization: `Bearer ${token}`, ...init?.headers },
-    });
-    if (response.status === 401 || response.status === 403) throw new Error('Access denied');
+    if (!token) throw new SessionExpiredError();
+    const send = (bearer: string) =>
+      fetch(`${this.config.apiUrl}${path}`, {
+        ...init,
+        headers: { authorization: `Bearer ${bearer}`, ...init?.headers },
+      });
+    let response = await send(token);
+    if (response.status === 401) {
+      // Access tokens last an hour; renew once and retry before giving up on the session.
+      const renewed = await this.renew();
+      if (renewed) response = await send(renewed);
+    }
+    if (response.status === 401) throw new SessionExpiredError();
+    if (response.status === 403) throw new Error('Access denied');
     if (!response.ok) {
       const payload: unknown = await response.json().catch(() => undefined);
       const message =
@@ -194,6 +225,17 @@ export class TrackifyClient {
       throw new Error(message || `Request failed (${response.status})`);
     }
     return response.json() as Promise<T>;
+  }
+
+  /** Requests that fail together share one renewal instead of each spending the refresh token. */
+  private renew(): Promise<string | undefined> {
+    if (!this.renewAccessToken) return Promise.resolve(undefined);
+    this.renewal ??= this.renewAccessToken()
+      .catch(() => undefined)
+      .finally(() => {
+        this.renewal = undefined;
+      });
+    return this.renewal;
   }
 }
 

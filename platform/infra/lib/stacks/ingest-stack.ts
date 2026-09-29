@@ -57,7 +57,8 @@ export class IngestStack extends Stack {
     );
     this.queue.grantConsumeMessages(processor);
     props.data.positions.grantWriteData(processor);
-    props.data.deviceState.grantWriteData(processor);
+    // Processing reads each vehicle's previous state before writing the new one.
+    props.data.deviceState.grantReadWriteData(processor);
     props.data.core.grantReadData(processor);
     props.data.events.grantWriteData(processor);
     props.data.trips.grantWriteData(processor);

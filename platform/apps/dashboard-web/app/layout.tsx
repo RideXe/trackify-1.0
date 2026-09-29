@@ -9,7 +9,8 @@ export const metadata: Metadata = {
 
 export default function Layout({ children }: Readonly<{ children: React.ReactNode }>) {
   return (
-    <html lang="en">
+    // Browser extensions (dark-mode ones like Night Eye) add attributes to <html> before React loads.
+    <html lang="en" suppressHydrationWarning>
       <body>
         <Providers>{children}</Providers>
       </body>

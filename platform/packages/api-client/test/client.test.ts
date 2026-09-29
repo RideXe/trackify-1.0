@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { CognitoPasswordClient, TrackifyClient, tokenExpired } from '../src';
+import { CognitoPasswordClient, SessionExpiredError, TrackifyClient, tokenExpired } from '../src';
 
 describe('token expiry', () => {
   it('treats malformed tokens as expired', () => expect(tokenExpired('invalid')).toBe(true));
@@ -65,6 +65,99 @@ describe('Cognito password authentication', () => {
       username: 'driver@example.com',
       session: 'session',
     });
+  });
+});
+
+describe('session renewal', () => {
+  afterEach(() => vi.unstubAllGlobals());
+
+  it('renews tokens with the refresh token and keeps it when Cognito does not rotate it', async () => {
+    const fetch = vi
+      .fn<typeof globalThis.fetch>()
+      .mockResolvedValue(
+        new Response(JSON.stringify({ AuthenticationResult: { AccessToken: 'new-access' } })),
+      );
+    vi.stubGlobal('fetch', fetch);
+
+    const tokens = await new CognitoPasswordClient({
+      awsRegion: 'ap-south-1',
+      clientId: 'client-id',
+    }).refresh('refresh-token');
+
+    expect(tokens).toEqual(
+      expect.objectContaining({ access_token: 'new-access', refresh_token: 'refresh-token' }),
+    );
+    expect(JSON.parse(fetch.mock.calls[0]?.[1]?.body as string)).toEqual({
+      AuthFlow: 'REFRESH_TOKEN_AUTH',
+      ClientId: 'client-id',
+      AuthParameters: { REFRESH_TOKEN: 'refresh-token' },
+    });
+  });
+});
+
+const apiConfig = {
+  apiUrl: 'https://api.example.com',
+  awsRegion: 'ap-south-1',
+  clientId: 'client-id',
+  realtimeDns: 'realtime.example.com',
+};
+
+function bearer(call: Parameters<typeof globalThis.fetch> | undefined) {
+  return (call?.[1]?.headers as Record<string, string> | undefined)?.authorization;
+}
+
+describe('expired sign-in', () => {
+  afterEach(() => vi.unstubAllGlobals());
+
+  it('renews once after a 401 and retries with the new token', async () => {
+    const fetch = vi
+      .fn<typeof globalThis.fetch>()
+      .mockResolvedValueOnce(new Response('{}', { status: 401 }))
+      .mockResolvedValue(new Response(JSON.stringify({ items: [] })));
+    vi.stubGlobal('fetch', fetch);
+    const renew = vi.fn().mockResolvedValue('fresh-token');
+
+    await expect(
+      new TrackifyClient(apiConfig, () => 'old-token', renew).devices(),
+    ).resolves.toEqual({ items: [] });
+    expect(renew).toHaveBeenCalledTimes(1);
+    expect(fetch.mock.calls.map(bearer)).toEqual(['Bearer old-token', 'Bearer fresh-token']);
+  });
+
+  it('reports an expired session when renewal fails', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response('{}', { status: 401 })));
+    const client = new TrackifyClient(
+      apiConfig,
+      () => 'old-token',
+      () => Promise.reject(new Error('refresh token revoked')),
+    );
+    await expect(client.devices()).rejects.toBeInstanceOf(SessionExpiredError);
+  });
+
+  it('shares one renewal between requests that expire together', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn((_url: string, init?: RequestInit) =>
+        Promise.resolve(
+          (init?.headers as Record<string, string>).authorization === 'Bearer fresh-token'
+            ? new Response(JSON.stringify({ items: [] }))
+            : new Response('{}', { status: 401 }),
+        ),
+      ),
+    );
+    const renew = vi.fn(() => Promise.resolve('fresh-token'));
+    const client = new TrackifyClient(apiConfig, () => 'old-token', renew);
+    await Promise.all([client.devices(), client.devices(), client.me()]);
+    expect(renew).toHaveBeenCalledTimes(1);
+  });
+
+  it('keeps 403 as a permission error without renewing', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response('{}', { status: 403 })));
+    const renew = vi.fn();
+    await expect(new TrackifyClient(apiConfig, () => 'token', renew).devices()).rejects.toThrow(
+      'Access denied',
+    );
+    expect(renew).not.toHaveBeenCalled();
   });
 });
 

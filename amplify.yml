@@ -8,7 +8,9 @@ applications:
             - cd ../.. && npm ci
         build:
           commands:
-            - cd ../.. && npm run build -w @trackify/dashboard-web
+            # preBuild's `cd ../..` already left us in platform/ — Amplify runs phases in one
+            # continuing shell, not a fresh one per phase, so cd'ing again here overshoots.
+            - npm run build -w @trackify/dashboard-web
       artifacts:
         baseDirectory: out
         files:

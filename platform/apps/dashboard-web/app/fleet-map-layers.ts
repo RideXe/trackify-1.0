@@ -104,12 +104,11 @@ export async function installFleetLayers(
   });
   map.addSource(FOCUS_SOURCE, { type: 'geojson', data: empty });
 
-  const isCluster = ['has', 'point_count'] as const;
   map.addLayer({
     id: CLUSTER_LAYER,
     type: 'circle',
     source: FLEET_SOURCE,
-    filter: isCluster,
+    filter: ['has', 'point_count'],
     paint: {
       'circle-color': '#155EEF',
       'circle-opacity': 0.92,
@@ -122,7 +121,7 @@ export async function installFleetLayers(
     id: 'fleet-cluster-count',
     type: 'symbol',
     source: FLEET_SOURCE,
-    filter: isCluster,
+    filter: ['has', 'point_count'],
     layout: {
       'text-field': ['get', 'point_count_abbreviated'],
       'text-font': LABEL_FONT,
@@ -147,7 +146,7 @@ export async function installFleetLayers(
     id: 'fleet-headings',
     type: 'symbol',
     source: FLEET_SOURCE,
-    filter: ['all', ['!', isCluster], ['==', ['get', 'status'], 'moving']],
+    filter: ['all', ['!', ['has', 'point_count']], ['==', ['get', 'status'], 'moving']],
     layout: {
       'icon-image': HEADING_IMAGE,
       'icon-rotate': ['get', 'heading'],
@@ -160,7 +159,7 @@ export async function installFleetLayers(
     id: VEHICLE_LAYER,
     type: 'symbol',
     source: FLEET_SOURCE,
-    filter: ['!', isCluster],
+    filter: ['!', ['has', 'point_count']],
     layout: {
       'icon-image': ['get', 'icon'],
       'icon-allow-overlap': true,
@@ -181,12 +180,12 @@ export async function installFleetLayers(
 }
 
 export function setFleetData(map: MapLibreMap, collection: FleetCollection) {
-  map.getSource<GeoJSONSource>(FLEET_SOURCE)?.setData(collection);
+  void map.getSource<GeoJSONSource>(FLEET_SOURCE)?.setData(collection);
 }
 
 /** Draws the ring around the focused vehicle, or clears it. */
 export function setFocus(map: MapLibreMap, coordinates: [number, number] | undefined) {
-  map
+  void map
     .getSource<GeoJSONSource>(FOCUS_SOURCE)
     ?.setData(
       coordinates
@@ -199,7 +198,9 @@ export function setFocus(map: MapLibreMap, coordinates: [number, number] | undef
 export class ButtonControl implements IControl {
   private container?: HTMLElement;
 
-  constructor(private readonly buttons: Array<{ label: string; svg: string; onClick: () => void }>) {}
+  constructor(
+    private readonly buttons: Array<{ label: string; svg: string; onClick: () => void }>,
+  ) {}
 
   onAdd() {
     const container = document.createElement('div');

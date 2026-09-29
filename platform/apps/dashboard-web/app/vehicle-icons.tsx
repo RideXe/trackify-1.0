@@ -17,9 +17,6 @@ import {
   Van,
   type LucideIcon,
 } from 'lucide-react';
-import { createElement } from 'react';
-import { flushSync } from 'react-dom';
-import { createRoot } from 'react-dom/client';
 
 /** One list drives the vehicle list, details, type picker and map pins. */
 export const vehicleIcons: Record<VehicleType, { label: string; Icon: LucideIcon }> = {
@@ -103,17 +100,4 @@ export function VehicleTypePicker({
       })}
     </Box>
   );
-}
-
-/**
- * SVG markup for an icon, used to draw map pins. Rendered with React's public API, so call it from
- * an event or callback, never while React is rendering.
- */
-export function iconSvg(Icon: LucideIcon, color: string, strokeWidth = 2): string {
-  const element = document.createElement('div');
-  const root = createRoot(element);
-  flushSync(() => root.render(createElement(Icon, { size: 24, color, strokeWidth })));
-  const markup = element.innerHTML;
-  root.unmount();
-  return markup;
 }

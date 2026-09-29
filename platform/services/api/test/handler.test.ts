@@ -62,10 +62,11 @@ describe('vehicle types', () => {
     const handler = createHandler(dependencies);
     await handler(eventWithBody('POST', '/devices', { ...input, vehicleType: 'schoolBus' }));
     await handler(eventWithBody('POST', '/devices', input));
-    expect(dependencies.createDevice.mock.calls.map((call) => call[1].vehicleType)).toEqual([
-      'schoolBus',
-      'car',
-    ]);
+    expect(
+      dependencies.createDevice.mock.calls.map(
+        (call) => (call[1] as { vehicleType: string }).vehicleType,
+      ),
+    ).toEqual(['schoolBus', 'car']);
   });
 
   it('rejects a type that is not listed', async () => {

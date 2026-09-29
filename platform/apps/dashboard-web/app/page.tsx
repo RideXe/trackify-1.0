@@ -67,13 +67,24 @@ import {
 import {
   CognitoPasswordClient,
   TrackifyClient,
+  toVehicleType,
   type Device,
+  type DeviceState,
   type Tokens,
+  type VehicleType,
 } from '@trackify/api-client';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import QRCode from 'qrcode';
+import { FleetMap as FleetMapView } from './fleet-map';
+import {
+  statusColors,
+  statusCounts,
+  statusLabels,
+  vehicleStatus,
+  type VehicleStatus,
+} from './fleet-map-data';
 import { RouteHistory } from './route-history';
-import { VehicleMap } from './vehicle-map';
+import { VehicleAvatar, VehicleTypePicker, vehicleIcons } from './vehicle-icons';
 
 const drawerWidth = 256;
 const config = {
@@ -185,13 +196,25 @@ export default function FleetPage() {
       .then((nextMembership) => {
         setMembership(nextMembership);
         close = client.subscribeFleet(nextMembership.tenantId, (update) => {
+          // A live update is one position: keep the rest of the state (odometer, trip, ...) and
+          // mark the vehicle as just seen, so it does not look quiet until the next refresh.
+          const withUpdate = (device: Device): Device => ({
+            ...device,
+            state: {
+              ...device.state,
+              ...update,
+              lastSeenAt: Date.now(),
+              status: 'online',
+              motion: (update.speedKmh ?? 0) > 0,
+            } satisfies DeviceState,
+          });
           setDevices((current) =>
             current.map((device) =>
-              device.deviceId === update.deviceId ? { ...device, state: update } : device,
+              device.deviceId === update.deviceId ? withUpdate(device) : device,
             ),
           );
           setSelected((current) =>
-            current?.deviceId === update.deviceId ? { ...current, state: update } : current,
+            current?.deviceId === update.deviceId ? withUpdate(current) : current,
           );
         });
       })
@@ -351,6 +374,7 @@ export default function FleetPage() {
             client={client}
             onAdd={() => setOnboardingOpen(true)}
             onSelect={setSelected}
+            onChanged={loadFleet}
           />
         )}
       </Box>
@@ -463,6 +487,7 @@ function Dashboard({
   client,
   onAdd,
   onSelect,
+  onChanged,
 }: {
   devices: Device[];
   membership?: Membership;
@@ -471,6 +496,7 @@ function Dashboard({
   client: TrackifyClient;
   onAdd: () => void;
   onSelect: (device: Device) => void;
+  onChanged: () => Promise<void>;
 }) {
   if (!devices.length) {
     return <EmptyFleet admin={membership?.role === 'admin'} onAdd={onAdd} />;
@@ -510,7 +536,14 @@ function Dashboard({
         <FleetMap devices={devices} selected={selected} onSelect={onSelect} />
         <VehicleList devices={devices} selected={selected} onSelect={onSelect} />
       </Box>
-      {selected && <VehicleDetails client={client} device={selected} />}
+      {selected && (
+        <VehicleDetails
+          admin={membership?.role === 'admin'}
+          client={client}
+          device={selected}
+          onChanged={onChanged}
+        />
+      )}
       {selected && <RouteHistory client={client} device={selected} />}
     </Stack>
   );
@@ -599,67 +632,44 @@ function FleetMap({
   selected?: Device;
   onSelect: (device: Device) => void;
 }) {
-  const positioned = devices.filter(hasPosition);
-  const current = selected && hasPosition(selected) ? selected : positioned[0];
-  const lat = current?.state?.latitude ?? 0;
-  const lon = current?.state?.longitude ?? 0;
+  const counts = statusCounts(devices);
+  const onMap = devices.filter(hasPosition).length;
   return (
     <Paper sx={{ overflow: 'hidden' }}>
       <Stack
-        direction="row"
-        spacing={2}
-        sx={{ alignItems: 'center', justifyContent: 'space-between', p: 2 }}
+        direction={{ xs: 'column', sm: 'row' }}
+        spacing={1.5}
+        sx={{ alignItems: { sm: 'center' }, justifyContent: 'space-between', p: 2 }}
       >
         <Box>
-          <Typography sx={{ fontWeight: 700 }}>Vehicle location</Typography>
+          <Typography sx={{ fontWeight: 700 }}>Fleet map</Typography>
           <Typography color="text.secondary" variant="caption">
-            {current
-              ? `${current.name} · ${isOnline(current) ? 'Recent GPS update' : 'Last known position'}`
+            {onMap
+              ? `${onMap} of ${devices.length} vehicles on the map · point at a vehicle for details`
               : 'Waiting for the first GPS signal'}
           </Typography>
         </Box>
-        {current && (
-          <Button
-            component="a"
-            href={`https://www.openstreetmap.org/?mlat=${lat}&mlon=${lon}#map=17/${lat}/${lon}`}
-            target="_blank"
-            rel="noopener noreferrer"
-            variant="outlined"
-          >
-            Full map
-          </Button>
-        )}
-      </Stack>
-      {current ? (
-        <VehicleMap latitude={lat} longitude={lon} title={`GPS location of ${current.name}`} />
-      ) : (
-        <Stack
-          sx={{ minHeight: 360, alignItems: 'center', justifyContent: 'center', px: 3 }}
-          spacing={2}
-        >
-          <Navigation size={28} />
-          <Typography>Connect the phone and allow location sharing to see its position.</Typography>
-          <Typography color="text.secondary">The vehicle does not need to move.</Typography>
+        <Stack direction="row" sx={{ flexWrap: 'wrap', columnGap: 2, rowGap: 0.5 }}>
+          {(Object.keys(counts) as VehicleStatus[]).map((status) => (
+            <Stack key={status} direction="row" spacing={0.75} sx={{ alignItems: 'center' }}>
+              <Box
+                sx={{ width: 10, height: 10, borderRadius: '50%', bgcolor: statusColors[status] }}
+              />
+              <Typography variant="caption">
+                {statusLabels[status]} {counts[status]}
+              </Typography>
+            </Stack>
+          ))}
         </Stack>
-      )}
-      <Stack direction="row" spacing={1} sx={{ p: 2, flexWrap: 'wrap', gap: 1 }}>
-        {positioned.map((device) => (
-          <Chip
-            key={device.deviceId}
-            label={device.name}
-            color={current?.deviceId === device.deviceId ? 'primary' : 'default'}
-            onClick={() => onSelect(device)}
-          />
-        ))}
       </Stack>
-      {current && (
-        <Typography variant="caption" component="p" sx={{ px: 2, pb: 2 }}>
-          {lat.toFixed(6)}, {lon.toFixed(6)} · Updated{' '}
-          {current.state?.lastSeenAt
-            ? new Date(current.state.lastSeenAt).toLocaleString()
-            : 'at the last GPS fix'}
-        </Typography>
-      )}
+      <FleetMapView
+        devices={devices}
+        selectedId={selected?.deviceId}
+        onSelect={(deviceId) => {
+          const device = devices.find((item) => item.deviceId === deviceId);
+          if (device) onSelect(device);
+        }}
+      />
     </Paper>
   );
 }
@@ -715,18 +725,16 @@ function VehicleList({
               selected={active}
               sx={{ px: 2.5, py: 1.75, borderBottom: 1, borderColor: 'divider' }}
             >
-              <Avatar
-                sx={{
-                  mr: 1.5,
-                  bgcolor: active ? 'primary.main' : '#F2F4F7',
-                  color: active ? 'white' : 'text.secondary',
-                }}
-              >
-                <CarFront size={19} />
-              </Avatar>
+              <Box sx={{ mr: 1.5 }}>
+                <VehicleAvatar
+                  type={toVehicleType(device.vehicleType)}
+                  color={active ? '#FFFFFF' : statusColors[vehicleStatus(device)]}
+                  background={active ? '#155EEF' : '#F2F4F7'}
+                />
+              </Box>
               <ListItemText
                 primary={device.name}
-                secondary={`${Math.round(device.state?.speedKmh ?? 0)} km/h · ${online ? 'Online' : 'Quiet'}`}
+                secondary={`${vehicleIcons[toVehicleType(device.vehicleType)].label} · ${statusLabels[vehicleStatus(device)]}${vehicleStatus(device) === 'moving' ? ` · ${Math.round(device.state?.speedKmh ?? 0)} km/h` : ''}`}
                 slotProps={{ primary: { sx: { fontWeight: 650 } } }}
               />
               <Box
@@ -747,7 +755,34 @@ function VehicleList({
   );
 }
 
-function VehicleDetails({ device, client }: { device: Device; client: TrackifyClient }) {
+function VehicleDetails({
+  device,
+  client,
+  admin,
+  onChanged,
+}: {
+  device: Device;
+  client: TrackifyClient;
+  admin: boolean;
+  onChanged: () => Promise<void>;
+}) {
+  const vehicleType = toVehicleType(device.vehicleType);
+  const [typeOpen, setTypeOpen] = useState(false);
+  const [typeBusy, setTypeBusy] = useState(false);
+  const [typeError, setTypeError] = useState('');
+  async function changeType(next: VehicleType) {
+    setTypeBusy(true);
+    setTypeError('');
+    try {
+      await client.updateDevice(device.deviceId, { vehicleType: next });
+      await onChanged();
+      setTypeOpen(false);
+    } catch (reason) {
+      setTypeError(reason instanceof Error ? reason.message : 'Vehicle type could not be saved');
+    } finally {
+      setTypeBusy(false);
+    }
+  }
   const [activity, setActivity] = useState({ trips: 0, events: 0, distanceKm: 0 });
   const [pairing, setPairing] = useState<DeviceInvitation>();
   const [pairingQr, setPairingQr] = useState('');
@@ -845,14 +880,25 @@ function VehicleDetails({ device, client }: { device: Device; client: TrackifyCl
         sx={{ alignItems: { md: 'center' } }}
       >
         <Stack direction="row" spacing={1.5} sx={{ alignItems: 'center', flex: 1 }}>
-          <Avatar sx={{ bgcolor: '#EEF4FF', color: 'primary.main' }}>
-            <CarFront size={21} />
-          </Avatar>
+          <VehicleAvatar type={vehicleType} size={44} />
           <Box>
             <Typography sx={{ fontWeight: 700 }}>{device.name}</Typography>
             <Typography color="text.secondary" variant="body2">
-              {device.uniqueId} · {device.protocol.toUpperCase()}
+              {vehicleIcons[vehicleType].label} · {device.uniqueId} ·{' '}
+              {device.protocol.toUpperCase()}
             </Typography>
+            {admin && (
+              <Button
+                size="small"
+                sx={{ mt: 0.5, ml: -1 }}
+                onClick={() => {
+                  setTypeError('');
+                  setTypeOpen(true);
+                }}
+              >
+                Change type
+              </Button>
+            )}
           </Box>
         </Stack>
         {[
@@ -910,6 +956,31 @@ function VehicleDetails({ device, client }: { device: Device; client: TrackifyCl
           {pairingError}
         </Alert>
       )}
+      <Dialog open={typeOpen} onClose={() => setTypeOpen(false)} fullWidth maxWidth="sm">
+        <DialogTitle component="div">
+          <Typography component="h2" variant="h5">
+            Vehicle type
+          </Typography>
+          <Typography color="text.secondary" variant="body2">
+            Choose how {device.name} appears on the map and in lists.
+          </Typography>
+        </DialogTitle>
+        <DialogContent>
+          <VehicleTypePicker
+            value={vehicleType}
+            disabled={typeBusy}
+            onChange={(next) => void changeType(next)}
+          />
+          {typeError && (
+            <Alert severity="error" sx={{ mt: 2 }}>
+              {typeError}
+            </Alert>
+          )}
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setTypeOpen(false)}>Close</Button>
+        </DialogActions>
+      </Dialog>
       <Dialog open={Boolean(pairing)} onClose={() => setPairing(undefined)} fullWidth maxWidth="xs">
         <DialogTitle component="div">
           <Typography component="h2" variant="h5">
@@ -1154,6 +1225,7 @@ function DeviceOnboarding({
   onCreated: () => Promise<void>;
 }) {
   const [name, setName] = useState('');
+  const [vehicleType, setVehicleType] = useState<VehicleType>('car');
   const [created, setCreated] = useState<CreatedDevice>();
   const [qrDataUrl, setQrDataUrl] = useState('');
   const [invitationStatus, setInvitationStatus] = useState<DeviceInvitation['status']>('waiting');
@@ -1164,6 +1236,7 @@ function DeviceOnboarding({
     setTimeout(() => {
       setCreated(undefined);
       setName('');
+      setVehicleType('car');
       setQrDataUrl('');
       setInvitationStatus('waiting');
       setError('');
@@ -1179,6 +1252,7 @@ function DeviceOnboarding({
         protocol: 'osmand',
         retentionDays: 90,
         groupId: 'UNGROUPED',
+        vehicleType,
       })) as CreatedDevice;
       setCreated(device);
       if (device.onboarding?.link) {
@@ -1280,6 +1354,12 @@ function DeviceOnboarding({
               required
               value={name}
             />
+            <Box>
+              <Typography variant="body2" sx={{ fontWeight: 600, mb: 1 }}>
+                Vehicle type
+              </Typography>
+              <VehicleTypePicker value={vehicleType} onChange={setVehicleType} disabled={busy} />
+            </Box>
             <Alert severity="info" icon={<Smartphone />}>
               After adding the vehicle, share its QR code or six-character code with the driver. The
               Trackify app connects directly without asking for an account.

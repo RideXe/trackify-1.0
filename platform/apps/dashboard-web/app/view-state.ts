@@ -4,21 +4,26 @@ import { useCallback, useEffect, useState } from 'react';
  * Which screen the dashboard shows. It lives in the query string rather than in routes because
  * the site is a static export: /?vehicle=<id> can be bookmarked and shared without a server.
  */
-export type View =
-  { page: 'overview' } | { page: 'vehicle'; deviceId: string } | { page: 'drivers' };
+/** Pages that are just a name, with no id. */
+export const namedPages = ['overview', 'drivers', 'alerts', 'settings'] as const;
+export type NamedPage = (typeof namedPages)[number];
+
+export type View = { page: NamedPage } | { page: 'vehicle'; deviceId: string };
 
 export function parseView(search: string): View {
   const params = new URLSearchParams(search);
   const deviceId = params.get('vehicle');
   if (deviceId) return { page: 'vehicle', deviceId };
-  if (params.get('view') === 'drivers') return { page: 'drivers' };
+  const page = params.get('view');
+  if (page && page !== 'overview' && (namedPages as readonly string[]).includes(page))
+    return { page: page as NamedPage };
   return { page: 'overview' };
 }
 
 export function viewSearch(view: View): string {
   if (view.page === 'vehicle') return `?vehicle=${encodeURIComponent(view.deviceId)}`;
-  if (view.page === 'drivers') return '?view=drivers';
-  return '';
+  if (view.page === 'overview') return '';
+  return `?view=${view.page}`;
 }
 
 /** The current view, kept in step with the address bar and the browser's back/forward buttons. */

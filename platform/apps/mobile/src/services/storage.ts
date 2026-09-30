@@ -36,6 +36,8 @@ export interface TrackerConfig {
   /** Warnings already sent for a problem that is still going on, so each is sent once. */
   sentWarnings: Partial<Record<WarningKind, boolean>>;
   lastReadMessageAt: number;
+  /** When the setup code was redeemed; 0 for phones connected before this was recorded. */
+  connectedAt: number;
 }
 
 export const defaultTrackerConfig: TrackerConfig = {
@@ -53,6 +55,7 @@ export const defaultTrackerConfig: TrackerConfig = {
   duty: { status: 'off' },
   sentWarnings: {},
   lastReadMessageAt: 0,
+  connectedAt: 0,
 };
 
 const configKey = 'tracker-config-v2';

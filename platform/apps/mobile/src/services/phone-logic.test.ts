@@ -91,12 +91,14 @@ describe('offline queue for driver actions', () => {
     expect(await pendingActivityCount()).toBe(2);
 
     const fetch = vi
-      .fn()
+      .fn<typeof globalThis.fetch>()
       .mockImplementation(() => Promise.resolve(new Response('{}', { status: 201 })));
     vi.stubGlobal('fetch', fetch);
     expect(await flushActivity(config)).toBe(true);
     expect(
-      fetch.mock.calls.map((call) => (JSON.parse(String(call[1]?.body)) as { type: string }).type),
+      fetch.mock.calls.map(
+        (call) => (JSON.parse(call[1]?.body as string) as { type: string }).type,
+      ),
     ).toEqual(['pause', 'sos']);
   });
 
@@ -121,6 +123,16 @@ describe('offline queue for driver actions', () => {
     await expect(sendActivity(config, { type: 'sos', at: 1 })).rejects.toMatchObject({
       name: 'DisconnectedError',
     });
+  });
+});
+
+describe('disconnects', () => {
+  it('ignores a 401 in the first two minutes, while the server catches up with a new phone', async () => {
+    const { DisconnectedError, isRevoked } = await import('./phone-api');
+    const error = new DisconnectedError();
+    expect(isRevoked(error, { connectedAt: 1_000 }, 60_000)).toBe(false);
+    expect(isRevoked(error, { connectedAt: 1_000 }, 200_000)).toBe(true);
+    expect(isRevoked(new Error('offline'), { connectedAt: 0 }, 200_000)).toBe(false);
   });
 });
 

@@ -38,6 +38,7 @@ export async function connectWithCode(code: string): Promise<TrackerConfig> {
     name: value.name,
     endpoint: value.endpoint,
     credential: value.credential,
+    connectedAt: Date.now(),
   };
   // Save before anything else can fail: the code cannot be redeemed a second time.
   await saveTrackerConfig(connected);

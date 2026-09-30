@@ -25,8 +25,8 @@ import { applySettings } from '../services/connection';
 import { endShift, pause, pauseExpired, resume, sendSos, startShift } from '../services/duty';
 import { checkHealth } from '../services/health';
 import {
-  DisconnectedError,
   fetchMessages,
+  isRevoked,
   fetchPhoneSettings,
   fetchToday,
   type TodaySummary,
@@ -88,8 +88,8 @@ export function HomeScreen({
         setMessages(await fetchMessages(current, since));
         await flushActivity(current);
       } catch (error) {
-        if (error instanceof DisconnectedError) return onDisconnected();
-        // Offline: keep going with what the phone already knows.
+        if (isRevoked(error, current)) return onDisconnected();
+        // Offline (or the server has not caught up with a new phone): keep what the phone knows.
       }
       setProblems(await checkHealth(current, true));
       setPending(await pendingActivityCount());
@@ -105,7 +105,7 @@ export function HomeScreen({
     try {
       setToday(await fetchToday(await loadTrackerConfig(), midnight.getTime()));
     } catch (error) {
-      if (error instanceof DisconnectedError) return onDisconnected();
+      if (isRevoked(error, await loadTrackerConfig())) return onDisconnected();
       setToday(null);
     }
   }, [onDisconnected]);
@@ -145,7 +145,7 @@ export function HomeScreen({
       const result = await action();
       if (result === 'queued') Alert.alert(t('queued'));
     } catch (reason) {
-      if (reason instanceof DisconnectedError) return onDisconnected();
+      if (isRevoked(reason, await loadTrackerConfig())) return onDisconnected();
       Alert.alert(t('shiftFailed'), reason instanceof Error ? reason.message : undefined);
     } finally {
       await reload();

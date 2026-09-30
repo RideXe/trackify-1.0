@@ -4,7 +4,7 @@ import { flushActivity } from '../services/activity-queue';
 import { forgetConnection } from '../services/connection';
 import { pauseExpired, resume, sharesLocation } from '../services/duty';
 import { checkHealth } from '../services/health';
-import { DisconnectedError } from '../services/phone-api';
+import { isRevoked } from '../services/phone-api';
 import { addTrackerLog, loadTrackerConfig } from '../services/storage';
 import { batteryPct } from '../services/tracking';
 import { uploadLocation } from '../services/upload';
@@ -35,7 +35,7 @@ export async function handleLocationTask(location: NativeLocation) {
     await flushActivity(config);
     await checkHealth(config, false);
   } catch (reason) {
-    if (reason instanceof DisconnectedError) {
+    if (isRevoked(reason, config)) {
       await forgetConnection();
       return;
     }

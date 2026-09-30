@@ -32,6 +32,8 @@ import {
 } from '@trackify/api-client';
 import { ArrowLeft, Pencil, Phone, Trash2, UserPlus, UserRound, UserX } from 'lucide-react';
 import { useEffect, useMemo, useState, type ReactNode } from 'react';
+import { DriverActivityCard, PhoneSettingsCard } from './driver-activity';
+import { dutyLabel, notReporting } from './driver-activity-data';
 import { DriverAvatar, DriverFields } from './drivers';
 import { FleetMap } from './fleet-map';
 import { headingLabel, statusColors, statusLabels, timeAgo, vehicleStatus } from './fleet-map-data';
@@ -70,6 +72,7 @@ export function VehiclePage({
   drivers,
   driversError,
   admin,
+  canDispatch,
   client,
   connection,
   onBack,
@@ -83,6 +86,8 @@ export function VehiclePage({
   drivers?: Driver[];
   driversError: string;
   admin: boolean;
+  /** Dispatchers and administrators can message the driver. */
+  canDispatch: boolean;
   client: TrackifyClient;
   /** The tracker pairing controls, which live with the rest of the setup-code flow. */
   connection: ReactNode;
@@ -207,6 +212,13 @@ export function VehiclePage({
                     fontWeight: 700,
                   }}
                 />
+                {notReporting(device) ? (
+                  <Chip color="error" label="On shift · not reporting" size="small" />
+                ) : (
+                  dutyLabel(device) && (
+                    <Chip label={dutyLabel(device)} size="small" variant="outlined" />
+                  )
+                )}
               </Stack>
               <Typography color="text.secondary" sx={{ mt: 0.5 }}>
                 {[vehicleIcons[vehicleType].label, device.model].filter(Boolean).join(' · ')} ·{' '}
@@ -294,8 +306,11 @@ export function VehiclePage({
           />
           <DetailsCard admin={admin} device={device} onEdit={() => setEditOpen(true)} />
           {connection}
+          <PhoneSettingsCard admin={admin} client={client} device={device} onChanged={onChanged} />
         </Stack>
       </Box>
+
+      <DriverActivityCard canMessage={canDispatch} client={client} device={device} />
 
       <RouteHistory client={client} device={device} />
 

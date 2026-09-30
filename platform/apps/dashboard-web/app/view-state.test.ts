@@ -6,6 +6,8 @@ describe('dashboard views in the address bar', () => {
     const views: View[] = [
       { page: 'overview' },
       { page: 'drivers' },
+      { page: 'alerts' },
+      { page: 'settings' },
       { page: 'vehicle', deviceId: '01JABC/with space' },
     ];
     for (const view of views) expect(parseView(viewSearch(view))).toEqual(view);

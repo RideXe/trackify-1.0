@@ -9,6 +9,19 @@ export class DisconnectedError extends Error {
   }
 }
 
+/**
+ * Whether a 401 really means the administrator disconnected this phone. Just after setup the
+ * server's credential index can lag a few seconds behind, so a brand-new phone briefly gets 401s
+ * that must not wipe its connection.
+ */
+export function isRevoked(
+  error: unknown,
+  config: Pick<TrackerConfig, 'connectedAt'>,
+  now = Date.now(),
+) {
+  return error instanceof DisconnectedError && now - config.connectedAt > 120_000;
+}
+
 export interface PhoneSettings {
   organisation?: string;
   dispatcherPhone?: string;

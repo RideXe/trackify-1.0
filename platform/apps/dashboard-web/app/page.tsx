@@ -72,6 +72,7 @@ import {
   type Device,
   type DeviceState,
   type Driver,
+  type FleetAlert,
   type Tokens,
   type VehicleType,
 } from '@trackify/api-client';
@@ -85,10 +86,13 @@ import {
   vehicleStatus,
   type VehicleStatus,
 } from './fleet-map-data';
+import { AlertsPage, SosBanner } from './alerts';
+import { dutyLabel, notReporting } from './driver-activity-data';
 import { DriversPage } from './drivers';
+import { SettingsPage } from './settings';
 import { VehicleNotFound, VehiclePage } from './vehicle-page';
 import { VehicleAvatar, VehicleTypePicker, vehicleIcons } from './vehicle-icons';
-import { useView, type View } from './view-state';
+import { useView, type NamedPage, type View } from './view-state';
 
 const drawerWidth = 256;
 const config = {
@@ -128,12 +132,12 @@ interface DeviceInvitation {
 type CreatedDevice = Device & { onboarding?: DeviceInvitation };
 
 /** Only entries with a page lead anywhere yet; the rest are placeholders. */
-const navItems: Array<{ label: string; icon: typeof Gauge; page?: 'overview' | 'drivers' }> = [
+const navItems: Array<{ label: string; icon: typeof Gauge; page?: NamedPage }> = [
   { label: 'Overview', icon: Gauge, page: 'overview' },
   { label: 'Drivers', icon: IdCard, page: 'drivers' },
+  { label: 'Alerts', icon: Bell, page: 'alerts' },
   { label: 'Live map', icon: Map },
   { label: 'Trips', icon: Route },
-  { label: 'Alerts', icon: Bell },
   { label: 'Team', icon: Users },
 ];
 
@@ -145,6 +149,8 @@ export default function FleetPage() {
   const [drivers, setDrivers] = useState<Driver[]>();
   const [driversError, setDriversError] = useState('');
   const [view, navigate] = useView();
+  const [alerts, setAlerts] = useState<FleetAlert[]>();
+  const [alertsError, setAlertsError] = useState('');
   const [membership, setMembership] = useState<Membership>();
   const [challenge, setChallenge] = useState<PasswordChallenge>();
   const [error, setError] = useState('');
@@ -190,6 +196,25 @@ export default function FleetPage() {
   useEffect(() => {
     if (tokens) void loadDrivers();
   }, [tokens, loadDrivers]);
+
+  const loadAlerts = useCallback(async () => {
+    try {
+      setAlerts((await client.alerts()).items);
+      setAlertsError('');
+    } catch (reason) {
+      setAlertsError(reason instanceof Error ? reason.message : 'Alerts unavailable');
+    }
+  }, [client]);
+
+  // An SOS must surface quickly, so alerts refresh more often than the fleet list.
+  useEffect(() => {
+    if (!tokens) return;
+    void loadAlerts();
+    const timer = window.setInterval(() => {
+      if (!document.hidden) void loadAlerts();
+    }, 15_000);
+    return () => window.clearInterval(timer);
+  }, [tokens, loadAlerts]);
 
   useEffect(() => {
     const saved = readTokens();
@@ -286,12 +311,17 @@ export default function FleetPage() {
     view.page === 'vehicle'
       ? devices.find((device) => device.deviceId === view.deviceId)
       : undefined;
+  const openAlerts = (alerts ?? []).filter((alert) => alert.status === 'open').length;
   const [title, subtitle] =
     view.page === 'drivers'
       ? ['Drivers', 'People who drive your vehicles']
-      : view.page === 'vehicle'
-        ? [viewed?.name ?? 'Vehicle', 'Live status, driver and route history']
-        : ['Fleet overview', 'Live operations and vehicle health'];
+      : view.page === 'alerts'
+        ? ['Alerts', 'SOS, driver reports and phone problems']
+        : view.page === 'settings'
+          ? ['Settings', 'What drivers see in their app']
+          : view.page === 'vehicle'
+            ? [viewed?.name ?? 'Vehicle', 'Live status, driver and route history']
+            : ['Fleet overview', 'Live operations and vehicle health'];
   const go = (next: View) => {
     setMobileNav(false);
     navigate(next);
@@ -303,7 +333,8 @@ export default function FleetPage() {
   const drawer = (
     <NavigationDrawer
       email={membership?.email}
-      page={view.page === 'drivers' ? 'drivers' : 'overview'}
+      page={view.page === 'vehicle' ? 'overview' : view.page}
+      openAlerts={openAlerts}
       onNavigate={(page) => go({ page })}
       onAdd={() => {
         setOnboardingOpen(true);
@@ -389,6 +420,11 @@ export default function FleetPage() {
           pb: 4,
         }}
       >
+        <SosBanner
+          alerts={alerts ?? []}
+          onOpenAlerts={() => go({ page: 'alerts' })}
+          onOpenVehicle={(deviceId) => go({ page: 'vehicle', deviceId })}
+        />
         {loadingFleet ? (
           <Stack
             spacing={2}
@@ -397,6 +433,17 @@ export default function FleetPage() {
             <CircularProgress size={32} />
             <Typography color="text.secondary">Loading your fleet…</Typography>
           </Stack>
+        ) : view.page === 'alerts' ? (
+          <AlertsPage
+            alerts={alerts}
+            canAcknowledge={membership?.role !== 'viewer'}
+            client={client}
+            error={alertsError}
+            onChanged={loadAlerts}
+            onOpenVehicle={(deviceId) => go({ page: 'vehicle', deviceId })}
+          />
+        ) : view.page === 'settings' ? (
+          <SettingsPage admin={admin} client={client} />
         ) : view.page === 'drivers' ? (
           <DriversPage
             admin={admin}
@@ -417,7 +464,8 @@ export default function FleetPage() {
               key={viewed.deviceId}
               admin={admin}
               client={client}
-              connection={<TrackerConnection device={viewed} />}
+              canDispatch={membership?.role !== 'viewer'}
+              connection={<TrackerConnection admin={admin} device={viewed} />}
               device={viewed}
               devices={devices}
               drivers={drivers}
@@ -438,6 +486,7 @@ export default function FleetPage() {
             devices={devices}
             admin={admin}
             online={online}
+            openAlerts={openAlerts}
             onAdd={() => setOnboardingOpen(true)}
             onOpen={(deviceId) => go({ page: 'vehicle', deviceId })}
           />
@@ -470,13 +519,15 @@ export default function FleetPage() {
 function NavigationDrawer({
   email,
   page,
+  openAlerts,
   onNavigate,
   onAdd,
   onSignOut,
 }: {
   email?: string;
-  page: 'overview' | 'drivers';
-  onNavigate: (page: 'overview' | 'drivers') => void;
+  page: NamedPage;
+  openAlerts: number;
+  onNavigate: (page: NamedPage) => void;
   onAdd: () => void;
   onSignOut: () => void;
 }) {
@@ -516,13 +567,20 @@ function NavigationDrawer({
                 primary={label}
                 slotProps={{ primary: { sx: { fontWeight: active ? 700 : 550 } } }}
               />
+              {target === 'alerts' && openAlerts > 0 && (
+                <Chip color="error" label={openAlerts} size="small" />
+              )}
             </ListItemButton>
           );
         })}
       </List>
       <Box sx={{ flex: 1 }} />
       <List sx={{ px: 1.5 }}>
-        <ListItemButton sx={{ borderRadius: 2 }}>
+        <ListItemButton
+          onClick={() => onNavigate('settings')}
+          selected={page === 'settings'}
+          sx={{ borderRadius: 2 }}
+        >
           <ListItemIcon sx={{ minWidth: 38 }}>
             <Settings size={19} />
           </ListItemIcon>
@@ -556,12 +614,14 @@ function Dashboard({
   devices,
   admin,
   online,
+  openAlerts,
   onAdd,
   onOpen,
 }: {
   devices: Device[];
   admin: boolean;
   online: number;
+  openAlerts: number;
   onAdd: () => void;
   onOpen: (deviceId: string) => void;
 }) {
@@ -591,7 +651,7 @@ function Dashboard({
           value={devices.length - online}
           tone="#DC6803"
         />
-        <MetricCard icon={Bell} label="Open alerts" value={0} tone="#D92D20" />
+        <MetricCard icon={Bell} label="Open alerts" value={openAlerts} tone="#D92D20" />
       </Box>
       <Box
         sx={{
@@ -773,7 +833,15 @@ function VehicleList({
               </Box>
               <ListItemText
                 primary={device.name}
-                secondary={`${vehicleIcons[toVehicleType(device.vehicleType)].label} · ${statusLabels[vehicleStatus(device)]}${vehicleStatus(device) === 'moving' ? ` · ${Math.round(device.state?.speedKmh ?? 0)} km/h` : ''}`}
+                secondary={[
+                  vehicleIcons[toVehicleType(device.vehicleType)].label,
+                  statusLabels[vehicleStatus(device)],
+                  vehicleStatus(device) === 'moving' &&
+                    `${Math.round(device.state?.speedKmh ?? 0)} km/h`,
+                  notReporting(device) ? 'On shift · not reporting' : dutyLabel(device),
+                ]
+                  .filter(Boolean)
+                  .join(' · ')}
                 slotProps={{ primary: { sx: { fontWeight: 650 } } }}
               />
               <Box
@@ -795,7 +863,7 @@ function VehicleList({
 }
 
 /** Whether the vehicle's tracker (usually the driver's phone) is connected, and pairing it. */
-function TrackerConnection({ device }: { device: Device }) {
+function TrackerConnection({ device, admin }: { device: Device; admin: boolean }) {
   const [pairing, setPairing] = useState<DeviceInvitation>();
   const [pairingQr, setPairingQr] = useState('');
   const [pairingBusy, setPairingBusy] = useState(false);
@@ -869,6 +937,34 @@ function TrackerConnection({ device }: { device: Device }) {
       setPairingBusy(false);
     }
   }
+  /** Revokes the phone's credential; the app notices on its next check-in and signs itself out. */
+  async function disconnectPhone() {
+    if (
+      !window.confirm(
+        `Disconnect the phone from ${device.name}? It stops sharing location at once and needs a new setup code to reconnect.`,
+      )
+    )
+      return;
+    setPairingBusy(true);
+    setPairingError('');
+    try {
+      const response = await apiFetch(
+        `/devices/${encodeURIComponent(device.deviceId)}/invitations`,
+      );
+      if (!response.ok) throw new Error('Could not check the existing connection');
+      const { items } = (await response.json()) as { items: DeviceInvitation[] };
+      for (const item of items.filter((item) => item.status === 'activated')) {
+        const revoked = await apiFetch(`/invitations/${item.invitationId}`, { method: 'DELETE' });
+        if (!revoked.ok && revoked.status !== 404)
+          throw new Error('Could not disconnect the phone');
+      }
+      setConnectionStatus('revoked');
+    } catch (reason) {
+      setPairingError(reason instanceof Error ? reason.message : 'Could not disconnect the phone');
+    } finally {
+      setPairingBusy(false);
+    }
+  }
   return (
     <Paper sx={{ p: 2.5 }}>
       <Typography sx={{ fontWeight: 700 }}>Tracker</Typography>
@@ -905,9 +1001,21 @@ function TrackerConnection({ device }: { device: Device }) {
           </Button>
         )}
         {connectionStatus === 'activated' && (
-          <Button disabled={pairingBusy} size="small" onClick={() => void createPairing()}>
-            Replace connected phone
-          </Button>
+          <Stack direction="row" spacing={1}>
+            <Button disabled={pairingBusy} size="small" onClick={() => void createPairing()}>
+              Replace connected phone
+            </Button>
+            {admin && (
+              <Button
+                color="error"
+                disabled={pairingBusy}
+                size="small"
+                onClick={() => void disconnectPhone()}
+              >
+                Disconnect phone
+              </Button>
+            )}
+          </Stack>
         )}
       </Stack>
       {pairingError && (

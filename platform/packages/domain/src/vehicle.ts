@@ -29,3 +29,12 @@ export function isVehicleType(value: unknown): value is VehicleType {
 export function toVehicleType(value: unknown): VehicleType {
   return isVehicleType(value) ? value : defaultVehicleType;
 }
+
+/** Optional; unlike vehicleType this has no default — an unset fuel type stays unset, not guessed. */
+export const fuelTypes = ['petrol', 'diesel', 'cng', 'electric', 'hybrid', 'other'] as const;
+
+export type FuelType = (typeof fuelTypes)[number];
+
+export function isFuelType(value: unknown): value is FuelType {
+  return typeof value === 'string' && (fuelTypes as readonly string[]).includes(value);
+}

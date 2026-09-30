@@ -1,4 +1,5 @@
 import {
+  DeleteCommand,
   GetCommand,
   PutCommand,
   QueryCommand,
@@ -6,7 +7,13 @@ import {
   UpdateCommand,
   type DynamoDBDocumentClient,
 } from '@aws-sdk/lib-dynamodb';
-import { defaultVehicleType, toVehicleType, type VehicleType } from '@trackify/domain';
+import {
+  defaultVehicleType,
+  isFuelType,
+  toVehicleType,
+  type FuelType,
+  type VehicleType,
+} from '@trackify/domain';
 import { ulid } from 'ulid';
 import { cognitoLookupKey, tenantPartitionKey, uniqueIdLookupKey } from './keys';
 
@@ -29,7 +36,24 @@ export interface FleetDevice {
   enabled: boolean;
   groupId: string;
   vehicleType: VehicleType;
+  /** All optional admin-entered reference fields; unset stays unset, never guessed or computed. */
+  model?: string;
+  fuelType?: FuelType;
+  purchasedOn?: string;
+  colour?: string;
+  driverId?: string;
 }
+
+export interface Driver {
+  tenantId: string;
+  driverId: string;
+  name: string;
+  phone?: string;
+  licenceNumber?: string;
+}
+
+/** An update where null clears an optional field and undefined leaves it untouched. */
+type Clearable<T> = { [K in keyof T]?: T[K] | null };
 
 export interface DeviceState {
   tenantId: string;
@@ -110,9 +134,8 @@ export class DynamoFleetStore {
 
   async createDevice(
     tenantId: string,
-    input: Pick<FleetDevice, 'name' | 'uniqueId' | 'protocol' | 'retentionDays' | 'groupId'> & {
-      vehicleType?: VehicleType;
-    },
+    input: Pick<FleetDevice, 'name' | 'uniqueId' | 'protocol' | 'retentionDays' | 'groupId'> &
+      Partial<Pick<FleetDevice, 'vehicleType' | 'model' | 'fuelType' | 'purchasedOn' | 'colour'>>,
   ): Promise<FleetDevice> {
     const deviceId = ulid();
     const device: FleetDevice = {
@@ -151,29 +174,125 @@ export class DynamoFleetStore {
     return device;
   }
 
-  /** Renames a vehicle or changes its type. Returns undefined when it does not exist. */
+  /**
+   * Edits a vehicle's own fields or its driver assignment. An optional field set to null is
+   * cleared (a null driverId unassigns the driver). Returns undefined when it does not exist.
+   */
   async updateDevice(
     tenantId: string,
     deviceId: string,
-    changes: Partial<Pick<FleetDevice, 'name' | 'vehicleType'>>,
+    changes: Partial<Pick<FleetDevice, 'name' | 'vehicleType'>> &
+      Clearable<Pick<FleetDevice, 'model' | 'fuelType' | 'purchasedOn' | 'colour' | 'driverId'>>,
   ): Promise<FleetDevice | undefined> {
-    const fields = Object.entries(changes).filter(([, value]) => value !== undefined);
-    if (!fields.length) return this.getDevice(tenantId, deviceId);
+    const attributes = await this.updateItem(
+      { pk: tenantPartitionKey(tenantId), sk: `DEVICE#${deviceId}` },
+      changes,
+    );
+    return attributes ? toDevice(attributes) : undefined;
+  }
+
+  async listDrivers(tenantId: string): Promise<Driver[]> {
+    const result = await this.client.send(
+      new QueryCommand({
+        TableName: this.coreTable,
+        KeyConditionExpression: 'pk = :pk AND begins_with(sk, :prefix)',
+        ExpressionAttributeValues: { ':pk': tenantPartitionKey(tenantId), ':prefix': 'DRIVER#' },
+      }),
+    );
+    return (result.Items ?? []).map(toDriver);
+  }
+
+  async getDriver(tenantId: string, driverId: string): Promise<Driver | undefined> {
+    const result = await this.client.send(
+      new GetCommand({
+        TableName: this.coreTable,
+        Key: { pk: tenantPartitionKey(tenantId), sk: `DRIVER#${driverId}` },
+      }),
+    );
+    return result.Item ? toDriver(result.Item) : undefined;
+  }
+
+  async createDriver(
+    tenantId: string,
+    input: Pick<Driver, 'name' | 'phone' | 'licenceNumber'>,
+  ): Promise<Driver> {
+    const driverId = ulid();
+    const driver: Driver = { ...input, tenantId, driverId };
+    await this.client.send(
+      new PutCommand({
+        TableName: this.coreTable,
+        Item: { pk: tenantPartitionKey(tenantId), sk: `DRIVER#${driverId}`, ...driver },
+      }),
+    );
+    return driver;
+  }
+
+  async updateDriver(
+    tenantId: string,
+    driverId: string,
+    changes: Partial<Pick<Driver, 'name'>> & Clearable<Pick<Driver, 'phone' | 'licenceNumber'>>,
+  ): Promise<Driver | undefined> {
+    const attributes = await this.updateItem(
+      { pk: tenantPartitionKey(tenantId), sk: `DRIVER#${driverId}` },
+      changes,
+    );
+    return attributes ? toDriver(attributes) : undefined;
+  }
+
+  /**
+   * Returns false when the driver does not exist. Vehicles still pointing at this driver are not
+   * touched here; the API unassigns them after the delete succeeds.
+   */
+  async deleteDriver(tenantId: string, driverId: string): Promise<boolean> {
+    const result = await this.client.send(
+      new DeleteCommand({
+        TableName: this.coreTable,
+        Key: { pk: tenantPartitionKey(tenantId), sk: `DRIVER#${driverId}` },
+        ReturnValues: 'ALL_OLD',
+      }),
+    );
+    return Boolean(result.Attributes);
+  }
+
+  /**
+   * Shared SET/REMOVE update: a field set to null is removed from the item rather than stored as
+   * null. Returns the updated item, or undefined when it does not exist; with nothing to change
+   * it only reads the item.
+   */
+  private async updateItem(
+    key: { pk: string; sk: string },
+    changes: Record<string, unknown>,
+  ): Promise<Record<string, unknown> | undefined> {
+    const entries = Object.entries(changes).filter(([, value]) => value !== undefined);
+    if (!entries.length) {
+      const existing = await this.client.send(
+        new GetCommand({ TableName: this.coreTable, Key: key }),
+      );
+      return existing.Item;
+    }
+    const sets = entries.filter((entry): entry is [string, string] => entry[1] !== null);
+    const removes = entries.filter((entry) => entry[1] === null).map(([key]) => key);
+    const clauses = [
+      sets.length ? `SET ${sets.map(([field]) => `#${field} = :${field}`).join(', ')}` : '',
+      removes.length ? `REMOVE ${removes.map((field) => `#${field}`).join(', ')}` : '',
+    ].filter(Boolean);
     try {
       const result = await this.client.send(
         new UpdateCommand({
           TableName: this.coreTable,
-          Key: { pk: tenantPartitionKey(tenantId), sk: `DEVICE#${deviceId}` },
-          UpdateExpression: `SET ${fields.map(([key]) => `#${key} = :${key}`).join(', ')}`,
+          Key: key,
+          UpdateExpression: clauses.join(' '),
           ConditionExpression: 'attribute_exists(pk)',
-          ExpressionAttributeNames: Object.fromEntries(fields.map(([key]) => [`#${key}`, key])),
-          ExpressionAttributeValues: Object.fromEntries(
-            fields.map(([key, value]) => [`:${key}`, value]),
+          ExpressionAttributeNames: Object.fromEntries(
+            [...sets.map(([field]) => field), ...removes].map((field) => [`#${field}`, field]),
           ),
+          ...(sets.length
+            ? { ExpressionAttributeValues: Object.fromEntries(sets.map(([k, v]) => [`:${k}`, v])) }
+            : {}),
           ReturnValues: 'ALL_NEW',
         }),
       );
-      return result.Attributes ? toDevice(result.Attributes) : undefined;
+      return result.Attributes;
     } catch (error) {
       if (error instanceof Error && error.name === 'ConditionalCheckFailedException')
         return undefined;
@@ -343,6 +462,21 @@ function toDevice(item: Record<string, unknown>): FleetDevice {
     enabled: item.enabled !== false,
     groupId: typeof item.groupId === 'string' ? item.groupId : 'UNGROUPED',
     vehicleType: toVehicleType(item.vehicleType),
+    model: typeof item.model === 'string' ? item.model : undefined,
+    fuelType: isFuelType(item.fuelType) ? item.fuelType : undefined,
+    purchasedOn: typeof item.purchasedOn === 'string' ? item.purchasedOn : undefined,
+    colour: typeof item.colour === 'string' ? item.colour : undefined,
+    driverId: typeof item.driverId === 'string' ? item.driverId : undefined,
+  };
+}
+
+function toDriver(item: Record<string, unknown>): Driver {
+  return {
+    tenantId: String(item.tenantId),
+    driverId: String(item.driverId),
+    name: String(item.name),
+    phone: typeof item.phone === 'string' ? item.phone : undefined,
+    licenceNumber: typeof item.licenceNumber === 'string' ? item.licenceNumber : undefined,
   };
 }
 

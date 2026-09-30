@@ -7,14 +7,25 @@ import {
   type Membership,
   type OnboardingInvitation,
 } from '@trackify/data';
-import { defaultVehicleType, isVehicleType, type VehicleType } from '@trackify/domain';
+import {
+  defaultVehicleType,
+  isFuelType,
+  isVehicleType,
+  type FuelType,
+  type VehicleType,
+} from '@trackify/domain';
 
 interface FleetStore {
   membership(subject: string): Promise<Membership | undefined>;
-  listDevices(tenantId: string): Promise<unknown[]>;
+  listDevices(tenantId: string): Promise<Array<{ deviceId: string; driverId?: string }>>;
   createDevice(tenantId: string, input: DeviceInput): Promise<unknown>;
   updateDevice(tenantId: string, deviceId: string, changes: DeviceChanges): Promise<unknown>;
   deleteDevice(tenantId: string, deviceId: string): Promise<boolean>;
+  listDrivers(tenantId: string): Promise<unknown[]>;
+  getDriver(tenantId: string, driverId: string): Promise<unknown>;
+  createDriver(tenantId: string, input: DriverInput): Promise<unknown>;
+  updateDriver(tenantId: string, driverId: string, changes: DriverChanges): Promise<unknown>;
+  deleteDriver(tenantId: string, driverId: string): Promise<boolean>;
   getDevice(
     tenantId: string,
     deviceId: string,
@@ -72,11 +83,33 @@ interface DeviceInput {
   retentionDays: number;
   groupId: string;
   vehicleType: VehicleType;
+  model?: string;
+  fuelType?: FuelType;
+  purchasedOn?: string;
+  colour?: string;
 }
 
+/** null clears an optional field (or unassigns the driver); undefined leaves it as it is. */
 interface DeviceChanges {
   name?: string;
   vehicleType?: VehicleType;
+  model?: string | null;
+  fuelType?: FuelType | null;
+  purchasedOn?: string | null;
+  colour?: string | null;
+  driverId?: string | null;
+}
+
+interface DriverInput {
+  name: string;
+  phone?: string;
+  licenceNumber?: string;
+}
+
+interface DriverChanges {
+  name?: string;
+  phone?: string | null;
+  licenceNumber?: string | null;
 }
 
 export function createHandler(
@@ -114,6 +147,8 @@ export function createHandler(
       if (method === 'PATCH' && deviceMatch?.[1]) {
         if (membership.role !== 'admin') return response(403, { message: 'admin role required' });
         const changes = parseDeviceChanges(event.body);
+        if (changes.driverId && !(await store.getDriver(membership.tenantId, changes.driverId)))
+          return response(400, { message: 'driverId does not match a driver' });
         const device = await store.updateDevice(membership.tenantId, deviceMatch[1], changes);
         return device ? response(200, device) : response(404, { message: 'device not found' });
       }
@@ -121,6 +156,37 @@ export function createHandler(
         if (membership.role !== 'admin') return response(403, { message: 'admin role required' });
         const deleted = await store.deleteDevice(membership.tenantId, deviceMatch[1]);
         return deleted ? response(204, undefined) : response(404, { message: 'device not found' });
+      }
+      if (method === 'GET' && path === '/drivers') {
+        return response(200, { items: await store.listDrivers(membership.tenantId) });
+      }
+      if (method === 'POST' && path === '/drivers') {
+        if (membership.role !== 'admin') return response(403, { message: 'admin role required' });
+        const input = parseDriverInput(event.body);
+        return response(201, await store.createDriver(membership.tenantId, input));
+      }
+      const driverMatch = path.match(/^\/drivers\/([^/]+)$/);
+      if (method === 'PATCH' && driverMatch?.[1]) {
+        if (membership.role !== 'admin') return response(403, { message: 'admin role required' });
+        const changes = parseDriverChanges(event.body);
+        const driver = await store.updateDriver(membership.tenantId, driverMatch[1], changes);
+        return driver ? response(200, driver) : response(404, { message: 'driver not found' });
+      }
+      if (method === 'DELETE' && driverMatch?.[1]) {
+        if (membership.role !== 'admin') return response(403, { message: 'admin role required' });
+        const driverId = driverMatch[1];
+        const deleted = await store.deleteDriver(membership.tenantId, driverId);
+        if (!deleted) return response(404, { message: 'driver not found' });
+        // A removed driver must not stay on the vehicles they drove.
+        const assigned = (await store.listDevices(membership.tenantId)).filter(
+          (device) => device.driverId === driverId,
+        );
+        await Promise.all(
+          assigned.map((device) =>
+            store.updateDevice(membership.tenantId, device.deviceId, { driverId: null }),
+          ),
+        );
+        return response(204, undefined);
       }
       const invitationMatch = path.match(/^\/devices\/([^/]+)\/invitations$/);
       if (invitationMatch?.[1] && method === 'GET') {
@@ -303,12 +369,51 @@ function vehicleType(value: unknown): VehicleType {
   return value;
 }
 
+function fuelType(value: unknown): FuelType {
+  if (!isFuelType(value)) throw new InputError('fuelType is unsupported');
+  return value;
+}
+
+/** Undefined is left alone (field not being set); a value present must satisfy the length bounds. */
+function optionalText(value: unknown, name: string, min: number, max: number): string | undefined {
+  return value === undefined ? undefined : text(value, name, min, max);
+}
+
+/** A real calendar day: 2026-02-30 matches the pattern but Date rolls it over to March. */
+function purchasedOn(value: unknown): string {
+  const date = typeof value === 'string' ? new Date(`${value}T00:00:00Z`) : undefined;
+  if (
+    typeof value !== 'string' ||
+    !/^\d{4}-\d{2}-\d{2}$/.test(value) ||
+    !date ||
+    Number.isNaN(date.getTime()) ||
+    date.toISOString().slice(0, 10) !== value
+  )
+    throw new InputError('purchasedOn must be an ISO date (YYYY-MM-DD)');
+  return value;
+}
+
+/** null clears an optional field; any other value must be valid for it. */
+function clearable<T>(value: unknown, parse: (value: unknown) => T): T | null {
+  return value === null ? null : parse(value);
+}
+
 function parseDeviceChanges(body: string | undefined): DeviceChanges {
   const value = jsonObject(body);
   const changes: DeviceChanges = {};
   if (value.name !== undefined) changes.name = text(value.name, 'name', 1, 100);
   if (value.vehicleType !== undefined) changes.vehicleType = vehicleType(value.vehicleType);
-  if (!Object.keys(changes).length) throw new InputError('name or vehicleType is required');
+  if (value.model !== undefined)
+    changes.model = clearable(value.model, (model) => text(model, 'model', 1, 100));
+  if (value.fuelType !== undefined) changes.fuelType = clearable(value.fuelType, fuelType);
+  if (value.purchasedOn !== undefined)
+    changes.purchasedOn = clearable(value.purchasedOn, purchasedOn);
+  if (value.colour !== undefined)
+    changes.colour = clearable(value.colour, (colour) => text(colour, 'colour', 1, 40));
+  if (value.driverId !== undefined)
+    changes.driverId = clearable(value.driverId, (driverId) => text(driverId, 'driverId', 1, 64));
+  if (!Object.keys(changes).length)
+    throw new InputError('at least one field to change is required');
   return changes;
 }
 
@@ -323,7 +428,42 @@ function parseDevice(body: string | undefined): DeviceInput {
   const groupId = value.groupId === undefined ? 'UNGROUPED' : text(value.groupId, 'groupId', 1, 64);
   const type =
     value.vehicleType === undefined ? defaultVehicleType : vehicleType(value.vehicleType);
-  return { name, uniqueId, protocol, retentionDays, groupId, vehicleType: type };
+  return {
+    name,
+    uniqueId,
+    protocol,
+    retentionDays,
+    groupId,
+    vehicleType: type,
+    model: optionalText(value.model, 'model', 1, 100),
+    fuelType: value.fuelType === undefined ? undefined : fuelType(value.fuelType),
+    purchasedOn: value.purchasedOn === undefined ? undefined : purchasedOn(value.purchasedOn),
+    colour: optionalText(value.colour, 'colour', 1, 40),
+  };
+}
+
+function parseDriverInput(body: string | undefined): DriverInput {
+  const value = jsonObject(body);
+  return {
+    name: text(value.name, 'name', 1, 100),
+    phone: optionalText(value.phone, 'phone', 3, 20),
+    licenceNumber: optionalText(value.licenceNumber, 'licenceNumber', 1, 40),
+  };
+}
+
+function parseDriverChanges(body: string | undefined): DriverChanges {
+  const value = jsonObject(body);
+  const changes: DriverChanges = {};
+  if (value.name !== undefined) changes.name = text(value.name, 'name', 1, 100);
+  if (value.phone !== undefined)
+    changes.phone = clearable(value.phone, (phone) => text(phone, 'phone', 3, 20));
+  if (value.licenceNumber !== undefined)
+    changes.licenceNumber = clearable(value.licenceNumber, (licence) =>
+      text(licence, 'licenceNumber', 1, 40),
+    );
+  if (!Object.keys(changes).length)
+    throw new InputError('at least one field to change is required');
+  return changes;
 }
 
 function boundedNumber(value: unknown, fallback: number, min: number, max: number): number {

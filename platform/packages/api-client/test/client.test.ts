@@ -233,3 +233,38 @@ describe('fleet client', () => {
     expect(fetch.mock.calls[0]?.[1]).toEqual(expect.objectContaining({ method: 'DELETE' }));
   });
 });
+
+describe('drivers client', () => {
+  afterEach(() => vi.unstubAllGlobals());
+
+  it('adds, edits and removes drivers on the drivers routes', async () => {
+    const fetch = vi
+      .fn<typeof globalThis.fetch>()
+      .mockResolvedValueOnce(new Response(JSON.stringify({ driverId: 'd 1', name: 'Ramesh' })))
+      .mockResolvedValueOnce(new Response(JSON.stringify({ driverId: 'd 1', name: 'Ramesh' })))
+      .mockResolvedValueOnce(new Response(null, { status: 204 }));
+    vi.stubGlobal('fetch', fetch);
+    const client = new TrackifyClient(apiConfig, () => 'access-token');
+
+    await client.createDriver({ name: 'Ramesh' });
+    await client.updateDriver('d 1', { phone: null });
+    await expect(client.deleteDriver('d 1')).resolves.toBeUndefined();
+
+    expect(fetch.mock.calls.map((call) => [call[0], call[1]?.method, call[1]?.body])).toEqual([
+      ['https://api.example.com/drivers', 'POST', JSON.stringify({ name: 'Ramesh' })],
+      ['https://api.example.com/drivers/d%201', 'PATCH', JSON.stringify({ phone: null })],
+      ['https://api.example.com/drivers/d%201', 'DELETE', undefined],
+    ]);
+  });
+
+  it('sends null to unassign a driver, so the field is cleared rather than skipped', async () => {
+    const fetch = vi
+      .fn<typeof globalThis.fetch>()
+      .mockResolvedValue(new Response(JSON.stringify({ deviceId: 'device-1' })));
+    vi.stubGlobal('fetch', fetch);
+    await new TrackifyClient(apiConfig, () => 'access-token').updateDevice('device-1', {
+      driverId: null,
+    });
+    expect(fetch.mock.calls[0]?.[1]?.body).toBe(JSON.stringify({ driverId: null }));
+  });
+});

@@ -1,9 +1,12 @@
-import type { VehicleType } from '@trackify/domain/vehicle';
+import type { FuelType, VehicleType } from '@trackify/domain/vehicle';
 
 export {
   defaultVehicleType,
+  fuelTypes,
+  isFuelType,
   toVehicleType,
   vehicleTypes,
+  type FuelType,
   type VehicleType,
 } from '@trackify/domain/vehicle';
 
@@ -59,7 +62,48 @@ export interface Device {
   groupId: string;
   /** Missing from servers deployed before vehicle types existed; treat as the default. */
   vehicleType?: VehicleType;
+  /** Admin-entered details. Missing means not entered; never fill them in with a guess. */
+  model?: string;
+  fuelType?: FuelType;
+  /** Calendar date, YYYY-MM-DD. */
+  purchasedOn?: string;
+  colour?: string;
+  /** May name a driver that was removed since; treat that as no driver assigned. */
+  driverId?: string;
   state?: DeviceState;
+}
+
+/** Everything about a vehicle an administrator can edit. null clears an optional field. */
+export interface DeviceChanges {
+  name?: string;
+  vehicleType?: VehicleType;
+  model?: string | null;
+  fuelType?: FuelType | null;
+  purchasedOn?: string | null;
+  colour?: string | null;
+  /** null unassigns the current driver. */
+  driverId?: string | null;
+}
+
+/** A person who drives the tenant's vehicles; every detail is admin-entered. */
+export interface Driver {
+  driverId: string;
+  name: string;
+  phone?: string;
+  licenceNumber?: string;
+}
+
+export interface DriverInput {
+  name: string;
+  phone?: string;
+  licenceNumber?: string;
+}
+
+/** null clears an optional detail. */
+export interface DriverChanges {
+  name?: string;
+  phone?: string | null;
+  licenceNumber?: string | null;
 }
 
 export interface CreateDeviceInput {
@@ -160,7 +204,7 @@ export class TrackifyClient {
     });
   }
   /** Administrators only. */
-  updateDevice(deviceId: string, changes: { name?: string; vehicleType?: VehicleType }) {
+  updateDevice(deviceId: string, changes: DeviceChanges) {
     return this.request<Device>(`/devices/${encodeURIComponent(deviceId)}`, {
       method: 'PATCH',
       headers: { 'content-type': 'application/json' },
@@ -170,6 +214,29 @@ export class TrackifyClient {
   /** Administrators only. Historical positions/events/trips still expire on their own TTL. */
   deleteDevice(deviceId: string) {
     return this.request<void>(`/devices/${encodeURIComponent(deviceId)}`, { method: 'DELETE' });
+  }
+  drivers() {
+    return this.request<{ items: Driver[] }>('/drivers');
+  }
+  /** Administrators only. */
+  createDriver(input: DriverInput) {
+    return this.request<Driver>('/drivers', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify(input),
+    });
+  }
+  /** Administrators only. */
+  updateDriver(driverId: string, changes: DriverChanges) {
+    return this.request<Driver>(`/drivers/${encodeURIComponent(driverId)}`, {
+      method: 'PATCH',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify(changes),
+    });
+  }
+  /** Administrators only. Also unassigns the driver from every vehicle they were on. */
+  deleteDriver(driverId: string) {
+    return this.request<void>(`/drivers/${encodeURIComponent(driverId)}`, { method: 'DELETE' });
   }
   /** Newest first; at most `limit` (max 5,000) fixes per call. */
   positions(deviceId: string, from: number, to: number, limit = 1_000) {

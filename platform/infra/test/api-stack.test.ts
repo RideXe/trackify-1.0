@@ -45,6 +45,17 @@ describe('ApiStack', () => {
       AuthorizationType: 'JWT',
       RouteKey: 'DELETE /devices/{deviceId}',
     });
+    for (const routeKey of [
+      'GET /drivers',
+      'POST /drivers',
+      'PATCH /drivers/{driverId}',
+      'DELETE /drivers/{driverId}',
+    ]) {
+      template.hasResourceProperties('AWS::ApiGatewayV2::Route', {
+        AuthorizationType: 'JWT',
+        RouteKey: routeKey,
+      });
+    }
     template.hasResourceProperties('AWS::ApiGatewayV2::Api', {
       CorsConfiguration: { AllowMethods: Match.arrayWith(['PATCH', 'DELETE']) },
     });

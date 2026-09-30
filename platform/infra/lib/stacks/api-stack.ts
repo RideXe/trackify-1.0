@@ -174,6 +174,18 @@ export class ApiStack extends Stack {
       integration,
       authorizer,
     });
+    this.api.addRoutes({
+      path: '/drivers',
+      methods: [HttpMethod.GET, HttpMethod.POST],
+      integration,
+      authorizer,
+    });
+    this.api.addRoutes({
+      path: '/drivers/{driverId}',
+      methods: [HttpMethod.PATCH, HttpMethod.DELETE],
+      integration,
+      authorizer,
+    });
     new CfnOutput(this, 'ApiUrl', { value: this.api.apiEndpoint });
   }
 }

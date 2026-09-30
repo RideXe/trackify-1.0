@@ -46,6 +46,7 @@ import {
   Eye,
   EyeOff,
   Gauge,
+  IdCard,
   LogOut,
   Map,
   Menu,
@@ -59,7 +60,6 @@ import {
   Settings,
   ShieldCheck,
   Smartphone,
-  Trash2,
   Truck,
   Users,
   Wifi,
@@ -71,6 +71,7 @@ import {
   toVehicleType,
   type Device,
   type DeviceState,
+  type Driver,
   type Tokens,
   type VehicleType,
 } from '@trackify/api-client';
@@ -84,8 +85,10 @@ import {
   vehicleStatus,
   type VehicleStatus,
 } from './fleet-map-data';
-import { RouteHistory } from './route-history';
+import { DriversPage } from './drivers';
+import { VehicleNotFound, VehiclePage } from './vehicle-page';
 import { VehicleAvatar, VehicleTypePicker, vehicleIcons } from './vehicle-icons';
+import { useView, type View } from './view-state';
 
 const drawerWidth = 256;
 const config = {
@@ -124,8 +127,10 @@ interface DeviceInvitation {
 
 type CreatedDevice = Device & { onboarding?: DeviceInvitation };
 
-const navItems = [
-  { label: 'Overview', icon: Gauge, active: true },
+/** Only entries with a page lead anywhere yet; the rest are placeholders. */
+const navItems: Array<{ label: string; icon: typeof Gauge; page?: 'overview' | 'drivers' }> = [
+  { label: 'Overview', icon: Gauge, page: 'overview' },
+  { label: 'Drivers', icon: IdCard, page: 'drivers' },
   { label: 'Live map', icon: Map },
   { label: 'Trips', icon: Route },
   { label: 'Alerts', icon: Bell },
@@ -137,7 +142,9 @@ export default function FleetPage() {
   const desktop = useMediaQuery(theme.breakpoints.up('md'));
   const [tokens, setTokens] = useState<Tokens>();
   const [devices, setDevices] = useState<Device[]>([]);
-  const [selected, setSelected] = useState<Device>();
+  const [drivers, setDrivers] = useState<Driver[]>();
+  const [driversError, setDriversError] = useState('');
+  const [view, navigate] = useView();
   const [membership, setMembership] = useState<Membership>();
   const [challenge, setChallenge] = useState<PasswordChallenge>();
   const [error, setError] = useState('');
@@ -164,15 +171,25 @@ export default function FleetPage() {
     try {
       const result = await client.devices();
       setDevices(result.items);
-      setSelected((current) =>
-        current ? result.items.find((item) => item.deviceId === current.deviceId) : result.items[0],
-      );
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : 'Fleet unavailable');
     } finally {
       setLoadingFleet(false);
     }
   }, [client]);
+
+  const loadDrivers = useCallback(async () => {
+    setDriversError('');
+    try {
+      setDrivers((await client.drivers()).items);
+    } catch (reason) {
+      setDriversError(reason instanceof Error ? reason.message : 'Drivers unavailable');
+    }
+  }, [client]);
+
+  useEffect(() => {
+    if (tokens) void loadDrivers();
+  }, [tokens, loadDrivers]);
 
   useEffect(() => {
     const saved = readTokens();
@@ -213,9 +230,6 @@ export default function FleetPage() {
             current.map((device) =>
               device.deviceId === update.deviceId ? withUpdate(device) : device,
             ),
-          );
-          setSelected((current) =>
-            current?.deviceId === update.deviceId ? withUpdate(current) : current,
           );
         });
       })
@@ -267,6 +281,21 @@ export default function FleetPage() {
   }
 
   const online = devices.filter((device) => isOnline(device)).length;
+  const admin = membership?.role === 'admin';
+  const viewed =
+    view.page === 'vehicle'
+      ? devices.find((device) => device.deviceId === view.deviceId)
+      : undefined;
+  const [title, subtitle] =
+    view.page === 'drivers'
+      ? ['Drivers', 'People who drive your vehicles']
+      : view.page === 'vehicle'
+        ? [viewed?.name ?? 'Vehicle', 'Live status, driver and route history']
+        : ['Fleet overview', 'Live operations and vehicle health'];
+  const go = (next: View) => {
+    setMobileNav(false);
+    navigate(next);
+  };
   const onboardingVisible =
     onboardingOpen ||
     (!loadingFleet && membership?.role === 'admin' && devices.length === 0 && !onboardingDismissed);
@@ -274,6 +303,8 @@ export default function FleetPage() {
   const drawer = (
     <NavigationDrawer
       email={membership?.email}
+      page={view.page === 'drivers' ? 'drivers' : 'overview'}
+      onNavigate={(page) => go({ page })}
       onAdd={() => {
         setOnboardingOpen(true);
         setMobileNav(false);
@@ -302,11 +333,11 @@ export default function FleetPage() {
             </IconButton>
           )}
           <Box sx={{ flex: 1 }}>
-            <Typography variant="h6" sx={{ fontWeight: 700 }}>
-              Fleet overview
+            <Typography noWrap variant="h6" sx={{ fontWeight: 700 }}>
+              {title}
             </Typography>
             <Typography color="text.secondary" variant="caption">
-              Live operations and vehicle health
+              {subtitle}
             </Typography>
           </Box>
           <Chip
@@ -366,16 +397,49 @@ export default function FleetPage() {
             <CircularProgress size={32} />
             <Typography color="text.secondary">Loading your fleet…</Typography>
           </Stack>
+        ) : view.page === 'drivers' ? (
+          <DriversPage
+            admin={admin}
+            client={client}
+            devices={devices}
+            drivers={drivers}
+            error={driversError}
+            onChanged={async () => {
+              // Removing a driver also unassigns them from vehicles, so both lists can change.
+              await Promise.all([loadDrivers(), loadFleet()]);
+            }}
+            onOpenVehicle={(deviceId) => go({ page: 'vehicle', deviceId })}
+            onRetry={() => void loadDrivers()}
+          />
+        ) : view.page === 'vehicle' ? (
+          viewed ? (
+            <VehiclePage
+              key={viewed.deviceId}
+              admin={admin}
+              client={client}
+              connection={<TrackerConnection device={viewed} />}
+              device={viewed}
+              devices={devices}
+              drivers={drivers}
+              driversError={driversError}
+              onBack={() => go({ page: 'overview' })}
+              onChanged={loadFleet}
+              onDriversChanged={loadDrivers}
+              onRemoved={async () => {
+                go({ page: 'overview' });
+                await loadFleet();
+              }}
+            />
+          ) : (
+            <VehicleNotFound onBack={() => go({ page: 'overview' })} />
+          )
         ) : (
           <Dashboard
             devices={devices}
-            membership={membership}
+            admin={admin}
             online={online}
-            selected={selected}
-            client={client}
             onAdd={() => setOnboardingOpen(true)}
-            onSelect={setSelected}
-            onChanged={loadFleet}
+            onOpen={(deviceId) => go({ page: 'vehicle', deviceId })}
           />
         )}
       </Box>
@@ -405,10 +469,14 @@ export default function FleetPage() {
 
 function NavigationDrawer({
   email,
+  page,
+  onNavigate,
   onAdd,
   onSignOut,
 }: {
   email?: string;
+  page: 'overview' | 'drivers';
+  onNavigate: (page: 'overview' | 'drivers') => void;
   onAdd: () => void;
   onSignOut: () => void;
 }) {
@@ -432,21 +500,25 @@ function NavigationDrawer({
         </Button>
       </Box>
       <List sx={{ px: 1.5, py: 0 }}>
-        {navItems.map(({ label, icon: Icon, active }) => (
-          <ListItemButton
-            key={label}
-            selected={active}
-            sx={{ mb: 0.5, borderRadius: 2, color: active ? 'primary.main' : 'text.secondary' }}
-          >
-            <ListItemIcon sx={{ minWidth: 38, color: 'inherit' }}>
-              <Icon size={19} />
-            </ListItemIcon>
-            <ListItemText
-              primary={label}
-              slotProps={{ primary: { sx: { fontWeight: active ? 700 : 550 } } }}
-            />
-          </ListItemButton>
-        ))}
+        {navItems.map(({ label, icon: Icon, page: target }) => {
+          const active = target === page;
+          return (
+            <ListItemButton
+              key={label}
+              onClick={target ? () => onNavigate(target) : undefined}
+              selected={active}
+              sx={{ mb: 0.5, borderRadius: 2, color: active ? 'primary.main' : 'text.secondary' }}
+            >
+              <ListItemIcon sx={{ minWidth: 38, color: 'inherit' }}>
+                <Icon size={19} />
+              </ListItemIcon>
+              <ListItemText
+                primary={label}
+                slotProps={{ primary: { sx: { fontWeight: active ? 700 : 550 } } }}
+              />
+            </ListItemButton>
+          );
+        })}
       </List>
       <Box sx={{ flex: 1 }} />
       <List sx={{ px: 1.5 }}>
@@ -482,25 +554,19 @@ function NavigationDrawer({
 
 function Dashboard({
   devices,
-  membership,
+  admin,
   online,
-  selected,
-  client,
   onAdd,
-  onSelect,
-  onChanged,
+  onOpen,
 }: {
   devices: Device[];
-  membership?: Membership;
+  admin: boolean;
   online: number;
-  selected?: Device;
-  client: TrackifyClient;
   onAdd: () => void;
-  onSelect: (device: Device) => void;
-  onChanged: () => Promise<void>;
+  onOpen: (deviceId: string) => void;
 }) {
   if (!devices.length) {
-    return <EmptyFleet admin={membership?.role === 'admin'} onAdd={onAdd} />;
+    return <EmptyFleet admin={admin} onAdd={onAdd} />;
   }
   return (
     <Stack spacing={3}>
@@ -534,18 +600,9 @@ function Dashboard({
           gap: 3,
         }}
       >
-        <FleetMap devices={devices} selected={selected} onSelect={onSelect} />
-        <VehicleList devices={devices} selected={selected} onSelect={onSelect} />
+        <FleetMap devices={devices} onOpen={onOpen} />
+        <VehicleList devices={devices} onOpen={onOpen} />
       </Box>
-      {selected && (
-        <VehicleDetails
-          admin={membership?.role === 'admin'}
-          client={client}
-          device={selected}
-          onChanged={onChanged}
-        />
-      )}
-      {selected && <RouteHistory client={client} device={selected} />}
     </Stack>
   );
 }
@@ -624,15 +681,7 @@ function EmptyFleet({ admin, onAdd }: { admin: boolean; onAdd: () => void }) {
   );
 }
 
-function FleetMap({
-  devices,
-  selected,
-  onSelect,
-}: {
-  devices: Device[];
-  selected?: Device;
-  onSelect: (device: Device) => void;
-}) {
+function FleetMap({ devices, onOpen }: { devices: Device[]; onOpen: (deviceId: string) => void }) {
   const counts = statusCounts(devices);
   const onMap = devices.filter(hasPosition).length;
   return (
@@ -646,7 +695,7 @@ function FleetMap({
           <Typography sx={{ fontWeight: 700 }}>Fleet map</Typography>
           <Typography color="text.secondary" variant="caption">
             {onMap
-              ? `${onMap} of ${devices.length} vehicles on the map · point at a vehicle for details`
+              ? `${onMap} of ${devices.length} vehicles on the map · point at a vehicle for details, click to open it`
               : 'Waiting for the first GPS signal'}
           </Typography>
         </Box>
@@ -663,14 +712,7 @@ function FleetMap({
           ))}
         </Stack>
       </Stack>
-      <FleetMapView
-        devices={devices}
-        selectedId={selected?.deviceId}
-        onSelect={(deviceId) => {
-          const device = devices.find((item) => item.deviceId === deviceId);
-          if (device) onSelect(device);
-        }}
-      />
+      <FleetMapView devices={devices} onSelect={onOpen} />
     </Paper>
   );
 }
@@ -685,12 +727,10 @@ function isOnline(device: Device) {
 
 function VehicleList({
   devices,
-  selected,
-  onSelect,
+  onOpen,
 }: {
   devices: Device[];
-  selected?: Device;
-  onSelect: (device: Device) => void;
+  onOpen: (deviceId: string) => void;
 }) {
   return (
     <Paper sx={{ overflow: 'hidden', minHeight: 400 }}>
@@ -698,7 +738,7 @@ function VehicleList({
         <Box>
           <Typography sx={{ fontWeight: 700 }}>Vehicles</Typography>
           <Typography color="text.secondary" variant="caption">
-            Select a vehicle to see its activity
+            Open a vehicle for its live status, driver and history
           </Typography>
         </Box>
         <TextField
@@ -717,20 +757,18 @@ function VehicleList({
       <Divider />
       <List disablePadding>
         {devices.map((device) => {
-          const active = selected?.deviceId === device.deviceId;
           const online = isOnline(device);
           return (
             <ListItemButton
               key={device.deviceId}
-              onClick={() => onSelect(device)}
-              selected={active}
+              onClick={() => onOpen(device.deviceId)}
               sx={{ px: 2.5, py: 1.75, borderBottom: 1, borderColor: 'divider' }}
             >
               <Box sx={{ mr: 1.5 }}>
                 <VehicleAvatar
                   type={toVehicleType(device.vehicleType)}
-                  color={active ? '#FFFFFF' : statusColors[vehicleStatus(device)]}
-                  background={active ? '#155EEF' : '#F2F4F7'}
+                  color={statusColors[vehicleStatus(device)]}
+                  background="#F2F4F7"
                 />
               </Box>
               <ListItemText
@@ -756,75 +794,13 @@ function VehicleList({
   );
 }
 
-function VehicleDetails({
-  device,
-  client,
-  admin,
-  onChanged,
-}: {
-  device: Device;
-  client: TrackifyClient;
-  admin: boolean;
-  onChanged: () => Promise<void>;
-}) {
-  const vehicleType = toVehicleType(device.vehicleType);
-  const [typeOpen, setTypeOpen] = useState(false);
-  const [typeBusy, setTypeBusy] = useState(false);
-  const [typeError, setTypeError] = useState('');
-  async function changeType(next: VehicleType) {
-    setTypeBusy(true);
-    setTypeError('');
-    try {
-      await client.updateDevice(device.deviceId, { vehicleType: next });
-      await onChanged();
-      setTypeOpen(false);
-    } catch (reason) {
-      setTypeError(reason instanceof Error ? reason.message : 'Vehicle type could not be saved');
-    } finally {
-      setTypeBusy(false);
-    }
-  }
-  const [deleteBusy, setDeleteBusy] = useState(false);
-  const [deleteError, setDeleteError] = useState('');
-  async function removeVehicle() {
-    if (
-      !window.confirm(
-        `Remove ${device.name}? Its setup code stops working immediately. This cannot be undone.`,
-      )
-    )
-      return;
-    setDeleteBusy(true);
-    setDeleteError('');
-    try {
-      await client.deleteDevice(device.deviceId);
-      // onChanged re-selects by id from the fresh list; the removed device is no longer in it.
-      await onChanged();
-    } catch (reason) {
-      setDeleteError(reason instanceof Error ? reason.message : 'Vehicle could not be removed');
-      setDeleteBusy(false);
-    }
-  }
-  const [activity, setActivity] = useState({ trips: 0, events: 0, distanceKm: 0 });
+/** Whether the vehicle's tracker (usually the driver's phone) is connected, and pairing it. */
+function TrackerConnection({ device }: { device: Device }) {
   const [pairing, setPairing] = useState<DeviceInvitation>();
   const [pairingQr, setPairingQr] = useState('');
   const [pairingBusy, setPairingBusy] = useState(false);
   const [pairingError, setPairingError] = useState('');
   const [connectionStatus, setConnectionStatus] = useState<DeviceInvitation['status']>();
-  useEffect(() => {
-    const now = Date.now();
-    void Promise.all([
-      client.trips(device.deviceId, now - 86_400_000, now),
-      client.events(device.deviceId, now - 86_400_000, now),
-      client.summary(device.deviceId),
-    ]).then(([trips, events, summary]) =>
-      setActivity({
-        trips: trips.items.length,
-        events: events.items.length,
-        distanceKm:
-          summary.items.reduce((sum, item) => sum + Number(item.distanceM ?? 0), 0) / 1000,
-      }),
-    );
-  }, [client, device.deviceId]);
   useEffect(() => {
     let active = true;
     setConnectionStatus(undefined);
@@ -895,46 +871,13 @@ function VehicleDetails({
   }
   return (
     <Paper sx={{ p: 2.5 }}>
-      <Stack
-        direction={{ xs: 'column', md: 'row' }}
-        spacing={3}
-        sx={{ alignItems: { md: 'center' } }}
-      >
-        <Stack direction="row" spacing={1.5} sx={{ alignItems: 'center', flex: 1 }}>
-          <VehicleAvatar type={vehicleType} size={44} />
-          <Box>
-            <Typography sx={{ fontWeight: 700 }}>{device.name}</Typography>
-            <Typography color="text.secondary" variant="body2">
-              {vehicleIcons[vehicleType].label} · {device.uniqueId} ·{' '}
-              {device.protocol.toUpperCase()}
-            </Typography>
-            {admin && (
-              <Button
-                size="small"
-                sx={{ mt: 0.5, ml: -1 }}
-                onClick={() => {
-                  setTypeError('');
-                  setTypeOpen(true);
-                }}
-              >
-                Change type
-              </Button>
-            )}
-          </Box>
-        </Stack>
-        {[
-          ['Current speed', `${Math.round(device.state?.speedKmh ?? 0)} km/h`],
-          ['Distance today', `${activity.distanceKm.toFixed(1)} km`],
-          ['Trips', String(activity.trips)],
-          ['Events', String(activity.events)],
-        ].map(([label, value]) => (
-          <Box key={label} sx={{ minWidth: 110 }}>
-            <Typography color="text.secondary" variant="caption">
-              {label}
-            </Typography>
-            <Typography sx={{ fontWeight: 700 }}>{value}</Typography>
-          </Box>
-        ))}
+      <Typography sx={{ fontWeight: 700 }}>Tracker</Typography>
+      <Typography color="text.secondary" variant="body2" sx={{ mb: 2 }}>
+        {device.protocol === 'osmand'
+          ? "The Trackify app on the driver's phone reports this vehicle's position."
+          : `A ${device.protocol.toUpperCase()} GPS unit reports this vehicle's position.`}
+      </Typography>
+      <Stack spacing={1.5} sx={{ alignItems: 'flex-start' }}>
         {isOnline(device) ? (
           <Chip color="success" icon={<CheckCircle2 size={15} />} label="Tracking online" />
         ) : connectionStatus === 'activated' ? (
@@ -961,65 +904,17 @@ function VehicleDetails({
                 : 'Connect driver phone'}
           </Button>
         )}
-        {admin && (
-          <Tooltip title="Remove vehicle">
-            <IconButton
-              aria-label={`Remove ${device.name}`}
-              color="error"
-              disabled={deleteBusy}
-              onClick={() => void removeVehicle()}
-              size="small"
-            >
-              <Trash2 size={18} />
-            </IconButton>
-          </Tooltip>
+        {connectionStatus === 'activated' && (
+          <Button disabled={pairingBusy} size="small" onClick={() => void createPairing()}>
+            Replace connected phone
+          </Button>
         )}
       </Stack>
-      {deleteError && (
-        <Alert severity="error" sx={{ mt: 2 }}>
-          {deleteError}
-        </Alert>
-      )}
-      {connectionStatus === 'activated' && (
-        <Button
-          disabled={pairingBusy}
-          size="small"
-          sx={{ mt: 2 }}
-          onClick={() => void createPairing()}
-        >
-          Replace connected phone
-        </Button>
-      )}
       {pairingError && (
         <Alert severity="error" sx={{ mt: 2 }}>
           {pairingError}
         </Alert>
       )}
-      <Dialog open={typeOpen} onClose={() => setTypeOpen(false)} fullWidth maxWidth="sm">
-        <DialogTitle component="div">
-          <Typography component="h2" variant="h5">
-            Vehicle type
-          </Typography>
-          <Typography color="text.secondary" variant="body2">
-            Choose how {device.name} appears on the map and in lists.
-          </Typography>
-        </DialogTitle>
-        <DialogContent>
-          <VehicleTypePicker
-            value={vehicleType}
-            disabled={typeBusy}
-            onChange={(next) => void changeType(next)}
-          />
-          {typeError && (
-            <Alert severity="error" sx={{ mt: 2 }}>
-              {typeError}
-            </Alert>
-          )}
-        </DialogContent>
-        <DialogActions>
-          <Button onClick={() => setTypeOpen(false)}>Close</Button>
-        </DialogActions>
-      </Dialog>
       <Dialog open={Boolean(pairing)} onClose={() => setPairing(undefined)} fullWidth maxWidth="xs">
         <DialogTitle component="div">
           <Typography component="h2" variant="h5">

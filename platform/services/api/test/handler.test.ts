@@ -52,6 +52,11 @@ function store(role: 'admin' | 'viewer' = 'admin') {
     createCommand: vi.fn().mockResolvedValue({ commandId: 'command-1' }),
     updateDevice: vi.fn().mockResolvedValue({ deviceId: 'device-1', vehicleType: 'bus' }),
     deleteDevice: vi.fn().mockResolvedValue(true),
+    listDrivers: vi.fn().mockResolvedValue([{ driverId: 'driver-1', name: 'Ramesh Kumar' }]),
+    getDriver: vi.fn().mockResolvedValue({ driverId: 'driver-1', name: 'Ramesh Kumar' }),
+    createDriver: vi.fn().mockResolvedValue({ driverId: 'driver-2', name: 'New Driver' }),
+    updateDriver: vi.fn().mockResolvedValue({ driverId: 'driver-1', name: 'Renamed Driver' }),
+    deleteDriver: vi.fn().mockResolvedValue(true),
   };
 }
 
@@ -105,6 +110,158 @@ describe('vehicle types', () => {
       eventWithBody('PATCH', '/devices/other-tenant-device', { vehicleType: 'bus' }),
     );
     expect(notFound.statusCode).toBe(404);
+  });
+});
+
+describe('vehicle details', () => {
+  it('saves admin-entered details and clears a field sent as null', async () => {
+    const dependencies = store();
+    const result = await createHandler(dependencies)(
+      eventWithBody('PATCH', '/devices/device-1', {
+        model: 'Innova Crysta 2.4 GX',
+        fuelType: 'diesel',
+        purchasedOn: '2024-02-29',
+        colour: null,
+      }),
+    );
+    expect(result.statusCode).toBe(200);
+    expect(dependencies.updateDevice).toHaveBeenCalledWith('tenant-a', 'device-1', {
+      model: 'Innova Crysta 2.4 GX',
+      fuelType: 'diesel',
+      purchasedOn: '2024-02-29',
+      colour: null,
+    });
+  });
+
+  it('rejects an unknown fuel type and a date that is not on the calendar', async () => {
+    for (const body of [{ fuelType: 'unleaded' }, { purchasedOn: '2026-02-30' }]) {
+      const dependencies = store();
+      const result = await createHandler(dependencies)(
+        eventWithBody('PATCH', '/devices/device-1', body),
+      );
+      expect(result.statusCode).toBe(400);
+      expect(dependencies.updateDevice).not.toHaveBeenCalled();
+    }
+  });
+});
+
+describe('assigning a driver', () => {
+  it('assigns a driver that exists in the same tenant', async () => {
+    const dependencies = store();
+    const result = await createHandler(dependencies)(
+      eventWithBody('PATCH', '/devices/device-1', { driverId: 'driver-1' }),
+    );
+    expect(result.statusCode).toBe(200);
+    expect(dependencies.getDriver).toHaveBeenCalledWith('tenant-a', 'driver-1');
+    expect(dependencies.updateDevice).toHaveBeenCalledWith('tenant-a', 'device-1', {
+      driverId: 'driver-1',
+    });
+  });
+
+  it('refuses a driver that does not exist, e.g. from another tenant', async () => {
+    const dependencies = store();
+    dependencies.getDriver.mockResolvedValue(undefined);
+    const result = await createHandler(dependencies)(
+      eventWithBody('PATCH', '/devices/device-1', { driverId: 'other-tenant-driver' }),
+    );
+    expect(result.statusCode).toBe(400);
+    expect(dependencies.updateDevice).not.toHaveBeenCalled();
+  });
+
+  it('unassigns with null without looking up a driver', async () => {
+    const dependencies = store();
+    await createHandler(dependencies)(
+      eventWithBody('PATCH', '/devices/device-1', { driverId: null }),
+    );
+    expect(dependencies.getDriver).not.toHaveBeenCalled();
+    expect(dependencies.updateDevice).toHaveBeenCalledWith('tenant-a', 'device-1', {
+      driverId: null,
+    });
+  });
+});
+
+describe('drivers', () => {
+  it('lists drivers for the caller tenant, viewers included', async () => {
+    const dependencies = store('viewer');
+    const result = await createHandler(dependencies)(event('GET', '/drivers'));
+    expect(result.statusCode).toBe(200);
+    expect(dependencies.listDrivers).toHaveBeenCalledWith('tenant-a');
+  });
+
+  it('lets administrators add a driver with only the details they entered', async () => {
+    const dependencies = store();
+    const result = await createHandler(dependencies)(
+      eventWithBody('POST', '/drivers', { name: 'Ramesh Kumar', phone: '+91 98450 12345' }),
+    );
+    expect(result.statusCode).toBe(201);
+    expect(dependencies.createDriver).toHaveBeenCalledWith('tenant-a', {
+      name: 'Ramesh Kumar',
+      phone: '+91 98450 12345',
+      licenceNumber: undefined,
+    });
+  });
+
+  it('keeps driver changes admin-only and validated', async () => {
+    const viewer = store('viewer');
+    for (const request of [
+      eventWithBody('POST', '/drivers', { name: 'Someone' }),
+      eventWithBody('PATCH', '/drivers/driver-1', { name: 'Someone' }),
+      event('DELETE', '/drivers/driver-1'),
+    ]) {
+      expect((await createHandler(viewer)(request)).statusCode).toBe(403);
+    }
+    expect(viewer.createDriver).not.toHaveBeenCalled();
+    expect(viewer.updateDriver).not.toHaveBeenCalled();
+    expect(viewer.deleteDriver).not.toHaveBeenCalled();
+
+    const nameless = await createHandler(store())(eventWithBody('POST', '/drivers', {}));
+    expect(nameless.statusCode).toBe(400);
+    const empty = await createHandler(store())(eventWithBody('PATCH', '/drivers/driver-1', {}));
+    expect(empty.statusCode).toBe(400);
+  });
+
+  it('clears an optional driver detail sent as null', async () => {
+    const dependencies = store();
+    const result = await createHandler(dependencies)(
+      eventWithBody('PATCH', '/drivers/driver-1', { phone: null }),
+    );
+    expect(result.statusCode).toBe(200);
+    expect(dependencies.updateDriver).toHaveBeenCalledWith('tenant-a', 'driver-1', {
+      phone: null,
+    });
+  });
+
+  it('unassigns a removed driver from only the vehicles they drove', async () => {
+    const dependencies = store();
+    dependencies.listDevices.mockResolvedValue([
+      { deviceId: 'device-1', driverId: 'driver-1' },
+      { deviceId: 'device-2', driverId: 'driver-9' },
+      { deviceId: 'device-3' },
+    ]);
+    const result = await createHandler(dependencies)(event('DELETE', '/drivers/driver-1'));
+    expect(result.statusCode).toBe(204);
+    expect(dependencies.deleteDriver).toHaveBeenCalledWith('tenant-a', 'driver-1');
+    expect(dependencies.updateDevice).toHaveBeenCalledTimes(1);
+    expect(dependencies.updateDevice).toHaveBeenCalledWith('tenant-a', 'device-1', {
+      driverId: null,
+    });
+  });
+
+  it('reports a missing driver without touching any vehicle', async () => {
+    const dependencies = store();
+    dependencies.deleteDriver.mockResolvedValue(false);
+    dependencies.updateDriver.mockResolvedValue(undefined);
+    expect((await createHandler(dependencies)(event('DELETE', '/drivers/nope'))).statusCode).toBe(
+      404,
+    );
+    expect(
+      (
+        await createHandler(dependencies)(
+          eventWithBody('PATCH', '/drivers/nope', { name: 'Someone' }),
+        )
+      ).statusCode,
+    ).toBe(404);
+    expect(dependencies.updateDevice).not.toHaveBeenCalled();
   });
 });
 

@@ -217,6 +217,7 @@ export class ApiStack extends Stack {
       });
     }
     this.api.addRoutes({ path: '/alerts', methods: [HttpMethod.GET], integration, authorizer });
+    this.api.addRoutes({ path: '/trips', methods: [HttpMethod.GET], integration, authorizer });
     this.api.addRoutes({
       path: '/alerts/{alertId}',
       methods: [HttpMethod.PATCH],

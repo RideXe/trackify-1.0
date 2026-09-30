@@ -38,10 +38,13 @@ export function FleetMap({
   devices,
   selectedId,
   onSelect,
+  height = { xs: 380, md: 520 },
 }: {
   devices: Device[];
   selectedId?: string;
   onSelect: (deviceId: string) => void;
+  /** Any MUI height value; the Live map page makes the map fill the screen. */
+  height?: string | number | Record<string, string | number>;
 }) {
   const container = useRef<HTMLDivElement>(null);
   const iconStore = useRef<HTMLDivElement>(null);
@@ -179,10 +182,7 @@ export function FleetMap({
 
   return (
     <>
-      <Box
-        ref={container}
-        sx={{ width: '100%', height: { xs: 380, md: 520 }, display: 'block', bgcolor: '#EEF2F6' }}
-      />
+      <Box ref={container} sx={{ width: '100%', height, display: 'block', bgcolor: '#EEF2F6' }} />
       {/* The same icons as the rest of the UI, rendered once and hidden, so the map can draw
           them into its pin images and buttons. */}
       <Box ref={iconStore} aria-hidden sx={{ display: 'none' }}>

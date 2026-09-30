@@ -89,7 +89,9 @@ import {
 import { AlertsPage, SosBanner } from './alerts';
 import { dutyLabel, notReporting } from './driver-activity-data';
 import { DriversPage } from './drivers';
+import { LiveMap } from './live-map';
 import { SettingsPage } from './settings';
+import { TripsPage } from './trips';
 import { VehicleNotFound, VehiclePage } from './vehicle-page';
 import { VehicleAvatar, VehicleTypePicker, vehicleIcons } from './vehicle-icons';
 import { useView, type NamedPage, type View } from './view-state';
@@ -131,13 +133,13 @@ interface DeviceInvitation {
 
 type CreatedDevice = Device & { onboarding?: DeviceInvitation };
 
-/** Only entries with a page lead anywhere yet; the rest are placeholders. */
+/** An entry without a page is not built yet; it shows as disabled with a "Soon" tag. */
 const navItems: Array<{ label: string; icon: typeof Gauge; page?: NamedPage }> = [
   { label: 'Overview', icon: Gauge, page: 'overview' },
+  { label: 'Live map', icon: Map, page: 'live-map' },
+  { label: 'Trips', icon: Route, page: 'trips' },
   { label: 'Drivers', icon: IdCard, page: 'drivers' },
   { label: 'Alerts', icon: Bell, page: 'alerts' },
-  { label: 'Live map', icon: Map },
-  { label: 'Trips', icon: Route },
   { label: 'Team', icon: Users },
 ];
 
@@ -315,13 +317,17 @@ export default function FleetPage() {
   const [title, subtitle] =
     view.page === 'drivers'
       ? ['Drivers', 'People who drive your vehicles']
-      : view.page === 'alerts'
-        ? ['Alerts', 'SOS, driver reports and phone problems']
-        : view.page === 'settings'
-          ? ['Settings', 'What drivers see in their app']
-          : view.page === 'vehicle'
-            ? [viewed?.name ?? 'Vehicle', 'Live status, driver and route history']
-            : ['Fleet overview', 'Live operations and vehicle health'];
+      : view.page === 'live-map'
+        ? ['Live map', 'Where every vehicle is right now']
+        : view.page === 'trips'
+          ? ['Trips', 'Completed journeys across the fleet']
+          : view.page === 'alerts'
+            ? ['Alerts', 'SOS, driver reports and phone problems']
+            : view.page === 'settings'
+              ? ['Settings', 'What drivers see in their app']
+              : view.page === 'vehicle'
+                ? [viewed?.name ?? 'Vehicle', 'Live status, driver and route history']
+                : ['Fleet overview', 'Live operations and vehicle health'];
   const go = (next: View) => {
     setMobileNav(false);
     navigate(next);
@@ -433,6 +439,17 @@ export default function FleetPage() {
             <CircularProgress size={32} />
             <Typography color="text.secondary">Loading your fleet…</Typography>
           </Stack>
+        ) : view.page === 'live-map' ? (
+          <LiveMap
+            devices={devices}
+            onOpenVehicle={(deviceId) => go({ page: 'vehicle', deviceId })}
+          />
+        ) : view.page === 'trips' ? (
+          <TripsPage
+            client={client}
+            devices={devices}
+            onOpenVehicle={(deviceId) => go({ page: 'vehicle', deviceId })}
+          />
         ) : view.page === 'alerts' ? (
           <AlertsPage
             alerts={alerts}
@@ -556,6 +573,7 @@ function NavigationDrawer({
           return (
             <ListItemButton
               key={label}
+              disabled={!target}
               onClick={target ? () => onNavigate(target) : undefined}
               selected={active}
               sx={{ mb: 0.5, borderRadius: 2, color: active ? 'primary.main' : 'text.secondary' }}
@@ -570,6 +588,7 @@ function NavigationDrawer({
               {target === 'alerts' && openAlerts > 0 && (
                 <Chip color="error" label={openAlerts} size="small" />
               )}
+              {!target && <Chip label="Soon" size="small" variant="outlined" />}
             </ListItemButton>
           );
         })}

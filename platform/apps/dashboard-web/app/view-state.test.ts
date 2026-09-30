@@ -7,6 +7,8 @@ describe('dashboard views in the address bar', () => {
       { page: 'overview' },
       { page: 'drivers' },
       { page: 'alerts' },
+      { page: 'live-map' },
+      { page: 'trips' },
       { page: 'settings' },
       { page: 'vehicle', deviceId: '01JABC/with space' },
     ];

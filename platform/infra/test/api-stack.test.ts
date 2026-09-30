@@ -69,6 +69,7 @@ describe('ApiStack', () => {
       'GET /organisation',
       'PATCH /organisation',
       'GET /alerts',
+      'GET /trips',
       'PATCH /alerts/{alertId}',
       'GET /devices/{deviceId}/activity',
       'POST /devices/{deviceId}/messages',

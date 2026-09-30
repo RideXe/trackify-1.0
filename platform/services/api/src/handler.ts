@@ -36,7 +36,9 @@ import {
 
 interface FleetStore {
   membership(subject: string): Promise<Membership | undefined>;
-  listDevices(tenantId: string): Promise<Array<{ deviceId: string; driverId?: string }>>;
+  listDevices(
+    tenantId: string,
+  ): Promise<Array<{ deviceId: string; name?: string; driverId?: string }>>;
   createDevice(tenantId: string, input: DeviceInput): Promise<unknown>;
   updateDevice(tenantId: string, deviceId: string, changes: DeviceChanges): Promise<unknown>;
   deleteDevice(tenantId: string, deviceId: string): Promise<boolean>;
@@ -353,6 +355,53 @@ export function createHandler(
             ? await store.events(membership.tenantId, reportMatch[1], from, to, limit)
             : await store.trips(membership.tenantId, reportMatch[1], from, to, limit);
         return items ? response(200, { items }) : response(404, { message: 'device not found' });
+      }
+      if (method === 'GET' && path === '/trips') {
+        const now = Date.now();
+        const from = boundedNumber(event.queryStringParameters?.from, now - 86_400_000, 0, now);
+        // A month at most: every vehicle is queried separately.
+        const to = boundedNumber(
+          event.queryStringParameters?.to,
+          now,
+          from,
+          Math.min(now + 300_000, from + 31 * 86_400_000),
+        );
+        const only = event.queryStringParameters?.deviceId;
+        const devices = (await store.listDevices(membership.tenantId)).filter(
+          (device) => !only || device.deviceId === only,
+        );
+        const perDevice = 1_000;
+        let truncated = false;
+        const items: Array<Record<string, unknown>> = [];
+        // A few vehicles at a time keeps a large fleet from bursting the table's read capacity.
+        for (let index = 0; index < devices.length; index += 10) {
+          const batch = devices.slice(index, index + 10);
+          const results = await Promise.all(
+            batch.map((device) =>
+              store.trips(membership.tenantId, device.deviceId, from, to, perDevice),
+            ),
+          );
+          results.forEach((trips, position) => {
+            const device = batch[position]!;
+            if ((trips?.length ?? 0) >= perDevice) truncated = true;
+            for (const trip of (trips ?? []) as Array<Record<string, unknown>>)
+              items.push({
+                tripId: trip.tripId,
+                deviceId: device.deviceId,
+                deviceName: device.name,
+                startTime: trip.startTime,
+                endTime: trip.endTime,
+                distanceM: trip.distanceM,
+                maxSpeedKmh: trip.maxSpeedKmh,
+                startLatitude: trip.startLatitude,
+                startLongitude: trip.startLongitude,
+                endLatitude: trip.endLatitude,
+                endLongitude: trip.endLongitude,
+              });
+          });
+        }
+        items.sort((a, b) => Number(b.startTime) - Number(a.startTime));
+        return response(200, { items, truncated });
       }
       const summaryMatch = path.match(/^\/devices\/([^/]+)\/summary$/);
       if (method === 'GET' && summaryMatch?.[1]) {

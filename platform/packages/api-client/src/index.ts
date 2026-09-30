@@ -115,6 +115,21 @@ export interface FleetAlert {
   acknowledgedBy?: string;
 }
 
+/** One completed trip, as recorded when the vehicle stopped. */
+export interface FleetTrip {
+  tripId: string;
+  deviceId: string;
+  deviceName?: string;
+  startTime: number;
+  endTime: number;
+  distanceM: number;
+  maxSpeedKmh: number;
+  startLatitude: number;
+  startLongitude: number;
+  endLatitude: number;
+  endLongitude: number;
+}
+
 /** A driver entry as the dashboard reads it; photoUrl is a link that expires in 15 minutes. */
 export type ActivityItem = ActivityEntry & { photoUrl?: string };
 
@@ -295,6 +310,15 @@ export class TrackifyClient {
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify(changes),
     });
+  }
+  /**
+   * Completed trips across the fleet (or one vehicle), newest first. At most 31 days per call;
+   * `truncated` means a vehicle had more trips than one call returns.
+   */
+  fleetTrips(from: number, to: number, deviceId?: string) {
+    const query = new URLSearchParams({ from: String(from), to: String(to) });
+    if (deviceId) query.set('deviceId', deviceId);
+    return this.request<{ items: FleetTrip[]; truncated: boolean }>(`/trips?${query}`);
   }
   /** The most recent alerts, newest first, open and acknowledged alike. */
   alerts() {

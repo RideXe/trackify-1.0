@@ -498,3 +498,56 @@ describe('driver activity and messages', () => {
     expect(notFound.statusCode).toBe(404);
   });
 });
+
+describe('fleet trips', () => {
+  it('merges every vehicle trips newest first, named, without storage keys', async () => {
+    const dependencies = store();
+    dependencies.listDevices.mockResolvedValue([
+      { deviceId: 'device-1', name: 'Van' },
+      { deviceId: 'device-2', name: 'Bus' },
+    ]);
+    dependencies.trips.mockImplementation((_tenant: string, deviceId: string) =>
+      Promise.resolve(
+        deviceId === 'device-1'
+          ? [{ pk: 'x', sk: 'y', tripId: 't1', startTime: 100, endTime: 200, distanceM: 5 }]
+          : [{ pk: 'x', sk: 'y', tripId: 't2', startTime: 300, endTime: 400, distanceM: 7 }],
+      ),
+    );
+    const result = await createHandler(dependencies)(event('GET', '/trips'));
+    const body = JSON.parse(result.body) as {
+      items: Array<Record<string, unknown>>;
+      truncated: boolean;
+    };
+    expect(body.items.map((trip) => [trip.tripId, trip.deviceName])).toEqual([
+      ['t2', 'Bus'],
+      ['t1', 'Van'],
+    ]);
+    expect(body.items[0]).not.toHaveProperty('pk');
+    expect(body.truncated).toBe(false);
+    expect(dependencies.trips).toHaveBeenCalledWith(
+      'tenant-a',
+      'device-1',
+      expect.any(Number),
+      expect.any(Number),
+      1_000,
+    );
+  });
+
+  it('can narrow to one vehicle and refuses ranges over a month', async () => {
+    const dependencies = store();
+    dependencies.listDevices.mockResolvedValue([
+      { deviceId: 'device-1', name: 'Van' },
+      { deviceId: 'device-2', name: 'Bus' },
+    ]);
+    await createHandler(dependencies)({
+      ...event('GET', '/trips'),
+      queryStringParameters: { deviceId: 'device-2' },
+    });
+    expect(dependencies.trips).toHaveBeenCalledTimes(1);
+    const tooLong = await createHandler(store())({
+      ...event('GET', '/trips'),
+      queryStringParameters: { from: '0', to: String(40 * 86_400_000) },
+    });
+    expect(tooLong.statusCode).toBe(400);
+  });
+});

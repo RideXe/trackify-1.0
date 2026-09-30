@@ -1,7 +1,15 @@
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 import { colors } from '../theme';
 
-export function BrandHeader({ action, onAction }: { action?: string; onAction?: () => void }) {
+export function BrandHeader({
+  caption = 'DRIVER APP',
+  action,
+  onAction,
+}: {
+  caption?: string;
+  action?: string;
+  onAction?: () => void;
+}) {
   return (
     <View style={s.header}>
       <View style={s.brandRow}>
@@ -10,7 +18,7 @@ export function BrandHeader({ action, onAction }: { action?: string; onAction?: 
         </View>
         <View>
           <Text style={s.brand}>Trackify</Text>
-          <Text style={s.caption}>FLEET OPERATIONS</Text>
+          <Text style={s.caption}>{caption}</Text>
         </View>
       </View>
       {action && (

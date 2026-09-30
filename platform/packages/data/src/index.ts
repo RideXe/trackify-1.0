@@ -7,3 +7,5 @@ export * from './offline-store';
 export * from './onboarding-store';
 export * from './keys';
 export * from './position-store';
+export * from './activity-store';
+export * from './update-item';

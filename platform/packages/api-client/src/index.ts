@@ -1,4 +1,15 @@
 import type { FuelType, VehicleType } from '@trackify/domain/vehicle';
+import type {
+  ActivityEntry,
+  ActivityType,
+  AlertSeverity,
+  DutyStatus,
+  IssueKind,
+  PauseReason,
+  WarningKind,
+} from '@trackify/domain/activity';
+
+export * from '@trackify/domain/activity';
 
 export {
   defaultVehicleType,
@@ -70,8 +81,42 @@ export interface Device {
   colour?: string;
   /** May name a driver that was removed since; treat that as no driver assigned. */
   driverId?: string;
+  /** Admin-set phone behaviour; unset means the defaults in @trackify/domain/activity. */
+  trackerIntervalSeconds?: number;
+  pauseLimitMinutes?: number;
+  /** What the driver last reported from the phone app; unset means never on a shift. */
+  dutyStatus?: DutyStatus;
+  dutySince?: number;
+  pauseReason?: PauseReason;
+  pauseUntil?: number;
   state?: DeviceState;
 }
+
+export interface Organisation {
+  tenantId: string;
+  name: string;
+  dispatcherPhone?: string;
+}
+
+export interface FleetAlert {
+  alertId: string;
+  deviceId: string;
+  deviceName: string;
+  entryId: string;
+  type: ActivityType;
+  kind?: IssueKind | WarningKind;
+  severity: AlertSeverity;
+  status: 'open' | 'acknowledged';
+  createdAt: number;
+  latitude?: number;
+  longitude?: number;
+  note?: string;
+  acknowledgedAt?: number;
+  acknowledgedBy?: string;
+}
+
+/** A driver entry as the dashboard reads it; photoUrl is a link that expires in 15 minutes. */
+export type ActivityItem = ActivityEntry & { photoUrl?: string };
 
 /** Everything about a vehicle an administrator can edit. null clears an optional field. */
 export interface DeviceChanges {
@@ -83,6 +128,8 @@ export interface DeviceChanges {
   colour?: string | null;
   /** null unassigns the current driver. */
   driverId?: string | null;
+  trackerIntervalSeconds?: number;
+  pauseLimitMinutes?: number;
 }
 
 /** A person who drives the tenant's vehicles; every detail is admin-entered. */
@@ -237,6 +284,46 @@ export class TrackifyClient {
   /** Administrators only. Also unassigns the driver from every vehicle they were on. */
   deleteDriver(driverId: string) {
     return this.request<void>(`/drivers/${encodeURIComponent(driverId)}`, { method: 'DELETE' });
+  }
+  organisation() {
+    return this.request<Organisation>('/organisation');
+  }
+  /** Administrators only. A null dispatcher phone removes it. */
+  updateOrganisation(changes: { name?: string; dispatcherPhone?: string | null }) {
+    return this.request<Organisation>('/organisation', {
+      method: 'PATCH',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify(changes),
+    });
+  }
+  /** The most recent alerts, newest first, open and acknowledged alike. */
+  alerts() {
+    return this.request<{ items: FleetAlert[] }>('/alerts');
+  }
+  /** Dispatchers and administrators. */
+  acknowledgeAlert(alertId: string) {
+    return this.request<FleetAlert>(`/alerts/${encodeURIComponent(alertId)}`, {
+      method: 'PATCH',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ status: 'acknowledged' }),
+    });
+  }
+  /** Driver entries and admin messages, newest first. Defaults to the last seven days. */
+  activity(deviceId: string, from?: number, to?: number) {
+    const query = new URLSearchParams();
+    if (from !== undefined) query.set('from', String(from));
+    if (to !== undefined) query.set('to', String(to));
+    return this.request<{ items: ActivityItem[] }>(
+      `/devices/${encodeURIComponent(deviceId)}/activity${query.size ? `?${query}` : ''}`,
+    );
+  }
+  /** Shows on the driver's phone the next time the app checks for messages. */
+  sendMessage(deviceId: string, text: string) {
+    return this.request<ActivityEntry>(`/devices/${encodeURIComponent(deviceId)}/messages`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ text }),
+    });
   }
   /** Newest first; at most `limit` (max 5,000) fixes per call. */
   positions(deviceId: string, from: number, to: number, limit = 1_000) {

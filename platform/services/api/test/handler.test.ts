@@ -1,4 +1,5 @@
 import type { APIGatewayProxyEventV2WithJWTAuthorizer } from 'aws-lambda';
+import type { ActivityEntry } from '@trackify/domain';
 import { describe, expect, it, vi } from 'vitest';
 
 process.env.CORE_TABLE = 'core';
@@ -10,6 +11,7 @@ process.env.DAILY_STATS_TABLE = 'daily';
 process.env.COMMANDS_TABLE = 'commands';
 process.env.ONBOARDING_TABLE = 'onboarding';
 process.env.ONBOARDING_WEB_URL = 'https://trackify.example';
+process.env.PHOTOS_BUCKET = 'photos';
 const { createHandler } = await import('../src/handler');
 
 function event(method: string, rawPath: string, sub = 'user-1') {
@@ -365,5 +367,134 @@ describe('fleet API', () => {
       {},
       expect.any(Number),
     );
+  });
+});
+
+function activityStore() {
+  return {
+    organisation: vi.fn().mockResolvedValue({ tenantId: 'tenant-a', name: 'Acme Travels' }),
+    updateOrganisation: vi.fn().mockResolvedValue({ tenantId: 'tenant-a', name: 'Acme' }),
+    append: vi.fn((_tenant: string, entry: object) =>
+      Promise.resolve({ ...entry, entryId: 'entry-1', receivedAt: 1 } as ActivityEntry),
+    ),
+    list: vi.fn().mockResolvedValue([
+      { entryId: 'e1', type: 'issue', photoKey: 'tenants/tenant-a/devices/device-1/p.jpg' },
+      { entryId: 'e2', type: 'issue', photoKey: 'tenants/other/devices/device-1/p.jpg' },
+    ]),
+    listAlerts: vi.fn().mockResolvedValue([{ alertId: 'a1' }]),
+    acknowledgeAlert: vi.fn().mockResolvedValue({ alertId: 'a1', status: 'acknowledged' }),
+  };
+}
+const photos = {
+  uploadUrl: vi.fn(),
+  viewUrl: vi.fn((key: string) => Promise.resolve(`https://signed/${key}`)),
+};
+const alertId = '01JABCDEFGHJKMNPQRSTVWXYZ0';
+
+describe('tracker settings', () => {
+  it('lets administrators choose the phone update interval and pause limit', async () => {
+    const dependencies = store();
+    const result = await createHandler(dependencies)(
+      eventWithBody('PATCH', '/devices/device-1', {
+        trackerIntervalSeconds: 60,
+        pauseLimitMinutes: 45,
+      }),
+    );
+    expect(result.statusCode).toBe(200);
+    expect(dependencies.updateDevice).toHaveBeenCalledWith('tenant-a', 'device-1', {
+      trackerIntervalSeconds: 60,
+      pauseLimitMinutes: 45,
+    });
+  });
+
+  it('only accepts the intervals the dashboard offers', async () => {
+    for (const body of [{ trackerIntervalSeconds: 1 }, { pauseLimitMinutes: 600 }]) {
+      const result = await createHandler(store())(
+        eventWithBody('PATCH', '/devices/device-1', body),
+      );
+      expect(result.statusCode).toBe(400);
+    }
+  });
+});
+
+describe('organisation', () => {
+  it('lets administrators set the name and dispatcher phone drivers see', async () => {
+    const activity = activityStore();
+    const handler = createHandler(store(), undefined, undefined, activity, photos);
+    expect((await handler(event('GET', '/organisation'))).statusCode).toBe(200);
+    await handler(
+      eventWithBody('PATCH', '/organisation', { name: ' Acme ', dispatcherPhone: null }),
+    );
+    expect(activity.updateOrganisation).toHaveBeenCalledWith('tenant-a', {
+      name: 'Acme',
+      dispatcherPhone: null,
+    });
+    const viewer = createHandler(store('viewer'), undefined, undefined, activityStore(), photos);
+    expect((await viewer(eventWithBody('PATCH', '/organisation', { name: 'X' }))).statusCode).toBe(
+      403,
+    );
+  });
+});
+
+describe('alerts', () => {
+  it('lists alerts and lets dispatchers acknowledge them, but not viewers', async () => {
+    const activity = activityStore();
+    const handler = createHandler(store(), undefined, undefined, activity, photos);
+    expect((await handler(event('GET', '/alerts'))).statusCode).toBe(200);
+    const acknowledged = await handler(
+      eventWithBody('PATCH', `/alerts/${alertId}`, { status: 'acknowledged' }),
+    );
+    expect(acknowledged.statusCode).toBe(200);
+    expect(activity.acknowledgeAlert).toHaveBeenCalledWith('tenant-a', alertId, 'user-1');
+
+    const viewer = activityStore();
+    const denied = await createHandler(
+      store('viewer'),
+      undefined,
+      undefined,
+      viewer,
+      photos,
+    )(eventWithBody('PATCH', `/alerts/${alertId}`, { status: 'acknowledged' }));
+    expect(denied.statusCode).toBe(403);
+    expect(viewer.acknowledgeAlert).not.toHaveBeenCalled();
+  });
+});
+
+describe('driver activity and messages', () => {
+  it('signs photo links only for photos under this vehicle', async () => {
+    const result = await createHandler(
+      store(),
+      undefined,
+      undefined,
+      activityStore(),
+      photos,
+    )(event('GET', '/devices/device-1/activity'));
+    const items = (JSON.parse(result.body) as { items: Array<{ photoUrl?: string }> }).items;
+    expect(items[0]?.photoUrl).toBe('https://signed/tenants/tenant-a/devices/device-1/p.jpg');
+    expect(items[1]?.photoUrl).toBeUndefined();
+  });
+
+  it('sends a trimmed message to the driver of a vehicle in the tenant', async () => {
+    const activity = activityStore();
+    const handler = createHandler(store(), undefined, undefined, activity, photos);
+    const sent = await handler(
+      eventWithBody('POST', '/devices/device-1/messages', { text: '  Go to depot  ' }),
+    );
+    expect(sent.statusCode).toBe(201);
+    expect(activity.append).toHaveBeenCalledWith(
+      'tenant-a',
+      expect.objectContaining({ deviceId: 'device-1', type: 'message', text: 'Go to depot' }),
+    );
+
+    const missing = store();
+    missing.getDevice.mockResolvedValue(undefined);
+    const notFound = await createHandler(
+      missing,
+      undefined,
+      undefined,
+      activityStore(),
+      photos,
+    )(eventWithBody('POST', '/devices/other/messages', { text: 'hi' }));
+    expect(notFound.statusCode).toBe(404);
   });
 });

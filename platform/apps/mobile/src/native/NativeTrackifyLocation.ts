@@ -21,11 +21,21 @@ export type NativeLocation = {
   timestamp: number;
 };
 
+/** What can stop tracking from working, read on demand. */
+export type DeviceHealth = {
+  /** Missing when Android does not report a battery level. */
+  batteryPct?: number;
+  charging: boolean;
+  /** The phone's Location setting; tracking gets no fixes while it is off. */
+  locationEnabled: boolean;
+};
+
 export interface Spec extends TurboModule {
   start(options: TrackingOptions): Promise<void>;
   stop(): Promise<void>;
   isRunning(): Promise<boolean>;
   getCurrentPosition(accuracy: string): Promise<NativeLocation>;
+  deviceHealth(): Promise<DeviceHealth>;
 }
 
 export default TurboModuleRegistry.getEnforcing<Spec>('TrackifyLocation');

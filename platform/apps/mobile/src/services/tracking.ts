@@ -41,8 +41,8 @@ export async function startTracking(config: TrackerConfig) {
   await TrackifyLocation.start({
     intervalMs: Math.max(15, Math.min(300, config.intervalSeconds || 30)) * 1000,
     accuracy: config.accuracy,
-    notificationTitle: 'Trackify is tracking this phone',
-    notificationBody: 'Location sharing is active for your fleet.',
+    notificationTitle: 'On shift · Trackify',
+    notificationBody: 'Your location is shared with your fleet until you end the shift.',
   });
   await addTrackerLog('Background tracking started');
 }
@@ -55,5 +55,43 @@ export async function stopTracking() {
 export async function sendCurrentPosition(config: TrackerConfig) {
   if (!(await requestForegroundLocation())) throw new Error('Location permission is required');
   const location = await TrackifyLocation.getCurrentPosition(config.accuracy);
-  await uploadLocation(config, toLocationFix(location));
+  await uploadLocation(config, toLocationFix(location), await batteryPct());
+}
+
+/** Where the phone is right now, or undefined if no fix arrives in time (e.g. indoors). */
+export async function quickPosition(config: TrackerConfig, timeoutMs = 8_000) {
+  const timeout = new Promise<undefined>((resolve) =>
+    setTimeout(() => resolve(undefined), timeoutMs),
+  );
+  try {
+    const location = await Promise.race([
+      TrackifyLocation.getCurrentPosition(config.accuracy),
+      timeout,
+    ]);
+    return location && { latitude: location.latitude, longitude: location.longitude };
+  } catch {
+    return undefined;
+  }
+}
+
+export async function batteryPct() {
+  try {
+    const health = await TrackifyLocation.deviceHealth();
+    return health.batteryPct === undefined ? undefined : Math.round(health.batteryPct);
+  } catch {
+    return undefined;
+  }
+}
+
+export function deviceHealth() {
+  return TrackifyLocation.deviceHealth();
+}
+
+/** Both location permissions tracking needs, checked without asking the driver. */
+export async function hasLocationPermission() {
+  const foreground = await PermissionsAndroid.check(PERMISSIONS.ACCESS_FINE_LOCATION);
+  const background =
+    Number(Platform.Version) < 29 ||
+    (await PermissionsAndroid.check(PERMISSIONS.ACCESS_BACKGROUND_LOCATION));
+  return foreground && background;
 }

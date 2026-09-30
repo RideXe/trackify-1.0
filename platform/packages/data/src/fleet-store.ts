@@ -4,18 +4,22 @@ import {
   PutCommand,
   QueryCommand,
   TransactWriteCommand,
-  UpdateCommand,
   type DynamoDBDocumentClient,
 } from '@aws-sdk/lib-dynamodb';
 import {
   defaultVehicleType,
   isFuelType,
+  isOneOf,
+  pauseReasons,
   toVehicleType,
+  type DutyStatus,
   type FuelType,
+  type PauseReason,
   type VehicleType,
 } from '@trackify/domain';
 import { ulid } from 'ulid';
 import { cognitoLookupKey, tenantPartitionKey, uniqueIdLookupKey } from './keys';
+import { updateItem } from './update-item';
 
 export type FleetRole = 'admin' | 'dispatcher' | 'viewer';
 
@@ -42,6 +46,14 @@ export interface FleetDevice {
   purchasedOn?: string;
   colour?: string;
   driverId?: string;
+  /** Admin-set phone behaviour; the phone uses the domain defaults when these are unset. */
+  trackerIntervalSeconds?: number;
+  pauseLimitMinutes?: number;
+  /** What the driver last reported from the phone app. Unset means never on a shift. */
+  dutyStatus?: DutyStatus;
+  dutySince?: number;
+  pauseReason?: PauseReason;
+  pauseUntil?: number;
 }
 
 export interface Driver {
@@ -181,10 +193,14 @@ export class DynamoFleetStore {
   async updateDevice(
     tenantId: string,
     deviceId: string,
-    changes: Partial<Pick<FleetDevice, 'name' | 'vehicleType'>> &
+    changes: Partial<
+      Pick<FleetDevice, 'name' | 'vehicleType' | 'trackerIntervalSeconds' | 'pauseLimitMinutes'>
+    > &
       Clearable<Pick<FleetDevice, 'model' | 'fuelType' | 'purchasedOn' | 'colour' | 'driverId'>>,
   ): Promise<FleetDevice | undefined> {
-    const attributes = await this.updateItem(
+    const attributes = await updateItem(
+      this.client,
+      this.coreTable,
       { pk: tenantPartitionKey(tenantId), sk: `DEVICE#${deviceId}` },
       changes,
     );
@@ -232,7 +248,9 @@ export class DynamoFleetStore {
     driverId: string,
     changes: Partial<Pick<Driver, 'name'>> & Clearable<Pick<Driver, 'phone' | 'licenceNumber'>>,
   ): Promise<Driver | undefined> {
-    const attributes = await this.updateItem(
+    const attributes = await updateItem(
+      this.client,
+      this.coreTable,
       { pk: tenantPartitionKey(tenantId), sk: `DRIVER#${driverId}` },
       changes,
     );
@@ -252,52 +270,6 @@ export class DynamoFleetStore {
       }),
     );
     return Boolean(result.Attributes);
-  }
-
-  /**
-   * Shared SET/REMOVE update: a field set to null is removed from the item rather than stored as
-   * null. Returns the updated item, or undefined when it does not exist; with nothing to change
-   * it only reads the item.
-   */
-  private async updateItem(
-    key: { pk: string; sk: string },
-    changes: Record<string, unknown>,
-  ): Promise<Record<string, unknown> | undefined> {
-    const entries = Object.entries(changes).filter(([, value]) => value !== undefined);
-    if (!entries.length) {
-      const existing = await this.client.send(
-        new GetCommand({ TableName: this.coreTable, Key: key }),
-      );
-      return existing.Item;
-    }
-    const sets = entries.filter((entry): entry is [string, string] => entry[1] !== null);
-    const removes = entries.filter((entry) => entry[1] === null).map(([key]) => key);
-    const clauses = [
-      sets.length ? `SET ${sets.map(([field]) => `#${field} = :${field}`).join(', ')}` : '',
-      removes.length ? `REMOVE ${removes.map((field) => `#${field}`).join(', ')}` : '',
-    ].filter(Boolean);
-    try {
-      const result = await this.client.send(
-        new UpdateCommand({
-          TableName: this.coreTable,
-          Key: key,
-          UpdateExpression: clauses.join(' '),
-          ConditionExpression: 'attribute_exists(pk)',
-          ExpressionAttributeNames: Object.fromEntries(
-            [...sets.map(([field]) => field), ...removes].map((field) => [`#${field}`, field]),
-          ),
-          ...(sets.length
-            ? { ExpressionAttributeValues: Object.fromEntries(sets.map(([k, v]) => [`:${k}`, v])) }
-            : {}),
-          ReturnValues: 'ALL_NEW',
-        }),
-      );
-      return result.Attributes;
-    } catch (error) {
-      if (error instanceof Error && error.name === 'ConditionalCheckFailedException')
-        return undefined;
-      throw error;
-    }
   }
 
   /**
@@ -467,7 +439,19 @@ function toDevice(item: Record<string, unknown>): FleetDevice {
     purchasedOn: typeof item.purchasedOn === 'string' ? item.purchasedOn : undefined,
     colour: typeof item.colour === 'string' ? item.colour : undefined,
     driverId: typeof item.driverId === 'string' ? item.driverId : undefined,
+    trackerIntervalSeconds: optionalNumber(item.trackerIntervalSeconds),
+    pauseLimitMinutes: optionalNumber(item.pauseLimitMinutes),
+    dutyStatus: isOneOf(['off', 'on', 'paused'] as const, item.dutyStatus)
+      ? item.dutyStatus
+      : undefined,
+    dutySince: optionalNumber(item.dutySince),
+    pauseReason: isOneOf(pauseReasons, item.pauseReason) ? item.pauseReason : undefined,
+    pauseUntil: optionalNumber(item.pauseUntil),
   };
+}
+
+function optionalNumber(value: unknown): number | undefined {
+  return typeof value === 'number' && Number.isFinite(value) ? value : undefined;
 }
 
 function toDriver(item: Record<string, unknown>): Driver {

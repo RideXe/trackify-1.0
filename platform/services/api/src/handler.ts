@@ -2,18 +2,37 @@ import { createHash, randomInt } from 'node:crypto';
 import type { APIGatewayProxyEventV2WithJWTAuthorizer } from 'aws-lambda';
 import {
   createDocumentClient,
+  DynamoActivityStore,
   DynamoFleetStore,
   DynamoOnboardingStore,
+  type FleetAlert,
   type Membership,
   type OnboardingInvitation,
+  type Organisation,
 } from '@trackify/data';
 import {
   defaultVehicleType,
   isFuelType,
   isVehicleType,
+  pauseLimits,
+  trackerIntervals,
+  type ActivityEntry,
+  type ActivityType,
   type FuelType,
   type VehicleType,
 } from '@trackify/domain';
+import { photoPrefix, photoStoreFromEnv, type PhotoStore } from './aws';
+import {
+  boundedNumber,
+  clearable,
+  InputError,
+  isRecord,
+  jsonObject,
+  optionalText,
+  requiredEnv,
+  response,
+  text,
+} from './http';
 
 interface FleetStore {
   membership(subject: string): Promise<Membership | undefined>;
@@ -70,6 +89,28 @@ interface FleetStore {
   ): Promise<Record<string, unknown> | undefined>;
 }
 
+interface ActivityStore {
+  organisation(tenantId: string): Promise<Organisation | undefined>;
+  updateOrganisation(
+    tenantId: string,
+    changes: { name?: string; dispatcherPhone?: string | null },
+  ): Promise<Organisation | undefined>;
+  append(
+    tenantId: string,
+    entry: Omit<ActivityEntry, 'entryId' | 'receivedAt'>,
+  ): Promise<ActivityEntry>;
+  list(
+    tenantId: string,
+    deviceId: string,
+    from: number,
+    to: number,
+    limit: number,
+    type?: ActivityType,
+  ): Promise<ActivityEntry[]>;
+  listAlerts(tenantId: string, limit?: number): Promise<FleetAlert[]>;
+  acknowledgeAlert(tenantId: string, alertId: string, by: string): Promise<FleetAlert | undefined>;
+}
+
 interface InvitationStore {
   create(invitation: OnboardingInvitation): Promise<OnboardingInvitation>;
   list(tenantId: string, deviceId: string): Promise<OnboardingInvitation[]>;
@@ -98,6 +139,8 @@ interface DeviceChanges {
   purchasedOn?: string | null;
   colour?: string | null;
   driverId?: string | null;
+  trackerIntervalSeconds?: number;
+  pauseLimitMinutes?: number;
 }
 
 interface DriverInput {
@@ -116,6 +159,8 @@ export function createHandler(
   store: FleetStore,
   invitations?: InvitationStore,
   onboardingWebUrl = 'https://trackify.invalid',
+  activity?: ActivityStore,
+  photos?: PhotoStore,
 ) {
   return async (event: APIGatewayProxyEventV2WithJWTAuthorizer) => {
     try {
@@ -187,6 +232,81 @@ export function createHandler(
           ),
         );
         return response(204, undefined);
+      }
+      if (path === '/organisation' || path === '/alerts' || path.startsWith('/alerts/')) {
+        if (!activity) return response(503, { message: 'activity unavailable' });
+      }
+      if (method === 'GET' && path === '/organisation') {
+        const organisation = await activity!.organisation(membership.tenantId);
+        return organisation
+          ? response(200, organisation)
+          : response(404, { message: 'organisation not found' });
+      }
+      if (method === 'PATCH' && path === '/organisation') {
+        if (membership.role !== 'admin') return response(403, { message: 'admin role required' });
+        const changes = parseOrganisationChanges(event.body);
+        const organisation = await activity!.updateOrganisation(membership.tenantId, changes);
+        return organisation
+          ? response(200, organisation)
+          : response(404, { message: 'organisation not found' });
+      }
+      if (method === 'GET' && path === '/alerts') {
+        return response(200, { items: await activity!.listAlerts(membership.tenantId) });
+      }
+      const alertMatch = path.match(/^\/alerts\/([0-9A-HJKMNP-TV-Z]{26})$/);
+      if (method === 'PATCH' && alertMatch?.[1]) {
+        if (membership.role === 'viewer')
+          return response(403, { message: 'dispatcher role required' });
+        const body = jsonObject(event.body);
+        if (body.status !== 'acknowledged') throw new InputError('status must be acknowledged');
+        const alert = await activity!.acknowledgeAlert(
+          membership.tenantId,
+          alertMatch[1],
+          membership.email ?? membership.userId,
+        );
+        return alert ? response(200, alert) : response(404, { message: 'alert not found' });
+      }
+      const activityMatch = path.match(/^\/devices\/([^/]+)\/(activity|messages)$/);
+      if (activityMatch?.[1]) {
+        if (!activity) return response(503, { message: 'activity unavailable' });
+        const deviceId = activityMatch[1];
+        if (!(await store.getDevice(membership.tenantId, deviceId)))
+          return response(404, { message: 'device not found' });
+        if (method === 'GET' && activityMatch[2] === 'activity') {
+          const now = Date.now();
+          const from = boundedNumber(
+            event.queryStringParameters?.from,
+            now - 7 * 86_400_000,
+            0,
+            now,
+          );
+          const to = boundedNumber(event.queryStringParameters?.to, now, from, now + 300_000);
+          const items = await activity.list(membership.tenantId, deviceId, from, to, 200);
+          const prefix = photoPrefix(membership.tenantId, deviceId);
+          return response(200, {
+            items: await Promise.all(
+              items.map(async (item) =>
+                item.photoKey?.startsWith(prefix) && photos
+                  ? { ...item, photoUrl: await photos.viewUrl(item.photoKey) }
+                  : item,
+              ),
+            ),
+          });
+        }
+        if (method === 'POST' && activityMatch[2] === 'messages') {
+          if (membership.role === 'viewer')
+            return response(403, { message: 'dispatcher role required' });
+          const message = text(jsonObject(event.body).text, 'text', 1, 500).trim();
+          if (!message) throw new InputError('text is invalid');
+          const entry = await activity.append(membership.tenantId, {
+            deviceId,
+            type: 'message',
+            at: Date.now(),
+            text: message,
+            sentBy: membership.email ?? membership.userId,
+          });
+          return response(201, entry);
+        }
       }
       const invitationMatch = path.match(/^\/devices\/([^/]+)\/invitations$/);
       if (invitationMatch?.[1] && method === 'GET') {
@@ -352,18 +472,6 @@ function day(value: string) {
   return value;
 }
 
-function jsonObject(body: string | undefined): Record<string, unknown> {
-  if (!body) throw new InputError('request body is required');
-  let value: unknown;
-  try {
-    value = JSON.parse(body);
-  } catch {
-    throw new InputError('request body must be JSON');
-  }
-  if (!isRecord(value)) throw new InputError('request body must be an object');
-  return value;
-}
-
 function vehicleType(value: unknown): VehicleType {
   if (!isVehicleType(value)) throw new InputError('vehicleType is unsupported');
   return value;
@@ -372,11 +480,6 @@ function vehicleType(value: unknown): VehicleType {
 function fuelType(value: unknown): FuelType {
   if (!isFuelType(value)) throw new InputError('fuelType is unsupported');
   return value;
-}
-
-/** Undefined is left alone (field not being set); a value present must satisfy the length bounds. */
-function optionalText(value: unknown, name: string, min: number, max: number): string | undefined {
-  return value === undefined ? undefined : text(value, name, min, max);
 }
 
 /** A real calendar day: 2026-02-30 matches the pattern but Date rolls it over to March. */
@@ -393,11 +496,6 @@ function purchasedOn(value: unknown): string {
   return value;
 }
 
-/** null clears an optional field; any other value must be valid for it. */
-function clearable<T>(value: unknown, parse: (value: unknown) => T): T | null {
-  return value === null ? null : parse(value);
-}
-
 function parseDeviceChanges(body: string | undefined): DeviceChanges {
   const value = jsonObject(body);
   const changes: DeviceChanges = {};
@@ -412,6 +510,16 @@ function parseDeviceChanges(body: string | undefined): DeviceChanges {
     changes.colour = clearable(value.colour, (colour) => text(colour, 'colour', 1, 40));
   if (value.driverId !== undefined)
     changes.driverId = clearable(value.driverId, (driverId) => text(driverId, 'driverId', 1, 64));
+  if (value.trackerIntervalSeconds !== undefined) {
+    if (!(trackerIntervals as readonly unknown[]).includes(value.trackerIntervalSeconds))
+      throw new InputError('trackerIntervalSeconds is unsupported');
+    changes.trackerIntervalSeconds = value.trackerIntervalSeconds as number;
+  }
+  if (value.pauseLimitMinutes !== undefined) {
+    if (!(pauseLimits as readonly unknown[]).includes(value.pauseLimitMinutes))
+      throw new InputError('pauseLimitMinutes is unsupported');
+    changes.pauseLimitMinutes = value.pauseLimitMinutes as number;
+  }
   if (!Object.keys(changes).length)
     throw new InputError('at least one field to change is required');
   return changes;
@@ -442,6 +550,20 @@ function parseDevice(body: string | undefined): DeviceInput {
   };
 }
 
+function parseOrganisationChanges(body: string | undefined) {
+  const value = jsonObject(body);
+  const changes: { name?: string; dispatcherPhone?: string | null } = {};
+  if (value.name !== undefined) changes.name = text(value.name, 'name', 1, 100).trim();
+  if (value.name !== undefined && !changes.name) throw new InputError('name is invalid');
+  if (value.dispatcherPhone !== undefined)
+    changes.dispatcherPhone = clearable(value.dispatcherPhone, (phone) =>
+      text(phone, 'dispatcherPhone', 3, 20),
+    );
+  if (!Object.keys(changes).length)
+    throw new InputError('at least one field to change is required');
+  return changes;
+}
+
 function parseDriverInput(body: string | undefined): DriverInput {
   const value = jsonObject(body);
   return {
@@ -466,35 +588,6 @@ function parseDriverChanges(body: string | undefined): DriverChanges {
   return changes;
 }
 
-function boundedNumber(value: unknown, fallback: number, min: number, max: number): number {
-  if (value === undefined) return fallback;
-  const number = Number(value);
-  if (!Number.isFinite(number) || number < min || number > max)
-    throw new InputError('numeric parameter is outside its allowed range');
-  return Math.round(number);
-}
-
-function text(value: unknown, name: string, min: number, max: number): string {
-  if (typeof value !== 'string' || value.length < min || value.length > max)
-    throw new InputError(`${name} is invalid`);
-  return value;
-}
-
-function response(statusCode: number, body: unknown) {
-  return {
-    statusCode,
-    headers: {
-      'content-type': 'application/json',
-      'cache-control': 'no-store',
-    },
-    body: JSON.stringify(body),
-  };
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === 'object' && value !== null;
-}
-
 function isTransactionConflict(error: unknown) {
   return error instanceof Error && error.name === 'TransactionCanceledException';
 }
@@ -502,8 +595,6 @@ function isTransactionConflict(error: unknown) {
 function isCodeConflict(error: unknown) {
   return error instanceof Error && error.name === 'ConditionalCheckFailedException';
 }
-
-class InputError extends Error {}
 
 const client = createDocumentClient();
 export const handler = createHandler(
@@ -521,10 +612,6 @@ export const handler = createHandler(
   ),
   new DynamoOnboardingStore(client, requiredEnv('ONBOARDING_TABLE')),
   requiredEnv('ONBOARDING_WEB_URL'),
+  new DynamoActivityStore(client, requiredEnv('CORE_TABLE')),
+  photoStoreFromEnv(requiredEnv('PHOTOS_BUCKET')),
 );
-
-function requiredEnv(key: string): string {
-  const value = process.env[key];
-  if (!value) throw new Error(`${key} is required`);
-  return value;
-}

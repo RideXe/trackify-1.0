@@ -1,10 +1,13 @@
-import { CfnOutput, Duration, Stack, type StackProps } from 'aws-cdk-lib';
+import { CfnOutput, Duration, RemovalPolicy, Stack, type StackProps } from 'aws-cdk-lib';
 import { CorsHttpMethod, HttpApi, HttpMethod } from 'aws-cdk-lib/aws-apigatewayv2';
 import { HttpJwtAuthorizer } from 'aws-cdk-lib/aws-apigatewayv2-authorizers';
 import { HttpLambdaIntegration } from 'aws-cdk-lib/aws-apigatewayv2-integrations';
 import { Architecture, Runtime } from 'aws-cdk-lib/aws-lambda';
 import { NodejsFunction } from 'aws-cdk-lib/aws-lambda-nodejs';
 import { LogGroup, RetentionDays } from 'aws-cdk-lib/aws-logs';
+import { BlockPublicAccess, Bucket, BucketEncryption } from 'aws-cdk-lib/aws-s3';
+import { Topic } from 'aws-cdk-lib/aws-sns';
+import { EmailSubscription } from 'aws-cdk-lib/aws-sns-subscriptions';
 import type { IQueue } from 'aws-cdk-lib/aws-sqs';
 import type { Construct } from 'constructs';
 import type { EnvConfig } from '../config';
@@ -37,6 +40,23 @@ export class ApiStack extends Stack {
             ]),
           ]
         : [...new Set([dashboardUrl, ...(props.additionalBrowserOrigins ?? [])])];
+    // Issue and fuel-receipt photos from driver phones. Private; reached only via presigned URLs.
+    const photos = new Bucket(this, 'DriverPhotos', {
+      blockPublicAccess: BlockPublicAccess.BLOCK_ALL,
+      encryption: BucketEncryption.S3_MANAGED,
+      enforceSSL: true,
+      lifecycleRules: [
+        { expiration: Duration.days(365) },
+        { abortIncompleteMultipartUploadAfter: Duration.days(1) },
+      ],
+      // Photos are evidence (accidents, receipts); never delete them with the stack.
+      removalPolicy: RemovalPolicy.RETAIN,
+    });
+    // SOS and serious issue reports are emailed here. AWS sends a confirmation email first;
+    // nothing arrives until that link is clicked.
+    const driverAlerts = new Topic(this, 'DriverAlerts', { displayName: 'Trackify driver alerts' });
+    driverAlerts.addSubscription(new EmailSubscription(props.config.alertEmail));
+
     const handler = new NodejsFunction(this, 'FleetApiHandler', {
       entry: `${props.platformPath}/services/api/src/handler.ts`,
       runtime: Runtime.NODEJS_24_X,
@@ -53,6 +73,7 @@ export class ApiStack extends Stack {
         COMMANDS_TABLE: props.data.commands.tableName,
         ONBOARDING_TABLE: props.data.onboarding.tableName,
         ONBOARDING_WEB_URL: dashboardUrl,
+        PHOTOS_BUCKET: photos.bucketName,
       },
       logGroup: new LogGroup(this, 'FleetApiLogs', { retention: RetentionDays.ONE_WEEK }),
       bundling: { minify: true, sourceMap: true },
@@ -65,6 +86,7 @@ export class ApiStack extends Stack {
     props.data.dailyStats.grantReadData(handler);
     props.data.commands.grantReadWriteData(handler);
     props.data.onboarding.grantReadWriteData(handler);
+    photos.grantRead(handler);
     const authorizer = new HttpJwtAuthorizer(
       'CognitoAuthorizer',
       `https://cognito-idp.${this.region}.amazonaws.com/${props.identity.userPool.userPoolId}`,
@@ -186,6 +208,72 @@ export class ApiStack extends Stack {
       integration,
       authorizer,
     });
+    for (const path of ['/organisation']) {
+      this.api.addRoutes({
+        path,
+        methods: [HttpMethod.GET, HttpMethod.PATCH],
+        integration,
+        authorizer,
+      });
+    }
+    this.api.addRoutes({ path: '/alerts', methods: [HttpMethod.GET], integration, authorizer });
+    this.api.addRoutes({
+      path: '/alerts/{alertId}',
+      methods: [HttpMethod.PATCH],
+      integration,
+      authorizer,
+    });
+    this.api.addRoutes({
+      path: '/devices/{deviceId}/activity',
+      methods: [HttpMethod.GET],
+      integration,
+      authorizer,
+    });
+    this.api.addRoutes({
+      path: '/devices/{deviceId}/messages',
+      methods: [HttpMethod.POST],
+      integration,
+      authorizer,
+    });
+
+    // The driver app. No Cognito: each request carries the phone's own device credential.
+    const phoneApi = new NodejsFunction(this, 'PhoneApiHandler', {
+      entry: `${props.platformPath}/services/api/src/phone.ts`,
+      runtime: Runtime.NODEJS_24_X,
+      architecture: Architecture.ARM_64,
+      memorySize: 256,
+      timeout: Duration.seconds(15),
+      environment: {
+        CORE_TABLE: props.data.core.tableName,
+        ONBOARDING_TABLE: props.data.onboarding.tableName,
+        DEVICE_STATE_TABLE: props.data.deviceState.tableName,
+        POSITIONS_TABLE: props.data.positions.tableName,
+        EVENTS_TABLE: props.data.events.tableName,
+        TRIPS_TABLE: props.data.trips.tableName,
+        DAILY_STATS_TABLE: props.data.dailyStats.tableName,
+        COMMANDS_TABLE: props.data.commands.tableName,
+        PHOTOS_BUCKET: photos.bucketName,
+        ALERTS_TOPIC_ARN: driverAlerts.topicArn,
+        DASHBOARD_URL: dashboardUrl,
+      },
+      logGroup: new LogGroup(this, 'PhoneApiLogs', { retention: RetentionDays.ONE_WEEK }),
+      bundling: { minify: true, sourceMap: true },
+    });
+    props.data.core.grantReadWriteData(phoneApi);
+    props.data.onboarding.grantReadData(phoneApi);
+    props.data.trips.grantReadData(phoneApi);
+    photos.grantPut(phoneApi);
+    driverAlerts.grantPublish(phoneApi);
+    const phoneIntegration = new HttpLambdaIntegration('PhoneApiIntegration', phoneApi);
+    for (const [path, method] of [
+      ['/phone/config', HttpMethod.GET],
+      ['/phone/activity', HttpMethod.POST],
+      ['/phone/messages', HttpMethod.GET],
+      ['/phone/photos', HttpMethod.POST],
+      ['/phone/today', HttpMethod.GET],
+    ] as const) {
+      this.api.addRoutes({ path, methods: [method], integration: phoneIntegration });
+    }
     new CfnOutput(this, 'ApiUrl', { value: this.api.apiEndpoint });
   }
 }

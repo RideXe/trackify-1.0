@@ -7,9 +7,10 @@ import {
   type TrackerConfig,
 } from './storage';
 
-export function positionBody(config: TrackerConfig, location: LocationFix) {
+export function positionBody(config: TrackerConfig, location: LocationFix, batteryPct?: number) {
   const c = location.coords;
   return JSON.stringify({
+    batt: batteryPct,
     id: config.uniqueId,
     lat: c.latitude,
     lon: c.longitude,
@@ -22,8 +23,12 @@ export function positionBody(config: TrackerConfig, location: LocationFix) {
 }
 
 let pending: Promise<unknown> = Promise.resolve();
-export function uploadLocation(config: TrackerConfig, location: LocationFix): Promise<void> {
-  const operation = pending.then(() => deliver(config, location));
+export function uploadLocation(
+  config: TrackerConfig,
+  location: LocationFix,
+  batteryPct?: number,
+): Promise<void> {
+  const operation = pending.then(() => deliver(config, location, batteryPct));
   pending = operation.catch(() => undefined);
   return operation;
 }
@@ -43,10 +48,10 @@ async function post(config: TrackerConfig, body: string) {
   }
 }
 
-async function deliver(config: TrackerConfig, location: LocationFix) {
+async function deliver(config: TrackerConfig, location: LocationFix, batteryPct?: number) {
   if (!config.credential || !config.endpoint || !config.deviceId)
     throw new Error('Complete tracker setup first');
-  const body = positionBody(config, location);
+  const body = positionBody(config, location, batteryPct);
   if (!config.buffer) {
     const response = await post(config, body);
     if (!response.ok) throw new Error(`Location upload failed: ${await rejectionReason(response)}`);

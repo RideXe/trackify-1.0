@@ -1,6 +1,12 @@
 package com.ridexe.trackify.location
 
 import android.annotation.SuppressLint
+import android.content.Context
+import android.content.Intent
+import android.content.IntentFilter
+import android.location.LocationManager
+import android.os.BatteryManager
+import androidx.core.location.LocationManagerCompat
 import com.facebook.react.bridge.Arguments
 import com.facebook.react.bridge.Promise
 import com.facebook.react.bridge.ReactApplicationContext
@@ -73,6 +79,26 @@ class TrackifyLocationModule(context: ReactApplicationContext) :
     } catch (error: SecurityException) {
       promise.reject("E_LOCATION_PERMISSION", "Location permission is required", error)
     }
+  }
+
+  override fun deviceHealth(promise: Promise) {
+    // A sticky broadcast: registering with a null receiver just reads the latest battery state.
+    val battery =
+        reactApplicationContext.registerReceiver(null, IntentFilter(Intent.ACTION_BATTERY_CHANGED))
+    val level = battery?.getIntExtra(BatteryManager.EXTRA_LEVEL, -1) ?: -1
+    val scale = battery?.getIntExtra(BatteryManager.EXTRA_SCALE, -1) ?: -1
+    val status = battery?.getIntExtra(BatteryManager.EXTRA_STATUS, -1) ?: -1
+    val locationManager =
+        reactApplicationContext.getSystemService(Context.LOCATION_SERVICE) as LocationManager
+    val health = Arguments.createMap()
+    if (level >= 0 && scale > 0) health.putDouble("batteryPct", level * 100.0 / scale)
+    health.putBoolean(
+        "charging",
+        status == BatteryManager.BATTERY_STATUS_CHARGING ||
+            status == BatteryManager.BATTERY_STATUS_FULL,
+    )
+    health.putBoolean("locationEnabled", LocationManagerCompat.isLocationEnabled(locationManager))
+    promise.resolve(health)
   }
 
   companion object {

@@ -268,3 +268,31 @@ describe('drivers client', () => {
     expect(fetch.mock.calls[0]?.[1]?.body).toBe(JSON.stringify({ driverId: null }));
   });
 });
+
+describe('alerts and driver activity client', () => {
+  afterEach(() => vi.unstubAllGlobals());
+
+  it('acknowledges alerts and sends messages on their routes', async () => {
+    const fetch = vi
+      .fn<typeof globalThis.fetch>()
+      .mockImplementation(() => Promise.resolve(new Response('{}')));
+    vi.stubGlobal('fetch', fetch);
+    const client = new TrackifyClient(apiConfig, () => 'access-token');
+    await client.acknowledgeAlert('01JALERT');
+    await client.sendMessage('device 1', 'Go to depot');
+    await client.activity('device 1', 5, 10);
+    expect(fetch.mock.calls.map((call) => [call[0], call[1]?.method, call[1]?.body])).toEqual([
+      [
+        'https://api.example.com/alerts/01JALERT',
+        'PATCH',
+        JSON.stringify({ status: 'acknowledged' }),
+      ],
+      [
+        'https://api.example.com/devices/device%201/messages',
+        'POST',
+        JSON.stringify({ text: 'Go to depot' }),
+      ],
+      ['https://api.example.com/devices/device%201/activity?from=5&to=10', undefined, undefined],
+    ]);
+  });
+});

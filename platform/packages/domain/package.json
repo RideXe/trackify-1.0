@@ -6,7 +6,8 @@
   "description": "Shared message contracts (positions, events) for the Trackify platform",
   "exports": {
     ".": "./src/index.ts",
-    "./vehicle": "./src/vehicle.ts"
+    "./vehicle": "./src/vehicle.ts",
+    "./activity": "./src/activity.ts"
   },
   "scripts": {
     "typecheck": "tsc --noEmit -p tsconfig.json",

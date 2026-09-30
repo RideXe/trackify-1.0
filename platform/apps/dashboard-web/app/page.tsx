@@ -519,6 +519,7 @@ export default function FleetPage() {
           setOnboardingDismissed(true);
         }}
         onCreated={loadFleet}
+        onConnected={(deviceId) => go({ page: 'vehicle', deviceId })}
       />
       {error && (
         <Alert
@@ -888,6 +889,28 @@ function TrackerConnection({ device, admin }: { device: Device; admin: boolean }
   const [pairingBusy, setPairingBusy] = useState(false);
   const [pairingError, setPairingError] = useState('');
   const [connectionStatus, setConnectionStatus] = useState<DeviceInvitation['status']>();
+  const [justConnected, setJustConnected] = useState(false);
+  // While the setup code is on screen, watch for the phone to redeem it and then close the code.
+  useEffect(() => {
+    if (!pairing) return;
+    let active = true;
+    const timer = window.setInterval(() => {
+      void apiFetch(`/devices/${encodeURIComponent(device.deviceId)}/invitations`)
+        .then((response) => (response.ok ? response.json() : undefined))
+        .then((value: { items?: DeviceInvitation[] } | undefined) => {
+          const current = value?.items?.find((item) => item.invitationId === pairing.invitationId);
+          if (!active || current?.status !== 'activated') return;
+          setPairing(undefined);
+          setConnectionStatus('activated');
+          setJustConnected(true);
+        })
+        .catch(() => undefined);
+    }, 3000);
+    return () => {
+      active = false;
+      window.clearInterval(timer);
+    };
+  }, [pairing, device.deviceId]);
   useEffect(() => {
     let active = true;
     setConnectionStatus(undefined);
@@ -997,12 +1020,16 @@ function TrackerConnection({ device, admin }: { device: Device; admin: boolean }
           <Chip color="success" icon={<CheckCircle2 size={15} />} label="Tracking online" />
         ) : connectionStatus === 'activated' ? (
           <Chip
-            color="warning"
+            color={device.dutyStatus === 'on' ? 'warning' : 'default'}
             icon={<Clock3 size={15} />}
             label={
-              hasPosition(device)
-                ? 'Phone connected · last known location'
-                : 'Connected · waiting for GPS'
+              device.dutyStatus === 'on'
+                ? hasPosition(device)
+                  ? 'On shift · last known location'
+                  : 'On shift · waiting for GPS'
+                : device.dutyStatus === 'paused'
+                  ? 'Phone connected · driver on a pause'
+                  : "Phone connected · driver hasn't started a shift"
             }
           />
         ) : (
@@ -1037,6 +1064,11 @@ function TrackerConnection({ device, admin }: { device: Device; admin: boolean }
           </Stack>
         )}
       </Stack>
+      {justConnected && (
+        <Alert severity="success" sx={{ mt: 2 }} onClose={() => setJustConnected(false)}>
+          Phone connected ✓. Location appears once the driver taps Start shift.
+        </Alert>
+      )}
       {pairingError && (
         <Alert severity="error" sx={{ mt: 2 }}>
           {pairingError}
@@ -1278,12 +1310,15 @@ function DeviceOnboarding({
   open,
   onClose,
   onCreated,
+  onConnected,
 }: {
   client: TrackifyClient;
   firstVehicle: boolean;
   open: boolean;
   onClose: () => void;
   onCreated: () => Promise<void>;
+  /** The driver's phone redeemed the setup code; the dialog has closed itself. */
+  onConnected: (deviceId: string) => void;
 }) {
   const [name, setName] = useState('');
   const [vehicleType, setVehicleType] = useState<VehicleType>('car');
@@ -1339,9 +1374,20 @@ function DeviceOnboarding({
           if (current) setInvitationStatus(current.status);
         })
         .catch(() => setError('Unable to refresh pairing status. Please retry.'));
-    }, 5000);
+    }, 3000);
     return () => window.clearInterval(timer);
   }, [created, invitationStatus]);
+
+  // Once the phone is connected there is nothing left to do here: show it briefly, then go to
+  // the vehicle so the admin sees it come online.
+  useEffect(() => {
+    if (!created || invitationStatus !== 'activated' || !open) return;
+    const timer = window.setTimeout(() => {
+      close();
+      onConnected(created.deviceId);
+    }, 2000);
+    return () => window.clearTimeout(timer);
+  }, [created, invitationStatus, open]);
 
   async function revokeInvitation() {
     if (!created?.onboarding) return;
@@ -1459,7 +1505,8 @@ function DeviceOnboarding({
                   </Typography>
                   <Typography color="text.secondary" variant="body2">
                     {invitationStatus === 'waiting' && 'Waiting for driver · expires in 24 hours'}
-                    {invitationStatus === 'activated' && 'Activated · this phone is connected'}
+                    {invitationStatus === 'activated' &&
+                      'Phone connected ✓ · opening the vehicle… The driver taps Start shift to begin sharing location.'}
                     {invitationStatus === 'expired' && 'Expired · create a new setup link'}
                     {invitationStatus === 'revoked' && 'Revoked · this link can no longer be used'}
                   </Typography>

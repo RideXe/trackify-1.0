@@ -1,7 +1,7 @@
 import type { WarningKind } from '@trackify/api-client';
 import { sendActivity } from './activity-queue';
 import { updateTrackerConfig, type TrackerConfig } from './storage';
-import { deviceHealth, hasLocationPermission, trackingStatus } from './tracking';
+import { deviceHealth, hasLocationPermission, restartTracking, trackingStatus } from './tracking';
 
 export const LOW_BATTERY_PCT = 15;
 /** Walking this long during a shift means the phone is with the driver, not in the vehicle. */
@@ -51,6 +51,12 @@ export async function checkHealth(config: TrackerConfig, fromApp: boolean): Prom
     // Also restarts the tracker if Android stopped it but it is meant to be on.
     if (config.duty.status !== 'off')
       reading.running = await trackingStatus().catch(() => undefined);
+    // Android stopped it and would not let it restart in the background: the app is open now,
+    // which Android allows, so start again instead of only telling the driver.
+    if (reading.running === false && reading.permitted !== false) {
+      await restartTracking(config).catch(() => undefined);
+      reading.running = await trackingStatus().catch(() => undefined);
+    }
   }
   const problems = problemsIn(config, reading);
   const checked: WarningKind[] = fromApp

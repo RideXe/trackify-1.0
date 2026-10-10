@@ -4,6 +4,7 @@ import { SQSClient, SendMessageBatchCommand, SendMessageCommand } from '@aws-sdk
 import {
   createDocumentClient,
   DynamoOnboardingStore,
+  DynamoPresenceStore,
   type OnboardingInvitation,
 } from '@trackify/data';
 import { motionActivitySchema, parsePositionMessage, type PositionMessage } from '@trackify/domain';
@@ -23,6 +24,15 @@ interface Dependencies {
     resolveCredential(credentialHash: string): Promise<OnboardingInvitation | undefined>;
   };
   queue: QueueWriter;
+  /** Records a phone's check-in when a window had no usable position (indoors, weak GPS). */
+  presence?: {
+    markSeen(
+      tenantId: string,
+      deviceId: string,
+      seenAt: number,
+      syncIntervalSeconds?: number,
+    ): Promise<boolean>;
+  };
   now: () => number;
 }
 
@@ -94,6 +104,8 @@ interface BatchPoint {
 interface Batch {
   id?: string;
   batt?: number;
+  /** The phone's sync interval, seconds. */
+  int?: number;
   points: unknown[];
   filter?: Record<string, unknown>;
 }
@@ -124,6 +136,8 @@ async function acceptBatch(batch: Batch, device: OnboardingInvitation, deps: Dep
   if (batch.id !== undefined && batch.id !== device.uniqueId)
     return response(403, 'device credential mismatch');
   const receivedAt = deps.now();
+  const interval =
+    Number.isInteger(batch.int) && batch.int! >= 1 && batch.int! <= 3_600 ? batch.int : undefined;
   const positions: PositionMessage[] = [];
   let skipped = 0;
   batch.points.forEach((value, index) => {
@@ -153,6 +167,7 @@ async function acceptBatch(batch: Batch, device: OnboardingInvitation, deps: Dep
         // The phone already decided parked vs moving from its full-rate track.
         motion: typeof point?.still === 'boolean' ? !point.still : undefined,
         pathDistanceM: typeof point?.path === 'number' && point.path >= 0 ? point.path : undefined,
+        syncIntervalS: interval,
         // An unknown value from a newer app is dropped rather than losing the point.
         activity: motionActivitySchema.safeParse(point?.act).data,
         batteryLevelPct: last && typeof batch.batt === 'number' ? batch.batt : undefined,
@@ -164,6 +179,8 @@ async function acceptBatch(batch: Batch, device: OnboardingInvitation, deps: Dep
   });
   positions.sort((a, b) => a.fixTime - b.fixTime);
   if (positions.length) await deps.queue.sendAll(positions);
+  // No usable fix this window: the phone is still working, so it must not look offline.
+  else await deps.presence?.markSeen(device.tenantId, device.deviceId, receivedAt, interval);
   // What the phone dropped and why: searchable in the logs when a driver reports a bad track.
   const rejected = batch.filter?.rejected;
   if (skipped || (rejected && Object.keys(rejected).length))
@@ -233,9 +250,11 @@ class SqsQueueWriter implements QueueWriter {
 function dependenciesFromEnvironment(): Dependencies {
   const onboardingTable = requiredEnv('ONBOARDING_TABLE');
   const queueUrl = requiredEnv('INGEST_QUEUE_URL');
+  const client = createDocumentClient();
   return {
-    credentials: new DynamoOnboardingStore(createDocumentClient(), onboardingTable),
+    credentials: new DynamoOnboardingStore(client, onboardingTable),
     queue: new SqsQueueWriter(new SQSClient({}), queueUrl),
+    presence: new DynamoPresenceStore(client, requiredEnv('DEVICE_STATE_TABLE')),
     now: Date.now,
   };
 }

@@ -89,6 +89,8 @@ export interface Device {
   dutySince?: number;
   pauseReason?: PauseReason;
   pauseUntil?: number;
+  /** The sync interval the phone actually uses (vehicle, fleet default, plan limit). */
+  effectiveTrackerIntervalSeconds?: number;
   state?: DeviceState;
 }
 

@@ -39,10 +39,13 @@ export function FleetMap({
   selectedId,
   onSelect,
   height = { xs: 380, md: 520 },
+  focusRequest = 0,
 }: {
   devices: Device[];
   selectedId?: string;
   onSelect: (deviceId: string) => void;
+  /** Increase to bring the selected vehicle back into view, e.g. from a "Center map" button. */
+  focusRequest?: number;
   /** Any MUI height value; the Live map page makes the map fill the screen. */
   height?: string | number | Record<string, string | number>;
 }) {
@@ -179,6 +182,19 @@ export function FleetMap({
         zoom: Math.max(map.getZoom(), FOCUS_ZOOM),
       });
   }, [selectedId, ready]);
+
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!focusRequest || !ready || !map) return;
+    const vehicle = fleetFeatures(latest.current.devices).features.find(
+      (f) => f.properties.deviceId === latest.current.selectedId,
+    );
+    if (vehicle)
+      map.easeTo({
+        center: vehicle.geometry.coordinates,
+        zoom: Math.max(map.getZoom(), FOCUS_ZOOM),
+      });
+  }, [focusRequest, ready]);
 
   return (
     <>

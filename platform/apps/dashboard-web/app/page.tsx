@@ -80,6 +80,8 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import QRCode from 'qrcode';
 import { FleetMap as FleetMapView } from './fleet-map';
 import {
+  clockTime,
+  noGpsSince,
   statusColors,
   statusCounts,
   statusLabels,
@@ -90,6 +92,7 @@ import { AlertsPage, SosBanner } from './alerts';
 import { dutyLabel, notReporting } from './driver-activity-data';
 import { DriversPage } from './drivers';
 import { LiveMap } from './live-map';
+import { Panel, PanelHead } from './panel';
 import { SettingsPage } from './settings';
 import { TripsPage } from './trips';
 import { VehicleNotFound, VehiclePage } from './vehicle-page';
@@ -480,6 +483,7 @@ export default function FleetPage() {
             <VehiclePage
               key={viewed.deviceId}
               admin={admin}
+              alerts={alerts}
               client={client}
               canDispatch={membership?.role !== 'viewer'}
               connection={<TrackerConnection admin={admin} device={viewed} />}
@@ -490,6 +494,7 @@ export default function FleetPage() {
               onBack={() => go({ page: 'overview' })}
               onChanged={loadFleet}
               onDriversChanged={loadDrivers}
+              onAlertsChanged={loadAlerts}
               onRemoved={async () => {
                 go({ page: 'overview' });
                 await loadFleet();
@@ -800,9 +805,9 @@ function FleetMap({ devices, onOpen }: { devices: Device[]; onOpen: (deviceId: s
 function hasPosition(device: Device) {
   return Number.isFinite(device.state?.latitude) && Number.isFinite(device.state?.longitude);
 }
+/** Same rule as the map and the server: allows for the vehicle's sync interval. */
 function isOnline(device: Device) {
-  const seen = device.state?.lastSeenAt;
-  return Boolean(seen && Date.now() - seen < 300_000 && device.state?.status !== 'offline');
+  return vehicleStatus(device) !== 'offline';
 }
 
 function VehicleList({
@@ -1008,72 +1013,80 @@ function TrackerConnection({ device, admin }: { device: Device; admin: boolean }
     }
   }
   return (
-    <Paper sx={{ p: 2.5 }}>
-      <Typography sx={{ fontWeight: 700 }}>Tracker</Typography>
-      <Typography color="text.secondary" variant="body2" sx={{ mb: 2 }}>
-        {device.protocol === 'osmand'
-          ? "The Trackify app on the driver's phone reports this vehicle's position."
-          : `A ${device.protocol.toUpperCase()} GPS unit reports this vehicle's position.`}
-      </Typography>
-      <Stack spacing={1.5} sx={{ alignItems: 'flex-start' }}>
-        {isOnline(device) ? (
-          <Chip color="success" icon={<CheckCircle2 size={15} />} label="Tracking online" />
-        ) : connectionStatus === 'activated' ? (
-          <Chip
-            color={device.dutyStatus === 'on' ? 'warning' : 'default'}
-            icon={<Clock3 size={15} />}
-            label={
-              device.dutyStatus === 'on'
-                ? hasPosition(device)
-                  ? 'On shift · last known location'
-                  : 'On shift · waiting for GPS'
-                : device.dutyStatus === 'paused'
-                  ? 'Phone connected · driver on a pause'
-                  : "Phone connected · driver hasn't started a shift"
-            }
-          />
-        ) : (
-          <Button
-            disabled={pairingBusy}
-            onClick={() => void createPairing()}
-            startIcon={<Smartphone size={17} />}
-            variant="outlined"
-          >
-            {pairingBusy
-              ? 'Creating…'
-              : connectionStatus === 'waiting'
-                ? 'Generate replacement code'
-                : 'Connect driver phone'}
-          </Button>
-        )}
-        {connectionStatus === 'activated' && (
-          <Stack direction="row" spacing={1}>
-            <Button disabled={pairingBusy} size="small" onClick={() => void createPairing()}>
-              Replace connected phone
+    <Panel>
+      <PanelHead title="Tracker" />
+      <Box sx={{ px: { xs: 1.75, sm: 2 }, pb: { xs: 1.75, sm: 2 }, mt: -0.5 }}>
+        <Typography color="text.secondary" sx={{ fontSize: 12, mb: 1.5 }}>
+          {device.protocol === 'osmand'
+            ? "The Trackify app on the driver's phone reports this vehicle's position."
+            : `A ${device.protocol.toUpperCase()} GPS unit reports this vehicle's position.`}
+        </Typography>
+        <Stack spacing={1.5} sx={{ alignItems: 'flex-start' }}>
+          {isOnline(device) && noGpsSince(device) !== undefined ? (
+            <Chip
+              color="warning"
+              icon={<Clock3 size={15} />}
+              label={`Phone online · no GPS signal since ${clockTime(noGpsSince(device)!)}`}
+            />
+          ) : isOnline(device) ? (
+            <Chip color="success" icon={<CheckCircle2 size={15} />} label="Tracking online" />
+          ) : connectionStatus === 'activated' ? (
+            <Chip
+              color={device.dutyStatus === 'on' ? 'warning' : 'default'}
+              icon={<Clock3 size={15} />}
+              label={
+                device.dutyStatus === 'on'
+                  ? hasPosition(device)
+                    ? 'On shift · last known location'
+                    : 'On shift · waiting for GPS'
+                  : device.dutyStatus === 'paused'
+                    ? 'Phone connected · driver on a pause'
+                    : "Phone connected · driver hasn't started a shift"
+              }
+            />
+          ) : (
+            <Button
+              disabled={pairingBusy}
+              onClick={() => void createPairing()}
+              startIcon={<Smartphone size={17} />}
+              variant="outlined"
+            >
+              {pairingBusy
+                ? 'Creating…'
+                : connectionStatus === 'waiting'
+                  ? 'Generate replacement code'
+                  : 'Connect driver phone'}
             </Button>
-            {admin && (
-              <Button
-                color="error"
-                disabled={pairingBusy}
-                size="small"
-                onClick={() => void disconnectPhone()}
-              >
-                Disconnect phone
+          )}
+          {connectionStatus === 'activated' && (
+            <Stack direction="row" spacing={1}>
+              <Button disabled={pairingBusy} size="small" onClick={() => void createPairing()}>
+                Replace connected phone
               </Button>
-            )}
-          </Stack>
+              {admin && (
+                <Button
+                  color="error"
+                  disabled={pairingBusy}
+                  size="small"
+                  onClick={() => void disconnectPhone()}
+                >
+                  Disconnect phone
+                </Button>
+              )}
+            </Stack>
+          )}
+        </Stack>
+        {justConnected && (
+          <Alert severity="success" sx={{ mt: 2 }} onClose={() => setJustConnected(false)}>
+            Phone connected ✓. Location appears once the driver taps Start shift.
+          </Alert>
         )}
-      </Stack>
-      {justConnected && (
-        <Alert severity="success" sx={{ mt: 2 }} onClose={() => setJustConnected(false)}>
-          Phone connected ✓. Location appears once the driver taps Start shift.
-        </Alert>
-      )}
-      {pairingError && (
-        <Alert severity="error" sx={{ mt: 2 }}>
-          {pairingError}
-        </Alert>
-      )}
+        {pairingError && (
+          <Alert severity="error" sx={{ mt: 2 }}>
+            {pairingError}
+          </Alert>
+        )}
+      </Box>
       <Dialog open={Boolean(pairing)} onClose={() => setPairing(undefined)} fullWidth maxWidth="xs">
         <DialogTitle component="div">
           <Typography component="h2" variant="h5">
@@ -1131,7 +1144,7 @@ function TrackerConnection({ device, admin }: { device: Device; admin: boolean }
           <Button onClick={() => setPairing(undefined)}>Done</Button>
         </DialogActions>
       </Dialog>
-    </Paper>
+    </Panel>
   );
 }
 

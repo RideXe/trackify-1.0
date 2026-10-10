@@ -81,6 +81,19 @@ const en = {
   'warn_tracking-stopped': 'Tracking stopped. Open settings or end and restart the shift.',
   'warn_phone-left-vehicle':
     'The phone is moving on foot. Keep it in the vehicle during the shift.',
+  lastSent: 'Last sent at {time}.',
+  notSentYet: 'Nothing sent yet.',
+  'sync_no-gps': 'No GPS signal here. Your fleet sees the phone is working, but not where you are.',
+  sync_offline:
+    'No internet. Locations are saved on the phone and sent when the connection is back.',
+  sync_access:
+    'Your fleet is not accepting locations from this phone. Ask your administrator to check it.',
+  sync_server: 'The server is not responding. Locations are saved and sent again automatically.',
+  notSending: 'Tracking has stopped sending your location. Tap Restart tracking.',
+  restartTracking: 'Restart tracking',
+  batteryOptimized:
+    'Android may stop tracking to save battery. Choose "Don\'t optimise" or "No restrictions" for Trackify.',
+  openBatterySettings: 'Battery settings',
   activityRationaleTitle: 'Motion detection',
   activityRationale:
     'Trackify uses the motion sensors to tell parked from driving. Parked positions stay steady and the battery lasts longer. Tracking works without it.',
@@ -197,6 +210,21 @@ const kn: Strings = {
     'ಟ್ರ್ಯಾಕಿಂಗ್ ನಿಂತಿದೆ. ಸೆಟ್ಟಿಂಗ್ಸ್ ತೆರೆಯಿರಿ ಅಥವಾ ಶಿಫ್ಟ್ ಮುಗಿಸಿ ಮತ್ತೆ ಆರಂಭಿಸಿ.',
   'warn_phone-left-vehicle':
     'ಫೋನ್ ನಡಿಗೆಯಲ್ಲಿ ಚಲಿಸುತ್ತಿದೆ. ಶಿಫ್ಟ್ ಸಮಯದಲ್ಲಿ ಫೋನ್ ಅನ್ನು ವಾಹನದಲ್ಲೇ ಇಡಿ.',
+  lastSent: 'ಕೊನೆಯದಾಗಿ {time} ಕ್ಕೆ ಕಳುಹಿಸಲಾಗಿದೆ.',
+  notSentYet: 'ಇನ್ನೂ ಏನೂ ಕಳುಹಿಸಲಾಗಿಲ್ಲ.',
+  'sync_no-gps':
+    'ಇಲ್ಲಿ GPS ಸಿಗ್ನಲ್ ಇಲ್ಲ. ಫೋನ್ ಕೆಲಸ ಮಾಡುತ್ತಿದೆ ಎಂದು ಫ್ಲೀಟ್‌ಗೆ ತಿಳಿದಿದೆ, ಆದರೆ ನೀವು ಎಲ್ಲಿದ್ದೀರಿ ಎಂದು ಅಲ್ಲ.',
+  sync_offline: 'ಇಂಟರ್ನೆಟ್ ಇಲ್ಲ. ಸ್ಥಳಗಳನ್ನು ಫೋನ್‌ನಲ್ಲಿ ಉಳಿಸಲಾಗಿದೆ, ಸಂಪರ್ಕ ಬಂದಾಗ ಕಳುಹಿಸಲಾಗುತ್ತದೆ.',
+  sync_access:
+    'ಈ ಫೋನ್‌ನಿಂದ ಸ್ಥಳಗಳನ್ನು ಫ್ಲೀಟ್ ಸ್ವೀಕರಿಸುತ್ತಿಲ್ಲ. ನಿಮ್ಮ ಆಡಳಿತಗಾರರನ್ನು ಪರಿಶೀಲಿಸಲು ಕೇಳಿ.',
+  sync_server:
+    'ಸರ್ವರ್ ಪ್ರತಿಕ್ರಿಯಿಸುತ್ತಿಲ್ಲ. ಸ್ಥಳಗಳನ್ನು ಉಳಿಸಲಾಗಿದೆ, ತಾನಾಗಿಯೇ ಮತ್ತೆ ಕಳುಹಿಸಲಾಗುತ್ತದೆ.',
+  notSending:
+    'ಟ್ರ್ಯಾಕಿಂಗ್ ನಿಮ್ಮ ಸ್ಥಳವನ್ನು ಕಳುಹಿಸುವುದನ್ನು ನಿಲ್ಲಿಸಿದೆ. ಟ್ರ್ಯಾಕಿಂಗ್ ಮರುಪ್ರಾರಂಭಿಸಿ ಒತ್ತಿ.',
+  restartTracking: 'ಟ್ರ್ಯಾಕಿಂಗ್ ಮರುಪ್ರಾರಂಭಿಸಿ',
+  batteryOptimized:
+    'ಬ್ಯಾಟರಿ ಉಳಿಸಲು Android ಟ್ರ್ಯಾಕಿಂಗ್ ನಿಲ್ಲಿಸಬಹುದು. Trackify ಗೆ "ಆಪ್ಟಿಮೈಸ್ ಮಾಡಬೇಡಿ" ಅಥವಾ "ನಿರ್ಬಂಧಗಳಿಲ್ಲ" ಆಯ್ಕೆಮಾಡಿ.',
+  openBatterySettings: 'ಬ್ಯಾಟರಿ ಸೆಟ್ಟಿಂಗ್ಸ್',
   activityRationaleTitle: 'ಚಲನೆ ಪತ್ತೆ',
   activityRationale:
     'ನಿಲ್ಲಿಸಿದೆಯೇ ಅಥವಾ ಚಲಿಸುತ್ತಿದೆಯೇ ಎಂದು ತಿಳಿಯಲು Trackify ಚಲನೆ ಸೆನ್ಸರ್‌ಗಳನ್ನು ಬಳಸುತ್ತದೆ. ಇದರಿಂದ ಸ್ಥಳ ಸ್ಥಿರವಾಗಿರುತ್ತದೆ ಮತ್ತು ಬ್ಯಾಟರಿ ಉಳಿಯುತ್ತದೆ. ಇದಿಲ್ಲದೆಯೂ ಟ್ರ್ಯಾಕಿಂಗ್ ನಡೆಯುತ್ತದೆ.',
@@ -304,6 +332,18 @@ const hi: Strings = {
   'warn_permission-revoked': "लोकेशन अनुमति हटा दी गई है। Trackify को 'हमेशा' अनुमति दें।",
   'warn_tracking-stopped': 'ट्रैकिंग रुक गई है। सेटिंग खोलें या शिफ़्ट खत्म करके फिर शुरू करें।',
   'warn_phone-left-vehicle': 'फ़ोन पैदल चल रहा है। शिफ़्ट के दौरान फ़ोन गाड़ी में ही रखें।',
+  lastSent: 'आख़िरी बार {time} पर भेजा गया।',
+  notSentYet: 'अभी तक कुछ नहीं भेजा गया।',
+  'sync_no-gps':
+    'यहाँ GPS सिग्नल नहीं है। फ़्लीट को पता है कि फ़ोन चल रहा है, पर आप कहाँ हैं यह नहीं।',
+  sync_offline: 'इंटरनेट नहीं है। लोकेशन फ़ोन में सेव हैं और कनेक्शन आने पर भेजी जाएँगी।',
+  sync_access: 'फ़्लीट इस फ़ोन से लोकेशन स्वीकार नहीं कर रहा। अपने एडमिन से जाँच करने को कहें।',
+  sync_server: 'सर्वर जवाब नहीं दे रहा। लोकेशन सेव हैं और अपने आप फिर से भेजी जाएँगी।',
+  notSending: 'ट्रैकिंग ने आपकी लोकेशन भेजना बंद कर दिया है। ट्रैकिंग फिर शुरू करें दबाएँ।',
+  restartTracking: 'ट्रैकिंग फिर शुरू करें',
+  batteryOptimized:
+    'बैटरी बचाने के लिए Android ट्रैकिंग रोक सकता है। Trackify के लिए "ऑप्टिमाइज़ न करें" या "कोई प्रतिबंध नहीं" चुनें।',
+  openBatterySettings: 'बैटरी सेटिंग',
   activityRationaleTitle: 'गति पहचान',
   activityRationale:
     'Trackify गति सेंसर से पहचानता है कि गाड़ी खड़ी है या चल रही है। इससे खड़ी गाड़ी की जगह स्थिर रहती है और बैटरी बचती है। इसके बिना भी ट्रैकिंग चलती है।',
@@ -415,6 +455,21 @@ const ta: Strings = {
     'கண்காணிப்பு நின்றது. அமைப்புகளைத் திறக்கவும் அல்லது ஷிஃப்டை முடித்து மீண்டும் தொடங்கவும்.',
   'warn_phone-left-vehicle':
     'போன் நடந்து செல்கிறது. ஷிஃப்ட் நேரத்தில் போனை வாகனத்திலேயே வைக்கவும்.',
+  lastSent: 'கடைசியாக {time} மணிக்கு அனுப்பப்பட்டது.',
+  notSentYet: 'இன்னும் எதுவும் அனுப்பப்படவில்லை.',
+  'sync_no-gps':
+    'இங்கே GPS சிக்னல் இல்லை. போன் வேலை செய்வது ஃப்ளீட்டுக்குத் தெரியும், நீங்கள் எங்கே என்பது தெரியாது.',
+  sync_offline:
+    'இணையம் இல்லை. இருப்பிடங்கள் போனில் சேமிக்கப்பட்டு, இணைப்பு வந்ததும் அனுப்பப்படும்.',
+  sync_access:
+    'இந்த போனிலிருந்து ஃப்ளீட் இருப்பிடங்களை ஏற்கவில்லை. உங்கள் நிர்வாகியிடம் சரிபார்க்கச் சொல்லுங்கள்.',
+  sync_server: 'சர்வர் பதிலளிக்கவில்லை. இருப்பிடங்கள் சேமிக்கப்பட்டு தானாக மீண்டும் அனுப்பப்படும்.',
+  notSending:
+    'கண்காணிப்பு உங்கள் இருப்பிடத்தை அனுப்புவதை நிறுத்தியுள்ளது. கண்காணிப்பை மீண்டும் தொடங்கு என்பதைத் தட்டவும்.',
+  restartTracking: 'கண்காணிப்பை மீண்டும் தொடங்கு',
+  batteryOptimized:
+    'பேட்டரியைச் சேமிக்க Android கண்காணிப்பை நிறுத்தலாம். Trackify-க்கு "மேம்படுத்த வேண்டாம்" அல்லது "கட்டுப்பாடுகள் இல்லை" என்பதைத் தேர்ந்தெடுக்கவும்.',
+  openBatterySettings: 'பேட்டரி அமைப்புகள்',
   activityRationaleTitle: 'இயக்கம் கண்டறிதல்',
   activityRationale:
     'வாகனம் நிற்கிறதா ஓடுகிறதா என்பதை அறிய Trackify இயக்க சென்சார்களைப் பயன்படுத்துகிறது. இதனால் நிறுத்திய இடம் நிலையாக இருக்கும், பேட்டரி மிச்சமாகும். இது இல்லாமலும் கண்காணிப்பு வேலை செய்யும்.',

@@ -1,9 +1,22 @@
-import { toVehicleType, type Device, type VehicleType } from '@trackify/api-client';
+import {
+  defaultOfflineAfterMs,
+  offlineAfterMs,
+  toVehicleType,
+  type Device,
+  type VehicleType,
+} from '@trackify/api-client';
 
 export type VehicleStatus = 'moving' | 'parked' | 'offline';
 
-/** Same rule as the rest of the dashboard: no update for five minutes means offline. */
-export const OFFLINE_AFTER_MS = 300_000;
+/**
+ * How long a vehicle may stay silent before it is offline; the server's sweeper uses the same
+ * rule. Phones get longer at slow sync intervals, so a 5-minute interval does not flap.
+ */
+export function offlineAfter(device: Device) {
+  return device.protocol === 'osmand'
+    ? offlineAfterMs(device.effectiveTrackerIntervalSeconds)
+    : defaultOfflineAfterMs;
+}
 
 export const statusColors: Record<VehicleStatus, string> = {
   moving: '#155EEF',
@@ -20,7 +33,7 @@ export const statusLabels: Record<VehicleStatus, string> = {
 export function vehicleStatus(device: Device, now = Date.now()): VehicleStatus {
   const state = device.state;
   const seen = state?.lastSeenAt;
-  if (!seen || now - seen >= OFFLINE_AFTER_MS || state?.status === 'offline') return 'offline';
+  if (!seen || now - seen >= offlineAfter(device) || state?.status === 'offline') return 'offline';
   // The server decides motion with GPS drift filtered out; speed is the fallback for old records.
   return (state?.motion ?? (state?.speedKmh ?? 0) >= 3) ? 'moving' : 'parked';
 }
@@ -118,6 +131,26 @@ const compass = ['N', 'NE', 'E', 'SE', 'S', 'SW', 'W', 'NW'];
 
 export function headingLabel(degrees: number) {
   return compass[Math.round((((degrees % 360) + 360) % 360) / 45) % 8]!;
+}
+
+/**
+ * The phone is checking in but has had no usable GPS fix for a while (indoors, a basement, weak
+ * signal): when its last fix was. Not while paused, when no position is shared on purpose.
+ */
+export function noGpsSince(device: Device, now = Date.now()): number | undefined {
+  const fixTime = device.state?.fixTime;
+  if (device.dutyStatus === 'paused' || fixTime === undefined) return undefined;
+  if (vehicleStatus(device, now) === 'offline') return undefined;
+  return now - fixTime >= offlineAfter(device) ? fixTime : undefined;
+}
+
+/** "14:05" today, "3 Oct, 14:05" on another day. */
+export function clockTime(ms: number, now = Date.now()) {
+  const date = new Date(ms);
+  const time = date.toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' });
+  return date.toDateString() === new Date(now).toDateString()
+    ? time
+    : `${date.toLocaleDateString('en-IN', { day: 'numeric', month: 'short' })}, ${time}`;
 }
 
 export function timeAgo(ms: number, now = Date.now()) {

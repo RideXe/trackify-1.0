@@ -92,6 +92,8 @@ export const positionAttributesSchema = z.object({
    * filtered track; more accurate than the straight line between reported points.
    */
   pathDistanceM: z.number().nonnegative().optional(),
+  /** Phones only: how often the phone uploads, so "offline" can allow for slow sync intervals. */
+  syncIntervalS: z.number().int().min(1).max(3_600).optional(),
   /** Phones only, when the driver allowed "Physical activity". */
   activity: motionActivitySchema.optional(),
   /** Why a fix was kept out of the live track and trips (stored in history for debugging). */

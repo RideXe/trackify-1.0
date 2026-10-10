@@ -81,6 +81,28 @@ export function effectiveTrackerInterval(input: {
   const requested = input.vehicle ?? input.fleet ?? defaultTrackerIntervalSeconds;
   return Math.max(requested, fastestIntervalFor(input.plan));
 }
+/** The fixed staleness limit the offline sweeper uses as its cutoff. */
+export const defaultOfflineAfterMs = 300_000;
+
+/**
+ * How long a tracker may stay silent before it counts as offline: two missed syncs plus a minute
+ * for slow networks, never under five minutes. A fixed five minutes made a phone that syncs every
+ * five minutes flip to offline between uploads.
+ */
+export function offlineAfterMs(syncIntervalSeconds?: number): number {
+  if (!syncIntervalSeconds || !(syncIntervalSeconds > 0)) return defaultOfflineAfterMs;
+  return Math.max(defaultOfflineAfterMs, (2 * syncIntervalSeconds + 60) * 1000);
+}
+
+/**
+ * Sort key in the device state's staleness index. The sweeper marks a device offline once
+ * staleSk < now − defaultOfflineAfterMs, so a longer allowance is added on top of the time last
+ * seen. Records written before allowances existed (staleSk = last seen) keep working unchanged.
+ */
+export function staleSortKey(seenAt: number, syncIntervalSeconds?: number): number {
+  return seenAt + offlineAfterMs(syncIntervalSeconds) - defaultOfflineAfterMs;
+}
+
 export const pauseLimits = [15, 30, 45, 60, 90, 120] as const;
 export const defaultPauseLimitMinutes = 30;
 

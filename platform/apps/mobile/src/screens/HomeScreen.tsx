@@ -1,4 +1,5 @@
 import {
+  offlineAfterMs,
   pauseReasons,
   type ActivityEntry,
   type PauseReason,
@@ -31,8 +32,19 @@ import {
   fetchToday,
   type TodaySummary,
 } from '../services/phone-api';
-import { loadTrackerConfig, updateTrackerConfig, type TrackerConfig } from '../services/storage';
-import { applySyncInterval } from '../services/tracking';
+import {
+  loadTrackerConfig,
+  readSyncStatus,
+  updateTrackerConfig,
+  type SyncStatus,
+  type TrackerConfig,
+} from '../services/storage';
+import {
+  applySyncInterval,
+  isBatteryOptimized,
+  openBatterySettings,
+  restartTracking,
+} from '../services/tracking';
 import { colors } from '../theme';
 import { CheckSheet, FuelSheet, IssueSheet } from './ReportSheets';
 import { MessagesSheet } from './MessagesSheet';
@@ -56,6 +68,8 @@ export function HomeScreen({
   const [messages, setMessages] = useState<ActivityEntry[]>([]);
   const [today, setToday] = useState<TodaySummary | null>();
   const [pending, setPending] = useState(0);
+  const [syncStatus, setSyncStatus] = useState<SyncStatus>({});
+  const [batteryOptimized, setBatteryOptimized] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
   const [, setTick] = useState(0);
   const syncing = useRef(false);
@@ -93,6 +107,8 @@ export function HomeScreen({
       }
       setProblems(await checkHealth(current, true));
       setPending(await pendingActivityCount());
+      setSyncStatus(await readSyncStatus());
+      setBatteryOptimized(await isBatteryOptimized().catch(() => false));
       setConfig(await loadTrackerConfig());
     } finally {
       syncing.current = false;
@@ -191,6 +207,17 @@ export function HomeScreen({
 
   const duty = config.duty;
   const unread = messages.filter((message) => message.receivedAt > config.lastReadMessageAt).length;
+  const onShift = duty.status === 'on';
+  const clock = (ms: number) =>
+    new Date(ms).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+  // Nothing has reached the server for two missed syncs: the tracker is not running. Problems
+  // with a known cause (no internet, server) are shown as that instead.
+  const lastContact = Math.max(syncStatus.contactAt ?? 0, duty.since ?? 0);
+  const silent =
+    onShift &&
+    lastContact > 0 &&
+    Date.now() - lastContact > offlineAfterMs(config.intervalSeconds) &&
+    (syncStatus.problem === undefined || syncStatus.problem === 'no-gps');
   const interval =
     config.intervalSeconds >= 60
       ? t('everyMinutes', { n: Math.round(config.intervalSeconds / 60) })
@@ -233,6 +260,33 @@ export function HomeScreen({
           onAction={() => void Linking.openSettings()}
         />
       ))}
+      {silent && (
+        <Banner
+          tone="danger"
+          text={t('notSending')}
+          action={t('restartTracking')}
+          onAction={() =>
+            void act(async () => {
+              await restartTracking(config);
+              await sync();
+            })
+          }
+        />
+      )}
+      {onShift && !silent && syncStatus.problem && (
+        <Banner
+          tone={syncStatus.problem === 'no-gps' ? 'warning' : 'danger'}
+          text={t(`sync_${syncStatus.problem}` as StringKey)}
+        />
+      )}
+      {duty.status !== 'off' && batteryOptimized && (
+        <Banner
+          tone="warning"
+          text={t('batteryOptimized')}
+          action={t('openBatterySettings')}
+          onAction={() => void openBatterySettings().catch(() => Linking.openSettings())}
+        />
+      )}
       {pending > 0 && <Banner tone="info" text={t('pendingSync', { n: pending })} />}
 
       <Card style={[st.duty, st[`duty_${duty.status}`]]}>
@@ -243,7 +297,11 @@ export function HomeScreen({
           {duty.status === 'off'
             ? t('offDutyBody')
             : duty.status === 'on'
-              ? t('onShiftBody', { interval })
+              ? `${t('onShiftBody', { interval })} ${
+                  syncStatus.positionsAt
+                    ? t('lastSent', { time: clock(syncStatus.positionsAt) })
+                    : t('notSentYet')
+                }`
               : t('pausedBody', {
                   reason: t(`reason_${duty.reason ?? 'break'}` as StringKey),
                   time: duty.until

@@ -7,8 +7,9 @@ import {
   type DynamoDBDocumentClient,
 } from '@aws-sdk/lib-dynamodb';
 import type { TransactWriteCommandInput } from '@aws-sdk/lib-dynamodb';
-import type { PositionMessage } from '@trackify/domain';
+import { staleSortKey, type PositionMessage } from '@trackify/domain';
 import { noGeocoder, type Geocoder } from '@trackify/geocoder';
+import { DynamoPresenceStore } from './presence-store';
 import {
   applyComputed,
   assessFix,
@@ -113,6 +114,8 @@ export class DynamoFleetProcessingStore implements FleetProcessingStore {
         : stored;
     if (previous && previous.fixTime >= position.fixTime) {
       await this.putHistoricalPosition(position, pk);
+      // A late or repeated position still proves the tracker is alive.
+      await this.markSeen(position);
       return { duplicate: previous.fixTime === position.fixTime, eventCount: 0 };
     }
     const verdict = assessFix(
@@ -127,6 +130,7 @@ export class DynamoFleetProcessingStore implements FleetProcessingStore {
         pk,
       );
       if (verdict.suspect && stateResult.Item) await this.rememberSuspect(pk, verdict.suspect);
+      await this.markSeen(position);
       return { duplicate: false, eventCount: 0 };
     }
     const linked = await this.linkedVehicles(position.tenantId, deviceResult.Item);
@@ -144,6 +148,8 @@ export class DynamoFleetProcessingStore implements FleetProcessingStore {
         transition.state.engineHoursS = (transition.state.engineHoursS ?? 0) + reset.engineHoursS;
     }
     const expiresAt = ttlSeconds(position.fixTime, position.retentionDays);
+    // A check-in may have been recorded after this position was received.
+    const seenAt = Math.max(position.receivedAt, Number(stateResult.Item?.lastSeenAt ?? 0));
     const eventExpiresAt = ttlSeconds(position.fixTime, 365);
     const transaction: NonNullable<TransactWriteCommandInput['TransactItems']> = [
       {
@@ -161,12 +167,12 @@ export class DynamoFleetProcessingStore implements FleetProcessingStore {
             tenantPk: position.tenantId,
             tenantSk: position.deviceId,
             stalePk: 'ONLINE',
-            staleSk: position.receivedAt,
+            staleSk: staleSortKey(seenAt, position.attributes.syncIntervalS),
             tenantId: position.tenantId,
             deviceId: position.deviceId,
             groupId: groupOf(deviceResult.Item),
             status: 'online',
-            lastSeenAt: position.receivedAt,
+            lastSeenAt: seenAt,
             speedKmh: position.speedKmh ?? 0,
             courseDeg: position.courseDeg ?? 0,
             valid: position.valid,
@@ -323,6 +329,15 @@ export class DynamoFleetProcessingStore implements FleetProcessingStore {
   }
 
   /** The latest held-out fix, so following fixes that agree with it can prove a real jump. */
+  private async markSeen(position: PositionMessage) {
+    await new DynamoPresenceStore(this.client, this.tables.state).markSeen(
+      position.tenantId,
+      position.deviceId,
+      position.receivedAt,
+      position.attributes.syncIntervalS,
+    );
+  }
+
   private async rememberSuspect(pk: string, suspect: Suspect) {
     await this.client
       .send(

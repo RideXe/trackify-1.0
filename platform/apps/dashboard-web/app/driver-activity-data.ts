@@ -48,8 +48,8 @@ export function dutyLabel(device: Device): string | undefined {
 }
 
 /**
- * On shift but silent: the app was closed by force, the phone died or lost signal. Not raised
- * while paused, when silence is expected.
+ * On shift but silent: Android stopped the app, the phone died or has no internet. A phone
+ * without GPS still checks in, so this means the phone itself cannot be reached.
  */
 export function notReporting(device: Device, now = Date.now()) {
   return device.dutyStatus === 'on' && vehicleStatus(device, now) === 'offline';

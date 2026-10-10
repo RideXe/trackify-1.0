@@ -17,7 +17,7 @@ import {
   resetGpsFilter,
 } from '../services/gps-window';
 import { applySyncInterval, batteryPct } from '../services/tracking';
-import { uploadBatch } from '../services/upload';
+import { checkIn, uploadBatch } from '../services/upload';
 
 /** Registered in index.js; must match TASK_KEY in TrackifyLocationTaskService.kt. */
 export const LOCATION_TASK = 'TrackifyLocation';
@@ -52,6 +52,8 @@ export async function handleLocationTask(window: LocationWindow) {
     if (!sharesLocation(config.duty)) {
       // The next shared window must not be judged against where the vehicle was before.
       await resetGpsFilter();
+      // No position while paused, but the dashboard should still see the phone is working.
+      await checkIn(config, 'paused', undefined, await batteryPct());
       return;
     }
     const { points, report } = await filterGpsWindow(
@@ -61,6 +63,8 @@ export async function handleLocationTask(window: LocationWindow) {
     const summary = describeWindow(report);
     if (summary) await addTrackerLog(summary);
     if (points.length) await uploadBatch(config, points, report, await batteryPct());
+    // Indoors or weak GPS: nothing usable, but the phone must not look offline.
+    else await checkIn(config, 'no-gps', report, await batteryPct());
     await flushActivity(config);
     await checkHealth(config, false);
   } catch (reason) {

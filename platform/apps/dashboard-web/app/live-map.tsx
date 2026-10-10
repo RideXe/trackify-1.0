@@ -17,7 +17,14 @@ import { Search } from 'lucide-react';
 import { useMemo, useState } from 'react';
 import { dutyLabel, notReporting } from './driver-activity-data';
 import { FleetMap } from './fleet-map';
-import { statusColors, statusLabels, timeAgo, vehicleStatus } from './fleet-map-data';
+import {
+  clockTime,
+  noGpsSince,
+  statusColors,
+  statusLabels,
+  timeAgo,
+  vehicleStatus,
+} from './fleet-map-data';
 import { filterCounts, filterVehicles, liveFilters, type LiveFilter } from './fleet-views-data';
 import { VehicleAvatar } from './vehicle-icons';
 
@@ -121,7 +128,10 @@ export function LiveMap({
                     status === 'moving'
                       ? `${statusLabels[status]} · ${Math.round(device.state?.speedKmh ?? 0)} km/h`
                       : statusLabels[status],
-                    notReporting(device) ? 'On shift · not reporting' : dutyLabel(device),
+                    notReporting(device)
+                      ? `On shift · not reachable${seen ? ` since ${clockTime(seen)}` : ''}`
+                      : dutyLabel(device),
+                    noGpsSince(device) !== undefined && 'no GPS signal',
                     seen ? timeAgo(seen) : 'no GPS yet',
                   ]
                     .filter(Boolean)

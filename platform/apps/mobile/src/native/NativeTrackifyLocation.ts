@@ -51,6 +51,10 @@ export interface Spec extends TurboModule {
   isRunning(): Promise<boolean>;
   getCurrentPosition(accuracy: string): Promise<NativeLocation>;
   deviceHealth(): Promise<DeviceHealth>;
+  /** True while Android may stop the app in the background to save battery. */
+  isBatteryOptimized(): Promise<boolean>;
+  /** Opens the screen where the driver excludes Trackify from battery optimisation. */
+  openBatterySettings(): Promise<void>;
 }
 
 export default TurboModuleRegistry.getEnforcing<Spec>('TrackifyLocation');

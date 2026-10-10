@@ -6,6 +6,8 @@ import android.content.Intent
 import android.content.IntentFilter
 import android.location.LocationManager
 import android.os.BatteryManager
+import android.os.PowerManager
+import android.provider.Settings
 import androidx.core.location.LocationManagerCompat
 import com.facebook.react.bridge.Arguments
 import com.facebook.react.bridge.Promise
@@ -57,7 +59,7 @@ class TrackifyLocationModule(context: ReactApplicationContext) :
       try {
         TrackifyLocationService.start(reactApplicationContext, settings)
       } catch (error: Exception) {
-        TrackingSettings.clear(reactApplicationContext)
+        // Kept: still meant to be on. The app shows "tracking stopped" and tries again.
         promise.resolve(false)
         return
       }
@@ -108,6 +110,41 @@ class TrackifyLocationModule(context: ReactApplicationContext) :
       health.putDouble("activityForMs", ActivityState.durationMs().toDouble())
     }
     promise.resolve(health)
+  }
+
+  /**
+   * Whether Android may stop the app in the background to save battery. Many phones (Xiaomi,
+   * Oppo, Vivo, Realme) stop tracking during a shift unless Trackify is excluded.
+   */
+  override fun isBatteryOptimized(promise: Promise) {
+    val power = reactApplicationContext.getSystemService(Context.POWER_SERVICE) as PowerManager
+    promise.resolve(!power.isIgnoringBatteryOptimizations(reactApplicationContext.packageName))
+  }
+
+  /**
+   * Opens Android's battery optimisation list, where the driver picks "Don't optimise" for
+   * Trackify. Needs no permission, unlike asking for the exemption directly.
+   */
+  override fun openBatterySettings(promise: Promise) {
+    val intents =
+        listOf(
+            Intent(Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS),
+            Intent(
+                Settings.ACTION_APPLICATION_DETAILS_SETTINGS,
+                android.net.Uri.fromParts("package", reactApplicationContext.packageName, null),
+            ),
+        )
+    for (intent in intents) {
+      try {
+        intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        reactApplicationContext.startActivity(intent)
+        promise.resolve(null)
+        return
+      } catch (error: Exception) {
+        // Some phones lack the first screen; try the app's own settings page.
+      }
+    }
+    promise.reject("E_SETTINGS", "Battery settings unavailable")
   }
 
   companion object {

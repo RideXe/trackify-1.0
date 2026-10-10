@@ -4,11 +4,9 @@ import {
   Alert,
   Box,
   Button,
-  Chip,
   CircularProgress,
   IconButton,
   LinearProgress,
-  Paper,
   Slider,
   Stack,
   TextField,
@@ -31,6 +29,7 @@ import {
   withoutDrift,
   type LoadedRoute,
 } from './route-data';
+import { Panel, PanelHead, panelBorder } from './panel';
 import { RouteMap } from './route-map';
 
 interface Period {
@@ -42,8 +41,8 @@ const today = { label: 'Today', period: () => ({ from: startOfDay(0), to: Date.n
 const presets: Array<{ label: string; period: () => Period }> = [
   today,
   { label: 'Yesterday', period: () => ({ from: startOfDay(-1), to: startOfDay(0) - 1 }) },
-  { label: 'Last 24 hours', period: () => ({ from: Date.now() - 86_400_000, to: Date.now() }) },
-  { label: 'Last 7 days', period: () => ({ from: startOfDay(-6), to: Date.now() }) },
+  { label: 'Last 24 h', period: () => ({ from: Date.now() - 86_400_000, to: Date.now() }) },
+  { label: '7 days', period: () => ({ from: startOfDay(-6), to: Date.now() }) },
 ];
 
 /** Replay moves this many GPS points per 200 ms tick. */
@@ -141,81 +140,189 @@ export function RouteHistory({ device, client }: { device: Device; client: Track
   const now = Date.now();
   const invalidPeriod = period.from >= period.to || period.from > now;
 
+  const hasPoints = Boolean(route?.points.length);
+  const pad = { px: { xs: 1.75, sm: 2 } };
+  const notices = route
+    ? [
+        points.length > driven.length &&
+          `${(points.length - driven.length).toLocaleString()} readings within GPS drift of a parked position are not drawn or counted as distance.`,
+        route.skipped > 0 &&
+          `${route.skipped.toLocaleString()} positions reported without a GPS lock are not shown.`,
+      ].filter((notice): notice is string => Boolean(notice))
+    : [];
+
   return (
-    <Paper sx={{ p: 2.5 }}>
-      <Stack spacing={2.5}>
-        <Stack
-          direction={{ xs: 'column', md: 'row' }}
-          spacing={2}
-          sx={{ justifyContent: 'space-between', alignItems: { md: 'center' } }}
-        >
-          <Box>
-            <Typography sx={{ fontWeight: 700 }}>Route history</Typography>
-            <Typography color="text.secondary" variant="caption">
-              Where {device.name} went in a chosen period. Positions are kept for 90 days.
-            </Typography>
-          </Box>
-          <Stack direction="row" sx={{ flexWrap: 'wrap', gap: 1 }}>
+    <Panel>
+      <PanelHead
+        section
+        title="Route history"
+        caption={`Where ${device.name} went in a chosen period. Positions are kept for 90 days.`}
+        action={
+          <Stack direction="row" sx={{ flexWrap: 'wrap', gap: { xs: '1px', sm: 0.6 } }}>
             {presets.map(({ label, period: next }) => (
-              <Chip
+              <Button
                 key={label}
-                label={label}
-                color={preset === label ? 'primary' : 'default'}
-                variant={preset === label ? 'filled' : 'outlined'}
+                aria-pressed={preset === label}
                 onClick={() => choose(label, next())}
-              />
+                size="small"
+                sx={{
+                  minHeight: 0,
+                  px: { xs: 0.9, sm: 1.1 },
+                  py: 0.85,
+                  borderRadius: '8px',
+                  fontSize: 11,
+                  fontWeight: 700,
+                  color: preset === label ? 'primary.main' : '#6B768A',
+                  bgcolor: preset === label ? '#EDF3FF' : 'transparent',
+                }}
+              >
+                {label}
+              </Button>
             ))}
           </Stack>
-        </Stack>
+        }
+      />
 
-        <Stack
-          direction={{ xs: 'column', sm: 'row' }}
-          spacing={1.5}
-          sx={{ alignItems: { sm: 'center' } }}
+      <Box
+        sx={{
+          ...pad,
+          pb: 2,
+          display: 'grid',
+          gridTemplateColumns: 'repeat(2, minmax(0, 1fr))',
+          gap: { xs: 1, sm: 1.25 },
+        }}
+      >
+        {(['from', 'to'] as const).map((edge) => (
+          <TextField
+            key={edge}
+            fullWidth
+            label={edge === 'from' ? 'From' : 'To'}
+            type="datetime-local"
+            size="small"
+            value={toLocalInput(period[edge])}
+            onChange={(event) => {
+              const value = fromLocalInput(event.target.value);
+              if (value === undefined) return;
+              setPreset('Custom');
+              setPeriod((existing) => ({ ...existing, [edge]: value }));
+            }}
+            slotProps={{
+              inputLabel: { shrink: true },
+              htmlInput: { max: toLocalInput(now) },
+            }}
+          />
+        ))}
+      </Box>
+
+      {loading && <LinearProgress />}
+
+      {route && hasPoints && (
+        <Box
+          sx={{
+            display: 'grid',
+            gridTemplateColumns: {
+              xs: 'repeat(2, minmax(0, 1fr))',
+              sm: 'repeat(4, minmax(0, 1fr))',
+            },
+            borderTop: `1px solid ${panelBorder}`,
+          }}
         >
-          {(['from', 'to'] as const).map((edge) => (
-            <TextField
-              key={edge}
-              label={edge === 'from' ? 'From' : 'To'}
-              type="datetime-local"
-              size="small"
-              value={toLocalInput(period[edge])}
-              onChange={(event) => {
-                const value = fromLocalInput(event.target.value);
-                if (value === undefined) return;
-                setPreset('Custom');
-                setPeriod((existing) => ({ ...existing, [edge]: value }));
+          {[
+            ['Distance', `${(summary.distanceM / 1000).toFixed(1)} km`],
+            ['Duration', formatDuration(summary.durationMs)],
+            ['Top speed', `${Math.round(summary.maxSpeedKmh)} km/h`],
+            ['GPS points', route.points.length.toLocaleString()],
+          ].map(([label, value], position) => (
+            <Box
+              key={label}
+              sx={{
+                px: 1.75,
+                py: 1.6,
+                borderRight: {
+                  xs: position % 2 === 0 ? `1px solid ${panelBorder}` : 0,
+                  sm: position < 3 ? `1px solid ${panelBorder}` : 0,
+                },
+                borderBottom: {
+                  xs: position < 2 ? `1px solid ${panelBorder}` : 0,
+                  sm: 0,
+                },
               }}
-              slotProps={{
-                inputLabel: { shrink: true },
-                htmlInput: { max: toLocalInput(now) },
-              }}
-            />
+            >
+              <Typography color="text.secondary" sx={{ fontSize: 10, mb: 0.5 }}>
+                {label}
+              </Typography>
+              <Typography sx={{ fontSize: 14, fontWeight: 700 }}>{value}</Typography>
+            </Box>
           ))}
-          <Button
-            disabled={loading || invalidPeriod}
-            onClick={() => void show(period)}
-            startIcon={
-              loading ? <CircularProgress color="inherit" size={16} /> : <History size={17} />
-            }
-            variant="contained"
-          >
-            {loading ? 'Loading…' : 'Show route'}
-          </Button>
+        </Box>
+      )}
+
+      <Stack
+        direction="row"
+        sx={{
+          ...pad,
+          py: 1.6,
+          justifyContent: 'space-between',
+          alignItems: 'center',
+          flexWrap: 'wrap',
+          gap: 1.25,
+          borderTop: `1px solid ${panelBorder}`,
+        }}
+      >
+        <Button
+          disabled={loading || invalidPeriod}
+          onClick={() => void show(period)}
+          startIcon={
+            loading ? <CircularProgress color="inherit" size={16} /> : <History size={16} />
+          }
+          variant="contained"
+          sx={{ minHeight: 38, width: { xs: '100%', sm: 'auto' } }}
+        >
+          {loading ? 'Loading…' : 'Show route'}
+        </Button>
+        <Stack
+          direction="row"
+          sx={{ gap: 0.75, flexWrap: 'wrap', width: { xs: '100%', sm: 'auto' } }}
+        >
+          {(Object.keys(downloads) as Array<keyof typeof downloads>).map((kind) => (
+            <Button
+              key={kind}
+              color="inherit"
+              disabled={!hasPoints}
+              onClick={() => download(kind)}
+              size="small"
+              startIcon={<Download size={14} />}
+              variant="outlined"
+              sx={{
+                flex: { xs: 1, sm: 'none' },
+                minHeight: 32,
+                fontSize: 11,
+                borderColor: '#DCE2EB',
+                color: '#39445A',
+              }}
+            >
+              {downloads[kind].label}
+            </Button>
+          ))}
         </Stack>
+      </Stack>
 
-        {loading && <LinearProgress />}
-        {error && <Alert severity="error">{error}</Alert>}
+      {error && (
+        <Box sx={{ ...pad, pb: 2 }}>
+          <Alert severity="error">{error}</Alert>
+        </Box>
+      )}
 
-        {route && !loading && !route.points.length && (
+      {route && !loading && !route.points.length && (
+        <Box sx={{ ...pad, pb: 2 }}>
           <Stack
             spacing={0.75}
             sx={{
-              minHeight: 180,
+              minHeight: 160,
               alignItems: 'center',
               justifyContent: 'center',
-              bgcolor: '#F9FAFB',
-              borderRadius: 2,
+              bgcolor: '#F8FAFF',
+              borderRadius: '12px',
               textAlign: 'center',
               px: 2,
             }}
@@ -225,122 +332,88 @@ export function RouteHistory({ device, client }: { device: Device; client: Track
               Pick another date, or check that the vehicle was tracking at that time.
             </Typography>
           </Stack>
-        )}
+        </Box>
+      )}
 
-        {route && route.points.length > 0 && (
-          <>
-            {route.truncated && (
-              <Alert severity="info">
-                This period has more than {MAX_ROUTE_POINTS.toLocaleString()} positions, so only the
-                most recent ones are shown. Pick a shorter period to see where it started.
-              </Alert>
-            )}
-            <Stack direction="row" sx={{ flexWrap: 'wrap', gap: 3 }}>
-              {[
-                ['Distance', `${(summary.distanceM / 1000).toFixed(1)} km`],
-                ['Duration', formatDuration(summary.durationMs)],
-                ['Top speed', `${Math.round(summary.maxSpeedKmh)} km/h`],
-                ['GPS points', route.points.length.toLocaleString()],
-              ].map(([label, value]) => (
-                <Box key={label} sx={{ minWidth: 110 }}>
-                  <Typography color="text.secondary" variant="caption">
-                    {label}
-                  </Typography>
-                  <Typography sx={{ fontWeight: 700 }}>{value}</Typography>
-                </Box>
-              ))}
-            </Stack>
-
-            <RouteMap points={driven} current={current} />
-
-            <Stack
-              direction={{ xs: 'column', md: 'row' }}
-              spacing={2}
-              sx={{ alignItems: { md: 'center' } }}
-            >
-              <Stack direction="row" spacing={1.5} sx={{ alignItems: 'center', flex: 1 }}>
-                <Tooltip title={playing ? 'Pause' : 'Replay the route'}>
-                  <IconButton
-                    aria-label={playing ? 'Pause replay' : 'Replay the route'}
-                    color="primary"
-                    onClick={() => {
-                      if (!playing && index >= lastIndex) setIndex(0);
-                      setPlaying((value) => !value);
-                    }}
-                  >
-                    {playing ? <Pause size={20} /> : <Play size={20} />}
-                  </IconButton>
-                </Tooltip>
-                <Slider
-                  aria-label="Position along the route"
-                  max={lastIndex}
-                  min={0}
-                  value={index}
-                  onChange={(_, value: number | number[]) => {
-                    setPlaying(false);
-                    setIndex(typeof value === 'number' ? value : (value[0] ?? 0));
+      {route && hasPoints && (
+        <Stack spacing={1.5} sx={{ ...pad, pb: 2 }}>
+          {route.truncated && (
+            <Alert severity="info">
+              This period has more than {MAX_ROUTE_POINTS.toLocaleString()} positions, so only the
+              most recent ones are shown. Pick a shorter period to see where it started.
+            </Alert>
+          )}
+          <RouteMap points={driven} current={current} />
+          <Stack
+            direction={{ xs: 'column', md: 'row' }}
+            spacing={2}
+            sx={{ alignItems: { md: 'center' } }}
+          >
+            <Stack direction="row" spacing={1.5} sx={{ alignItems: 'center', flex: 1 }}>
+              <Tooltip title={playing ? 'Pause' : 'Replay the route'}>
+                <IconButton
+                  aria-label={playing ? 'Pause replay' : 'Replay the route'}
+                  color="primary"
+                  onClick={() => {
+                    if (!playing && index >= lastIndex) setIndex(0);
+                    setPlaying((value) => !value);
                   }}
-                />
-              </Stack>
-              <ToggleButtonGroup
-                aria-label="Replay speed"
-                exclusive
-                size="small"
-                value={speed}
-                onChange={(_, value: number | null) => {
-                  if (value) setSpeed(value);
-                }}
-              >
-                {replaySpeeds.map((value) => (
-                  <ToggleButton key={value} value={value}>
-                    {value}×
-                  </ToggleButton>
-                ))}
-              </ToggleButtonGroup>
-            </Stack>
-            {current && (
-              <Typography color="text.secondary" variant="body2">
-                {new Date(current.fixTime).toLocaleString()} · {Math.round(current.speedKmh ?? 0)}{' '}
-                km/h · {current.latitude.toFixed(5)}, {current.longitude.toFixed(5)}
-              </Typography>
-            )}
-            {points.length > driven.length && (
-              <Typography color="text.secondary" variant="caption">
-                {(points.length - driven.length).toLocaleString()} readings within GPS drift of a
-                parked position are not drawn or counted as distance.
-              </Typography>
-            )}
-            {route.skipped > 0 && (
-              <Typography color="text.secondary" variant="caption">
-                {route.skipped.toLocaleString()} positions reported without a GPS lock are not
-                shown.
-              </Typography>
-            )}
-
-            <Stack
-              direction={{ xs: 'column', sm: 'row' }}
-              spacing={1}
-              sx={{ alignItems: { sm: 'center' } }}
-            >
-              <Typography variant="body2" sx={{ fontWeight: 650, mr: 1 }}>
-                Download route
-              </Typography>
-              {(Object.keys(downloads) as Array<keyof typeof downloads>).map((kind) => (
-                <Button
-                  key={kind}
-                  onClick={() => download(kind)}
-                  size="small"
-                  startIcon={<Download size={16} />}
-                  variant="outlined"
                 >
-                  {downloads[kind].label}
-                </Button>
-              ))}
+                  {playing ? <Pause size={20} /> : <Play size={20} />}
+                </IconButton>
+              </Tooltip>
+              <Slider
+                aria-label="Position along the route"
+                max={lastIndex}
+                min={0}
+                value={index}
+                onChange={(_, value: number | number[]) => {
+                  setPlaying(false);
+                  setIndex(typeof value === 'number' ? value : (value[0] ?? 0));
+                }}
+              />
             </Stack>
-          </>
-        )}
-      </Stack>
-    </Paper>
+            <ToggleButtonGroup
+              aria-label="Replay speed"
+              exclusive
+              size="small"
+              value={speed}
+              onChange={(_, value: number | null) => {
+                if (value) setSpeed(value);
+              }}
+            >
+              {replaySpeeds.map((value) => (
+                <ToggleButton key={value} value={value}>
+                  {value}×
+                </ToggleButton>
+              ))}
+            </ToggleButtonGroup>
+          </Stack>
+          {current && (
+            <Typography color="text.secondary" sx={{ fontSize: 12 }}>
+              {new Date(current.fixTime).toLocaleString()} · {Math.round(current.speedKmh ?? 0)}{' '}
+              km/h · {current.latitude.toFixed(5)}, {current.longitude.toFixed(5)}
+            </Typography>
+          )}
+        </Stack>
+      )}
+
+      {notices.map((notice) => (
+        <Typography
+          key={notice}
+          color="text.secondary"
+          sx={{
+            ...pad,
+            py: 1.25,
+            fontSize: 11,
+            bgcolor: '#F8FAFF',
+            borderTop: `1px solid ${panelBorder}`,
+          }}
+        >
+          {notice}
+        </Typography>
+      ))}
+    </Panel>
   );
 }
 

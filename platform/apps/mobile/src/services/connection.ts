@@ -2,6 +2,7 @@ import TrackifyLocation from '../native/NativeTrackifyLocation';
 import { fetchPhoneSettings, type PhoneSettings } from './phone-api';
 import * as SecureStore from './secure-store';
 import {
+  clearSyncStatus,
   clearTrackerConfig,
   defaultTrackerConfig,
   saveTrackerConfig,
@@ -66,5 +67,6 @@ export function applySettings(settings: PhoneSettings) {
 export async function forgetConnection() {
   await TrackifyLocation.stop().catch(() => undefined);
   await clearTrackerConfig();
+  await clearSyncStatus();
   await SecureStore.deleteItemAsync('activity-queue-v1');
 }

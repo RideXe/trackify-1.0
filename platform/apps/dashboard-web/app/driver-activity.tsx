@@ -7,7 +7,6 @@ import {
   CircularProgress,
   Link,
   MenuItem,
-  Paper,
   Stack,
   TextField,
   Typography,
@@ -21,10 +20,11 @@ import {
   type Device,
   type TrackifyClient,
 } from '@trackify/api-client';
-import { Send } from 'lucide-react';
-import { useCallback, useEffect, useState } from 'react';
+import { CircleCheck, Info, Send, Siren, TriangleAlert } from 'lucide-react';
+import { useCallback, useEffect, useState, type ComponentType } from 'react';
 import { describeActivity, intervalLabel, mapLink, type Tone } from './driver-activity-data';
 import { timeAgo } from './fleet-map-data';
+import { Panel, PanelHead, rowDivider, textButtonSx } from './panel';
 
 const toneColors: Record<Tone, string> = {
   critical: '#D92D20',
@@ -32,6 +32,16 @@ const toneColors: Record<Tone, string> = {
   info: '#155EEF',
   success: '#079455',
 };
+
+const toneIcons: Record<Tone, ComponentType<{ size?: number }>> = {
+  critical: Siren,
+  warning: TriangleAlert,
+  info: Info,
+  success: CircleCheck,
+};
+
+/** Items shown before "View all". */
+const SHORT_LIST = 4;
 
 /** Everything the driver did in the app over the last week, plus messages to them. */
 export function DriverActivityCard({
@@ -48,6 +58,7 @@ export function DriverActivityCard({
   const [text, setText] = useState('');
   const [sending, setSending] = useState(false);
   const [sendError, setSendError] = useState('');
+  const [expanded, setExpanded] = useState(false);
 
   const load = useCallback(async () => {
     try {
@@ -82,95 +93,77 @@ export function DriverActivityCard({
     }
   }
 
+  const shown = expanded ? items : items?.slice(0, SHORT_LIST);
+  const pad = { px: { xs: 1.75, sm: 2 } };
+
   return (
-    <Paper sx={{ p: 2.5 }}>
-      <Typography sx={{ fontWeight: 700 }}>Driver activity</Typography>
-      <Typography color="text.secondary" variant="caption">
-        Shifts, pauses, SOS, reports and messages from the last 7 days
-      </Typography>
-      {canMessage && (
-        <Stack direction="row" spacing={1} sx={{ mt: 2, alignItems: 'flex-start' }}>
-          <TextField
-            fullWidth
-            placeholder="Message the driver, e.g. go to the Whitefield depot next"
-            value={text}
-            onChange={(event) => setText(event.target.value)}
-            onKeyDown={(event) => {
-              if (event.key === 'Enter' && !event.shiftKey) {
-                event.preventDefault();
-                void send();
-              }
-            }}
-            slotProps={{ htmlInput: { maxLength: 500 } }}
-          />
-          <Button
-            disabled={sending || !text.trim()}
-            onClick={() => void send()}
-            startIcon={<Send size={16} />}
-            variant="contained"
-          >
-            Send
-          </Button>
-        </Stack>
-      )}
-      {canMessage && (
-        <Typography color="text.secondary" variant="caption">
-          The driver sees it within about a minute while the Trackify app is open.
-        </Typography>
-      )}
-      {sendError && (
-        <Alert severity="error" sx={{ mt: 1 }}>
-          {sendError}
-        </Alert>
-      )}
-      {error && (
-        <Alert severity="warning" sx={{ mt: 2 }}>
-          Driver activity could not be loaded: {error}
-        </Alert>
-      )}
-      {!items && !error ? (
-        <CircularProgress size={22} sx={{ mt: 2 }} />
-      ) : items && !items.length ? (
-        <Typography color="text.secondary" variant="body2" sx={{ mt: 2 }}>
-          Nothing yet. Activity appears once the driver uses the Trackify app on shift.
-        </Typography>
-      ) : (
-        <Stack sx={{ mt: 2 }}>
-          {items?.map((item) => {
+    <Panel>
+      <PanelHead
+        section
+        title="Driver activity"
+        caption="Shifts, pauses, SOS, reports and messages · last 7 days"
+        action={
+          items && items.length > SHORT_LIST ? (
+            <Button onClick={() => setExpanded((value) => !value)} size="small" sx={textButtonSx}>
+              {expanded ? 'Show less' : `View all (${items.length})`}
+            </Button>
+          ) : undefined
+        }
+      />
+      <Box sx={{ ...pad, pb: 1 }}>
+        {error && (
+          <Alert severity="warning" sx={{ mb: 1.5 }}>
+            Driver activity could not be loaded: {error}
+          </Alert>
+        )}
+        {!items && !error ? (
+          <CircularProgress size={22} sx={{ mb: 1.5 }} />
+        ) : items && !items.length ? (
+          <Typography color="text.secondary" sx={{ fontSize: 12, pb: 1.5 }}>
+            Nothing yet. Activity appears once the driver uses the Trackify app on shift.
+          </Typography>
+        ) : (
+          shown?.map((item) => {
             const { title, detail, tone } = describeActivity(item);
             const map = mapLink(item.latitude, item.longitude);
+            const Icon = toneIcons[tone];
             return (
               <Stack
                 key={item.entryId}
                 direction="row"
-                spacing={1.5}
-                sx={{ py: 1.25, borderTop: 1, borderColor: 'divider' }}
+                spacing={1.4}
+                sx={{ py: 1.4, borderTop: `1px solid ${rowDivider}` }}
               >
                 <Box
                   sx={{
-                    width: 10,
-                    height: 10,
-                    mt: 0.75,
-                    borderRadius: '50%',
+                    width: 30,
+                    height: 30,
                     flexShrink: 0,
-                    bgcolor: toneColors[tone],
+                    borderRadius: '10px',
+                    display: 'grid',
+                    placeItems: 'center',
+                    color: toneColors[tone],
+                    bgcolor: `${toneColors[tone]}14`,
                   }}
-                />
+                >
+                  <Icon size={15} />
+                </Box>
                 <Box sx={{ minWidth: 0, flex: 1 }}>
                   <Typography
                     sx={{
-                      fontWeight: 650,
+                      fontSize: 12,
+                      fontWeight: 700,
                       color: tone === 'critical' ? toneColors.critical : undefined,
                     }}
                   >
                     {title}
                   </Typography>
                   {detail && (
-                    <Typography variant="body2" sx={{ wordBreak: 'break-word' }}>
+                    <Typography sx={{ fontSize: 12, wordBreak: 'break-word', mt: 0.25 }}>
                       {detail}
                     </Typography>
                   )}
-                  <Typography color="text.secondary" variant="caption">
+                  <Typography color="text.secondary" sx={{ fontSize: 11, mt: 0.4 }}>
                     {new Date(item.at).toLocaleString('en-IN')} · {timeAgo(item.at)}
                     {item.receivedAt - item.at > 120_000 ? ' · sent late (no signal)' : ''}
                     {map && (
@@ -201,10 +194,46 @@ export function DriverActivityCard({
                 </Box>
               </Stack>
             );
-          })}
-        </Stack>
+          })
+        )}
+      </Box>
+      {canMessage && (
+        <Box sx={{ ...pad, pb: 2 }}>
+          <Stack direction="row" spacing={1} sx={{ alignItems: 'flex-start' }}>
+            <TextField
+              fullWidth
+              placeholder="Message the driver…"
+              value={text}
+              onChange={(event) => setText(event.target.value)}
+              onKeyDown={(event) => {
+                if (event.key === 'Enter' && !event.shiftKey) {
+                  event.preventDefault();
+                  void send();
+                }
+              }}
+              slotProps={{ htmlInput: { maxLength: 500, 'aria-label': 'Message the driver' } }}
+            />
+            <Button
+              disabled={sending || !text.trim()}
+              onClick={() => void send()}
+              startIcon={<Send size={15} />}
+              variant="contained"
+              sx={{ minHeight: 40 }}
+            >
+              Send
+            </Button>
+          </Stack>
+          <Typography color="text.secondary" sx={{ fontSize: 11, mt: 0.75 }}>
+            The driver sees it within about a minute while the Trackify app is open.
+          </Typography>
+          {sendError && (
+            <Alert severity="error" sx={{ mt: 1 }}>
+              {sendError}
+            </Alert>
+          )}
+        </Box>
       )}
-    </Paper>
+    </Panel>
   );
 }
 
@@ -239,46 +268,48 @@ export function PhoneSettingsCard({
   }
 
   return (
-    <Paper sx={{ p: 2.5 }}>
-      <Typography sx={{ fontWeight: 700 }}>Driver phone settings</Typography>
-      <Typography color="text.secondary" variant="body2" sx={{ mb: 2 }}>
-        Applied on the phone within about a minute while the app is open.
-      </Typography>
-      <Stack spacing={2}>
-        <TextField
-          disabled={!admin || busy}
-          label="Location update every"
-          onChange={(event) => void save({ trackerIntervalSeconds: Number(event.target.value) })}
-          select
-          value={interval}
-          helperText="Shorter is smoother on the map but uses more phone battery and data."
-        >
-          {trackerIntervals.map((seconds) => (
-            <MenuItem key={seconds} value={seconds}>
-              {intervalLabel(seconds)}
-            </MenuItem>
-          ))}
-        </TextField>
-        <TextField
-          disabled={!admin || busy}
-          label="Longest pause"
-          onChange={(event) => void save({ pauseLimitMinutes: Number(event.target.value) })}
-          select
-          value={pauseLimit}
-          helperText="“I'm outside the vehicle” stops sharing for at most this long, then it resumes by itself."
-        >
-          {pauseLimits.map((minutes) => (
-            <MenuItem key={minutes} value={minutes}>
-              {minutes} min
-            </MenuItem>
-          ))}
-        </TextField>
-      </Stack>
-      {error && (
-        <Alert severity="error" sx={{ mt: 2 }}>
-          {error}
-        </Alert>
-      )}
-    </Paper>
+    <Panel>
+      <PanelHead
+        title="Driver phone settings"
+        caption="Applied on the phone within about a minute while the app is open."
+      />
+      <Box sx={{ px: { xs: 1.75, sm: 2 }, pb: { xs: 1.75, sm: 2 } }}>
+        <Stack spacing={2} sx={{ pt: 0.5 }}>
+          <TextField
+            disabled={!admin || busy}
+            label="Location update every"
+            onChange={(event) => void save({ trackerIntervalSeconds: Number(event.target.value) })}
+            select
+            value={interval}
+            helperText="Shorter is smoother on the map but uses more phone battery and data."
+          >
+            {trackerIntervals.map((seconds) => (
+              <MenuItem key={seconds} value={seconds}>
+                {intervalLabel(seconds)}
+              </MenuItem>
+            ))}
+          </TextField>
+          <TextField
+            disabled={!admin || busy}
+            label="Longest pause"
+            onChange={(event) => void save({ pauseLimitMinutes: Number(event.target.value) })}
+            select
+            value={pauseLimit}
+            helperText="“I'm outside the vehicle” stops sharing for at most this long, then it resumes by itself."
+          >
+            {pauseLimits.map((minutes) => (
+              <MenuItem key={minutes} value={minutes}>
+                {minutes} min
+              </MenuItem>
+            ))}
+          </TextField>
+        </Stack>
+        {error && (
+          <Alert severity="error" sx={{ mt: 2 }}>
+            {error}
+          </Alert>
+        )}
+      </Box>
+    </Panel>
   );
 }

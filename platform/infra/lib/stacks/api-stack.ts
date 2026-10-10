@@ -254,12 +254,15 @@ export class ApiStack extends Stack {
       environment: {
         ONBOARDING_TABLE: props.data.onboarding.tableName,
         INGEST_QUEUE_URL: props.ingestQueue.queueUrl,
+        DEVICE_STATE_TABLE: props.data.deviceState.tableName,
       },
       logGroup: new LogGroup(this, 'PhoneIngestLogs', { retention: RetentionDays.ONE_WEEK }),
       bundling: { minify: true, sourceMap: true },
     });
     props.data.onboarding.grantReadData(phoneIngest);
     props.ingestQueue.grantSendMessages(phoneIngest);
+    // Check-ins without a position only refresh "last seen".
+    props.data.deviceState.grant(phoneIngest, 'dynamodb:UpdateItem');
     this.api.addRoutes({
       path: '/phone/positions',
       methods: [HttpMethod.POST],

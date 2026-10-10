@@ -3,7 +3,7 @@ import { translateCurrent } from '../i18n';
 import TrackifyLocation, { type NativeLocation } from '../native/NativeTrackifyLocation';
 import { filterGpsWindow, resetGpsFilter } from './gps-window';
 import { uploadBatch } from './upload';
-import { addTrackerLog, type TrackerConfig } from './storage';
+import { addTrackerLog, clearSyncStatus, type TrackerConfig } from './storage';
 
 const { PERMISSIONS, RESULTS } = PermissionsAndroid;
 
@@ -57,6 +57,8 @@ export async function startTracking(config: TrackerConfig) {
     await PermissionsAndroid.request(PERMISSIONS.POST_NOTIFICATIONS);
   const motion = await requestActivityRecognition().catch(() => false);
   await resetGpsFilter();
+  // What the home screen shows about sending starts fresh with each start.
+  await clearSyncStatus();
   await TrackifyLocation.start({
     intervalMs: syncIntervalMs(config.intervalSeconds),
     accuracy: config.accuracy,
@@ -79,6 +81,25 @@ export function syncIntervalMs(seconds: number) {
 export async function applySyncInterval(seconds: number) {
   if (await TrackifyLocation.isRunning())
     await TrackifyLocation.setInterval(syncIntervalMs(seconds));
+}
+
+/**
+ * Starts tracking again after Android stopped it during a shift (battery saving, an update).
+ * Only works with the app open: Android does not let the tracker restart itself from the
+ * background on many phones.
+ */
+export async function restartTracking(config: TrackerConfig) {
+  await TrackifyLocation.stop().catch(() => undefined);
+  await startTracking(config);
+  await addTrackerLog('Tracking restarted after it had stopped');
+}
+
+export function isBatteryOptimized() {
+  return TrackifyLocation.isBatteryOptimized();
+}
+
+export function openBatterySettings() {
+  return TrackifyLocation.openBatterySettings();
 }
 
 export async function stopTracking() {

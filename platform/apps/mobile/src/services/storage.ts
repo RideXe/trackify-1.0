@@ -103,6 +103,40 @@ export async function addTrackerLog(message: string) {
   await SecureStore.setItemAsync(logsKey, JSON.stringify(next));
 }
 
+/** Why the last attempt to reach the server sent no positions. */
+export type SyncProblem = 'no-gps' | 'offline' | 'access' | 'server';
+
+/** What actually reached the server; the home screen shows this instead of assuming. */
+export interface SyncStatus {
+  /** Last time the server accepted anything from this phone: positions or a check-in. */
+  contactAt?: number;
+  /** Last time it accepted positions. */
+  positionsAt?: number;
+  problem?: SyncProblem;
+}
+
+const syncKey = 'tracker-sync-v1';
+
+export async function readSyncStatus(): Promise<SyncStatus> {
+  try {
+    const value = await SecureStore.getItemAsync(syncKey);
+    return value ? (JSON.parse(value) as SyncStatus) : {};
+  } catch {
+    return {};
+  }
+}
+
+/** Merges a change; `problem: undefined` clears the problem. */
+export async function noteSync(change: SyncStatus) {
+  const next: SyncStatus = { ...(await readSyncStatus()), ...change };
+  if ('problem' in change && change.problem === undefined) delete next.problem;
+  await SecureStore.setItemAsync(syncKey, JSON.stringify(next));
+}
+
+export async function clearSyncStatus() {
+  await SecureStore.deleteItemAsync(syncKey);
+}
+
 export async function clearTrackerLogs() {
   await SecureStore.deleteItemAsync(logsKey);
 }

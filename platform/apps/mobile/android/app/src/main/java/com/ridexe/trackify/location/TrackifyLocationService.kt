@@ -135,9 +135,10 @@ class TrackifyLocationService : Service() {
       )
       applySettings(settings)
     } catch (error: Exception) {
-      // Permission revoked, or Android refused a foreground start from the background.
+      // Permission revoked, or Android refused a foreground start from the background. The
+      // settings are kept: tracking is still meant to be on, so the app restarts it when opened
+      // (Android allows that from the foreground) and the driver sees "tracking stopped".
       Log.w(TAG, "Location sharing could not start", error)
-      TrackingSettings.clear(this)
       stopSelf()
       return START_NOT_STICKY
     }

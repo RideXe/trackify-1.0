@@ -25,6 +25,9 @@ import {
  *  7. compress   — Douglas–Peucker keeps turns; plus stops and one point per interval
  */
 
+/** What the phone's motion sensors said (Android activity recognition), when permitted. */
+export type MotionActivity = 'still' | 'vehicle' | 'foot' | 'bicycle';
+
 export interface RawFix {
   /** UTC milliseconds of the fix. */
   t: number;
@@ -44,6 +47,7 @@ export interface RawFix {
   provider?: string;
   mock?: boolean;
   sats?: number;
+  act?: MotionActivity;
 }
 
 export interface CleanPoint {
@@ -58,6 +62,7 @@ export interface CleanPoint {
   alt?: number;
   /** Parked at this point. */
   still: boolean;
+  act?: MotionActivity;
   /** Distance travelled along the track since the previous uploaded point, metres. */
   path: number;
 }
@@ -251,7 +256,7 @@ export function filterWindow(
   if (held) state.pending = held;
 
   // 3–5. Physics, stillness and the forward filter.
-  type Accepted = { fix: RawFix; still: boolean; reset: boolean };
+  type Accepted = { fix: RawFix; still: boolean; reset: boolean; anchor?: ParkedAnchor };
   const accepted: Accepted[] = [];
   for (const fix of despiked) {
     const last = state.last;
@@ -289,7 +294,9 @@ export function filterWindow(
     state.suspects = [];
     const still = updateStillness(state, fix, options);
     state.last = fix;
-    accepted.push({ fix, still, reset });
+    // A copy: a departure later in this window clears state.still before smoothing runs.
+    const anchor = still && state.still ? { ...state.still } : undefined;
+    accepted.push({ fix, still, reset, anchor });
   }
   report.kept = accepted.length;
 
@@ -385,14 +392,19 @@ function updateStillness(state: FilterState, fix: RawFix, options: FilterOptions
     }
   }
   const acc = Math.max(fix.acc ?? 30, 3);
+  // The motion sensors know the phone is still even when GPS speed is missing (indoors). They
+  // report with a delay, so a GPS speed of driving overrides them.
+  const sensorStill = fix.act === 'still' && (speed === undefined || speed < options.moveSpeedMs);
   const still = state.still;
   if (still) {
     const away = meters(still, fix);
+    // "In a vehicle" plus driving speed ends parking at once instead of after moveExitS.
     const driving =
-      state.fastSince !== undefined && (fix.t - state.fastSince) / 1000 >= options.moveExitS;
+      (state.fastSince !== undefined && (fix.t - state.fastSince) / 1000 >= options.moveExitS) ||
+      (fix.act === 'vehicle' && speed !== undefined && speed > options.moveSpeedMs);
     // With a measured near-zero speed, drift is not movement: only a big displacement (towed,
     // on a ferry) ends parking. Without speed, displacement beyond the noise has to persist.
-    const standing = speed !== undefined && speed < options.moveSpeedMs;
+    const standing = sensorStill || (speed !== undefined && speed < options.moveSpeedMs);
     const limit = standing ? Math.max(50, 4 * acc) : Math.max(25, 2 * acc, 2 * still.acc);
     let displaced = false;
     if (away > limit) {
@@ -416,7 +428,7 @@ function updateStillness(state: FilterState, fix: RawFix, options: FilterOptions
   }
   const slowLongEnough =
     state.slowSince !== undefined && (fix.t - state.slowSince) / 1000 >= options.stillEnterS;
-  if (slowLongEnough) {
+  if (slowLongEnough || sensorStill) {
     state.still = {
       lat: fix.lat,
       lon: fix.lon,
@@ -444,6 +456,9 @@ function consistentWithFilter(state: FilterState, fix: RawFix, options: FilterOp
   return ix.residual ** 2 / ix.variance + iy.residual ** 2 / iy.variance <= 9.21;
 }
 
+/** Where a parked fix was held, as it was when the fix was accepted. */
+type ParkedAnchor = Pick<NonNullable<FilterState['still']>, 'lat' | 'lon' | 'acc'>;
+
 interface SmoothedFix {
   t: number;
   lat: number;
@@ -453,10 +468,11 @@ interface SmoothedFix {
   brg?: number;
   alt?: number;
   still: boolean;
+  act?: MotionActivity;
 }
 
 function smoothSegments(
-  accepted: Array<{ fix: RawFix; still: boolean; reset: boolean }>,
+  accepted: Array<{ fix: RawFix; still: boolean; reset: boolean; anchor?: ParkedAnchor }>,
   state: FilterState,
   options: FilterOptions,
 ): SmoothedFix[] {
@@ -480,12 +496,13 @@ function smoothSegments(
         brg: speed > 2 ? (Math.atan2(vx, vy) * 180) / Math.PI + (vx < 0 ? 360 : 0) : step.fix.brg,
         alt: step.fix.alt,
         still: false,
+        act: step.fix.act,
       });
     });
     segment = [];
   };
 
-  for (const { fix, still, reset } of accepted) {
+  for (const { fix, still, reset, anchor: parkedAt } of accepted) {
     if (!state.origin || meters(state.origin, fix) > 50_000) {
       flush();
       state.origin = { latitude: fix.lat, longitude: fix.lon };
@@ -493,7 +510,7 @@ function smoothSegments(
     }
     if (still) {
       flush();
-      const anchor = state.still!;
+      const anchor = parkedAt!;
       const local = toLocal(state.origin, { lat: anchor.lat, lon: anchor.lon });
       state.kalman = {
         t: fix.t,
@@ -509,6 +526,7 @@ function smoothSegments(
         spd: 0,
         alt: fix.alt,
         still: true,
+        act: fix.act,
       });
       continue;
     }
@@ -612,6 +630,7 @@ function compress(
       ...(point.brg !== undefined ? { brg: round(point.brg, 1) } : {}),
       ...(point.alt !== undefined ? { alt: round(point.alt, 1) } : {}),
       still: point.still,
+      ...(point.act !== undefined ? { act: point.act } : {}),
       path: round(pathTo[index]! - uploadedAt, 1),
     });
     uploadedAt = pathTo[index]!;

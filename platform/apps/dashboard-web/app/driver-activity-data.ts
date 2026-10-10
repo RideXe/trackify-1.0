@@ -28,6 +28,7 @@ export const warningLabels: Record<WarningKind, string> = {
   'gps-off': 'Location turned off on the phone',
   'permission-revoked': 'Location permission removed on the phone',
   'tracking-stopped': 'Tracking stopped on the phone',
+  'phone-left-vehicle': 'Phone left the vehicle (driver walking with it)',
 };
 
 const time = (ms: number) =>

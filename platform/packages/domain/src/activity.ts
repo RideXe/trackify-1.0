@@ -16,6 +16,7 @@ export const warningKinds = [
   'gps-off',
   'permission-revoked',
   'tracking-stopped',
+  'phone-left-vehicle',
 ] as const;
 export type WarningKind = (typeof warningKinds)[number];
 

@@ -183,6 +183,28 @@ describe('phone batches (v2)', () => {
     expect(positions[0]).toMatchObject({ attributes: { motion: false } });
   });
 
+  it('stores the motion-sensor activity, dropping values it does not know', async () => {
+    const { handler, sendAll } = handlerWith();
+    const result = await handler(
+      batchEvent({
+        v: 2,
+        id: device.uniqueId,
+        points: [
+          point(1_760_000_001_000, { act: 'foot' }),
+          point(1_760_000_002_000, { act: 'hovercraft' }),
+          point(1_760_000_003_000),
+        ],
+      }),
+    );
+    expect(result).toMatchObject({ body: JSON.stringify({ accepted: 3, skipped: 0 }) });
+    const [positions] = sendAll.mock.calls[0] as [Array<{ attributes: { activity?: string } }>];
+    expect(positions.map((position) => position.attributes.activity)).toEqual([
+      'foot',
+      undefined,
+      undefined,
+    ]);
+  });
+
   it('keeps the filter report and battery on the window’s last point for debugging', async () => {
     const { handler, sendAll } = handlerWith();
     await handler(

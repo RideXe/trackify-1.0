@@ -1,4 +1,5 @@
 import { PermissionsAndroid, Platform } from 'react-native';
+import { translateCurrent } from '../i18n';
 import TrackifyLocation, { type NativeLocation } from '../native/NativeTrackifyLocation';
 import { filterGpsWindow, resetGpsFilter } from './gps-window';
 import { uploadBatch } from './upload';
@@ -29,6 +30,22 @@ async function requestBackgroundLocation() {
   );
 }
 
+/**
+ * Optional "Physical activity" access (Android 10+): steadier parked positions and less battery
+ * while parked. A refusal changes nothing else; Android stops asking after the second refusal.
+ */
+export async function requestActivityRecognition() {
+  if (Number(Platform.Version) < 29) return true;
+  const permission = PERMISSIONS.ACTIVITY_RECOGNITION;
+  if (await PermissionsAndroid.check(permission)) return true;
+  const result = await PermissionsAndroid.request(permission, {
+    title: translateCurrent('activityRationaleTitle'),
+    message: translateCurrent('activityRationale'),
+    buttonPositive: translateCurrent('ok'),
+  });
+  return result === RESULTS.GRANTED;
+}
+
 export async function startTracking(config: TrackerConfig) {
   if (!config.endpoint || !config.uniqueId || !config.credential)
     throw new Error('Complete tracker setup first');
@@ -38,6 +55,7 @@ export async function startTracking(config: TrackerConfig) {
   // Android 13+ hides the tracking notification without this; tracking itself still runs.
   if (Number(Platform.Version) >= 33)
     await PermissionsAndroid.request(PERMISSIONS.POST_NOTIFICATIONS);
+  const motion = await requestActivityRecognition().catch(() => false);
   await resetGpsFilter();
   await TrackifyLocation.start({
     intervalMs: syncIntervalMs(config.intervalSeconds),
@@ -45,7 +63,11 @@ export async function startTracking(config: TrackerConfig) {
     notificationTitle: 'On shift · Trackify',
     notificationBody: 'Your location is shared with your fleet until you end the shift.',
   });
-  await addTrackerLog('Background tracking started');
+  await addTrackerLog(
+    motion
+      ? 'Background tracking started'
+      : 'Background tracking started (motion detection not allowed: using GPS speed only)',
+  );
 }
 
 /** The server's sync interval in milliseconds, kept within what the phone supports. */

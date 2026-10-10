@@ -6,7 +6,7 @@ import {
   DynamoOnboardingStore,
   type OnboardingInvitation,
 } from '@trackify/data';
-import { parsePositionMessage, type PositionMessage } from '@trackify/domain';
+import { motionActivitySchema, parsePositionMessage, type PositionMessage } from '@trackify/domain';
 import { ulid } from 'ulid';
 
 interface QueueWriter {
@@ -87,6 +87,7 @@ interface BatchPoint {
   brg?: number;
   alt?: number;
   still?: boolean;
+  act?: string;
   path?: number;
 }
 
@@ -152,6 +153,8 @@ async function acceptBatch(batch: Batch, device: OnboardingInvitation, deps: Dep
         // The phone already decided parked vs moving from its full-rate track.
         motion: typeof point?.still === 'boolean' ? !point.still : undefined,
         pathDistanceM: typeof point?.path === 'number' && point.path >= 0 ? point.path : undefined,
+        // An unknown value from a newer app is dropped rather than losing the point.
+        activity: motionActivitySchema.safeParse(point?.act).data,
         batteryLevelPct: last && typeof batch.batt === 'number' ? batch.batt : undefined,
         io: last ? filterSummary(batch.filter) : undefined,
       },

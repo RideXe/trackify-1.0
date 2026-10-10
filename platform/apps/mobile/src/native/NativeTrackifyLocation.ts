@@ -37,6 +37,10 @@ export type DeviceHealth = {
   charging: boolean;
   /** The phone's Location setting; tracking gets no fixes while it is off. */
   locationEnabled: boolean;
+  /** "still", "vehicle", "foot" or "bicycle"; missing without the Physical activity permission. */
+  activity?: string;
+  /** How long the current activity has lasted, milliseconds. */
+  activityForMs?: number;
 };
 
 export interface Spec extends TurboModule {

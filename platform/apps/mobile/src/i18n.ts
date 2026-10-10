@@ -79,6 +79,11 @@ const en = {
   'warn_permission-revoked':
     "Location permission was removed. Allow location 'All the time' for Trackify.",
   'warn_tracking-stopped': 'Tracking stopped. Open settings or end and restart the shift.',
+  'warn_phone-left-vehicle':
+    'The phone is moving on foot. Keep it in the vehicle during the shift.',
+  activityRationaleTitle: 'Motion detection',
+  activityRationale:
+    'Trackify uses the motion sensors to tell parked from driving. Parked positions stay steady and the battery lasts longer. Tracking works without it.',
   openSettings: 'Open settings',
   pendingSync: '{n} waiting for signal',
 
@@ -190,6 +195,11 @@ const kn: Strings = {
   'warn_permission-revoked': "ಲೊಕೇಶನ್ ಅನುಮತಿ ತೆಗೆಯಲಾಗಿದೆ. Trackify ಗೆ 'ಯಾವಾಗಲೂ' ಅನುಮತಿ ನೀಡಿ.",
   'warn_tracking-stopped':
     'ಟ್ರ್ಯಾಕಿಂಗ್ ನಿಂತಿದೆ. ಸೆಟ್ಟಿಂಗ್ಸ್ ತೆರೆಯಿರಿ ಅಥವಾ ಶಿಫ್ಟ್ ಮುಗಿಸಿ ಮತ್ತೆ ಆರಂಭಿಸಿ.',
+  'warn_phone-left-vehicle':
+    'ಫೋನ್ ನಡಿಗೆಯಲ್ಲಿ ಚಲಿಸುತ್ತಿದೆ. ಶಿಫ್ಟ್ ಸಮಯದಲ್ಲಿ ಫೋನ್ ಅನ್ನು ವಾಹನದಲ್ಲೇ ಇಡಿ.',
+  activityRationaleTitle: 'ಚಲನೆ ಪತ್ತೆ',
+  activityRationale:
+    'ನಿಲ್ಲಿಸಿದೆಯೇ ಅಥವಾ ಚಲಿಸುತ್ತಿದೆಯೇ ಎಂದು ತಿಳಿಯಲು Trackify ಚಲನೆ ಸೆನ್ಸರ್‌ಗಳನ್ನು ಬಳಸುತ್ತದೆ. ಇದರಿಂದ ಸ್ಥಳ ಸ್ಥಿರವಾಗಿರುತ್ತದೆ ಮತ್ತು ಬ್ಯಾಟರಿ ಉಳಿಯುತ್ತದೆ. ಇದಿಲ್ಲದೆಯೂ ಟ್ರ್ಯಾಕಿಂಗ್ ನಡೆಯುತ್ತದೆ.',
   openSettings: 'ಸೆಟ್ಟಿಂಗ್ಸ್ ತೆರೆಯಿರಿ',
   pendingSync: '{n} ಸಿಗ್ನಲ್‌ಗಾಗಿ ಕಾಯುತ್ತಿವೆ',
   issueTitle: 'ಸಮಸ್ಯೆ ವರದಿ ಮಾಡಿ',
@@ -293,6 +303,10 @@ const hi: Strings = {
   'warn_gps-off': 'लोकेशन बंद है। फ़ोन सेटिंग में इसे चालू करें।',
   'warn_permission-revoked': "लोकेशन अनुमति हटा दी गई है। Trackify को 'हमेशा' अनुमति दें।",
   'warn_tracking-stopped': 'ट्रैकिंग रुक गई है। सेटिंग खोलें या शिफ़्ट खत्म करके फिर शुरू करें।',
+  'warn_phone-left-vehicle': 'फ़ोन पैदल चल रहा है। शिफ़्ट के दौरान फ़ोन गाड़ी में ही रखें।',
+  activityRationaleTitle: 'गति पहचान',
+  activityRationale:
+    'Trackify गति सेंसर से पहचानता है कि गाड़ी खड़ी है या चल रही है। इससे खड़ी गाड़ी की जगह स्थिर रहती है और बैटरी बचती है। इसके बिना भी ट्रैकिंग चलती है।',
   openSettings: 'सेटिंग खोलें',
   pendingSync: '{n} सिग्नल का इंतज़ार कर रहे हैं',
   issueTitle: 'समस्या बताएँ',
@@ -399,6 +413,11 @@ const ta: Strings = {
     "இருப்பிட அனுமதி நீக்கப்பட்டது. Trackify க்கு 'எப்போதும்' அனுமதி தரவும்.",
   'warn_tracking-stopped':
     'கண்காணிப்பு நின்றது. அமைப்புகளைத் திறக்கவும் அல்லது ஷிஃப்டை முடித்து மீண்டும் தொடங்கவும்.',
+  'warn_phone-left-vehicle':
+    'போன் நடந்து செல்கிறது. ஷிஃப்ட் நேரத்தில் போனை வாகனத்திலேயே வைக்கவும்.',
+  activityRationaleTitle: 'இயக்கம் கண்டறிதல்',
+  activityRationale:
+    'வாகனம் நிற்கிறதா ஓடுகிறதா என்பதை அறிய Trackify இயக்க சென்சார்களைப் பயன்படுத்துகிறது. இதனால் நிறுத்திய இடம் நிலையாக இருக்கும், பேட்டரி மிச்சமாகும். இது இல்லாமலும் கண்காணிப்பு வேலை செய்யும்.',
   openSettings: 'அமைப்புகளைத் திற',
   pendingSync: '{n} சிக்னலுக்காக காத்திருக்கிறது',
   issueTitle: 'சிக்கலை தெரிவி',
@@ -459,6 +478,11 @@ export function translate(
   return template.replace(/\{(\w+)\}/g, (match, name: string) =>
     name in values ? String(values[name]) : match,
   );
+}
+
+/** Text in the chosen language, for code outside components (e.g. permission prompts). */
+export function translateCurrent(key: StringKey, values?: Record<string, string | number>) {
+  return translate(current, key, values);
 }
 
 export async function loadLanguage() {

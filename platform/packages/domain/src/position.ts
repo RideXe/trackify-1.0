@@ -64,6 +64,10 @@ export const alarmTypeSchema = z.enum([
 ]);
 export type AlarmType = z.infer<typeof alarmTypeSchema>;
 
+/** What a phone's motion sensors said at a fix (Android activity recognition). */
+export const motionActivitySchema = z.enum(['still', 'vehicle', 'foot', 'bicycle']);
+export type MotionActivity = z.infer<typeof motionActivitySchema>;
+
 /** Free-form protocol-specific values (IO elements, sensor readings). */
 export const ioValuesSchema = z.record(z.string(), z.union([z.number(), z.string(), z.boolean()]));
 
@@ -88,6 +92,8 @@ export const positionAttributesSchema = z.object({
    * filtered track; more accurate than the straight line between reported points.
    */
   pathDistanceM: z.number().nonnegative().optional(),
+  /** Phones only, when the driver allowed "Physical activity". */
+  activity: motionActivitySchema.optional(),
   /** Why a fix was kept out of the live track and trips (stored in history for debugging). */
   rejectedReason: z.string().max(40).optional(),
   io: ioValuesSchema.optional(),

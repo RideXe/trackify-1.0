@@ -199,6 +199,87 @@ describe('noise the filter removes', () => {
   });
 });
 
+describe('parking and driving off', () => {
+  it('drives off from parking within one window, with GPS speed alone', () => {
+    const T0 = 1_760_000_000_000;
+    const fixes: RawFix[] = Array.from({ length: 90 }, (_, second) => {
+      const driving = second >= 45;
+      return {
+        t: T0 + second * 1000,
+        ...at(0, driving ? (second - 44) * 5 : 0),
+        acc: 5,
+        spd: driving ? 5 : 0,
+        spdAcc: 0.3,
+        brg: 0,
+      };
+    });
+    const { points, distance } = run(fixes, 90);
+    expect(points.some((point) => point.still && point.t < T0 + 45_000)).toBe(true);
+    const parkedAt = points.findIndex((point) => point.still);
+    const departed = points.slice(parkedAt).find((point) => !point.still)!;
+    expect(departed.t).toBeGreaterThanOrEqual(T0 + 45_000);
+    expect(departed.t).toBeLessThanOrEqual(T0 + 49_000);
+    // 45 s at 5 m/s, within 5%.
+    expect(Math.abs(distance - 225)).toBeLessThan(12);
+  });
+});
+
+describe('motion sensors (Physical activity permission)', () => {
+  const T0 = 1_760_000_000_000;
+  /** Indoors: GPS gives no speed, only drifting positions. */
+  const indoors = (act?: RawFix['act']): RawFix[] => {
+    const next = random(5);
+    return Array.from({ length: 300 }, (_, second) => ({
+      t: T0 + second * 1000,
+      ...at(gaussian(next) * 15, gaussian(next) * 15),
+      acc: 20,
+      ...(act ? { act } : {}),
+    }));
+  };
+
+  it('holds a parked phone steady from the start when the sensors say still, even without GPS speed', () => {
+    const { points, distance } = run(indoors('still'));
+    expect(points.every((point) => point.still)).toBe(true);
+    expect(distance).toBeLessThan(5);
+  });
+
+  it('without the permission, falls back to GPS alone (no activity on the points)', () => {
+    const { points } = run(indoors());
+    expect(points.some((point) => point.act !== undefined)).toBe(false);
+    // Without speed or sensors the drift cannot be told from slow movement.
+    expect(points.some((point) => !point.still)).toBe(true);
+  });
+
+  it('ends parking as soon as the sensors say "in a vehicle" at driving speed', () => {
+    const departure = (act: boolean) => {
+      const fixes: RawFix[] = [];
+      for (let second = 0; second < 90; second += 1) {
+        const driving = second >= 60;
+        fixes.push({
+          t: T0 + second * 1000,
+          ...at(0, driving ? (second - 59) * 5 : 0),
+          acc: 5,
+          spd: driving ? 5 : 0,
+          spdAcc: 0.3,
+          brg: 0,
+          ...(act ? { act: driving ? ('vehicle' as const) : ('still' as const) } : {}),
+        });
+      }
+      const { points } = run(fixes);
+      const parkedAt = points.findIndex((point) => point.still);
+      return points.slice(parkedAt).find((point) => !point.still)!.t;
+    };
+    expect(departure(true)).toBe(T0 + 60_000);
+    expect(departure(true)).toBeLessThan(departure(false));
+  });
+
+  it('passes the activity through to the uploaded points', () => {
+    const fixes = observe(lShapedDrive()).map((fix) => ({ ...fix, act: 'vehicle' as const }));
+    const { points } = run(fixes);
+    expect(points.every((point) => point.act === 'vehicle')).toBe(true);
+  });
+});
+
 describe('real jumps the filter must keep', () => {
   it('restarts after a tunnel and continues from the exit', () => {
     const truth = lShapedDrive();

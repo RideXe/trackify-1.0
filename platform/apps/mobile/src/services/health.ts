@@ -4,11 +4,16 @@ import { updateTrackerConfig, type TrackerConfig } from './storage';
 import { deviceHealth, hasLocationPermission, trackingStatus } from './tracking';
 
 export const LOW_BATTERY_PCT = 15;
+/** Walking this long during a shift means the phone is with the driver, not in the vehicle. */
+export const PHONE_LEFT_AFTER_MS = 3 * 60_000;
 
 export interface HealthReading {
   batteryPct?: number;
   charging: boolean;
   locationEnabled: boolean;
+  /** From the motion sensors, when the driver allowed "Physical activity". */
+  activity?: string;
+  activityForMs?: number;
   /** Only known when checked from the app; the background task skips permission checks. */
   permitted?: boolean;
   /** Only known when checked from the app. */
@@ -24,6 +29,8 @@ export function problemsIn(config: TrackerConfig, reading: HealthReading): Warni
   if (!reading.locationEnabled) problems.push('gps-off');
   if (reading.permitted === false) problems.push('permission-revoked');
   if (reading.running === false) problems.push('tracking-stopped');
+  if (reading.activity === 'foot' && (reading.activityForMs ?? 0) >= PHONE_LEFT_AFTER_MS)
+    problems.push('phone-left-vehicle');
   return problems;
 }
 
@@ -47,8 +54,8 @@ export async function checkHealth(config: TrackerConfig, fromApp: boolean): Prom
   }
   const problems = problemsIn(config, reading);
   const checked: WarningKind[] = fromApp
-    ? ['battery-low', 'gps-off', 'permission-revoked', 'tracking-stopped']
-    : ['battery-low', 'gps-off'];
+    ? ['battery-low', 'gps-off', 'permission-revoked', 'tracking-stopped', 'phone-left-vehicle']
+    : ['battery-low', 'gps-off', 'phone-left-vehicle'];
   const fresh = problems.filter((kind) => !config.sentWarnings[kind]);
   const resolved = checked.filter((kind) => config.sentWarnings[kind] && !problems.includes(kind));
   if (!fresh.length && !resolved.length) return problems;

@@ -103,6 +103,10 @@ class TrackifyLocationModule(context: ReactApplicationContext) :
             status == BatteryManager.BATTERY_STATUS_FULL,
     )
     health.putBoolean("locationEnabled", LocationManagerCompat.isLocationEnabled(locationManager))
+    ActivityState.current?.let {
+      health.putString("activity", it)
+      health.putDouble("activityForMs", ActivityState.durationMs().toDouble())
+    }
     promise.resolve(health)
   }
 

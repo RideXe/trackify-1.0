@@ -71,6 +71,21 @@ describe('health warnings', () => {
       problemsIn(config, { ...healthy, locationEnabled: false, permitted: false, running: false }),
     ).toEqual(['gps-off', 'permission-revoked', 'tracking-stopped']);
   });
+
+  it('flags a phone that has been walking for 3 minutes during a shift', () => {
+    const walking = (minutes: number) => ({
+      ...healthy,
+      activity: 'foot',
+      activityForMs: minutes * 60_000,
+    });
+    expect(problemsIn(config, walking(3))).toEqual(['phone-left-vehicle']);
+    expect(problemsIn(config, walking(1))).toEqual([]);
+    expect(problemsIn(config, { ...walking(30), activity: 'vehicle' })).toEqual([]);
+    expect(problemsIn(config, { ...walking(30), activity: 'still' })).toEqual([]);
+    expect(problemsIn({ ...config, duty: { status: 'off' } }, walking(30))).toEqual([]);
+    // Permission refused: no activity is reported and nothing is flagged.
+    expect(problemsIn(config, healthy)).toEqual([]);
+  });
 });
 
 describe('offline queue for driver actions', () => {

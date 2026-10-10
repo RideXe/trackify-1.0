@@ -15,6 +15,7 @@
     "@aws-sdk/lib-dynamodb": "3.1135.0",
     "@trackify/domain": "0.1.0",
     "@trackify/fleet": "0.1.0",
+    "@trackify/geocoder": "0.1.0",
     "ulid": "3.0.2"
   }
 }

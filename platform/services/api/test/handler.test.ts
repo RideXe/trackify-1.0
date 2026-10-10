@@ -12,6 +12,7 @@ process.env.COMMANDS_TABLE = 'commands';
 process.env.ONBOARDING_TABLE = 'onboarding';
 process.env.ONBOARDING_WEB_URL = 'https://trackify.example';
 process.env.PHOTOS_BUCKET = 'photos';
+process.env.USER_POOL_ID = 'pool';
 const { createHandler } = await import('../src/handler');
 
 function event(method: string, rawPath: string, sub = 'user-1') {
@@ -29,9 +30,11 @@ function eventWithBody(method: string, rawPath: string, body: unknown) {
   return { ...event(method, rawPath), body: JSON.stringify(body) };
 }
 
-function store(role: 'admin' | 'viewer' = 'admin') {
+function store(role: 'admin' | 'dispatcher' | 'viewer' = 'admin', groupIds: string[] = []) {
   return {
-    membership: vi.fn().mockResolvedValue({ tenantId: 'tenant-a', userId: 'user-1', role }),
+    membership: vi
+      .fn()
+      .mockResolvedValue({ tenantId: 'tenant-a', userId: 'user-1', role, groupIds }),
     listDevices: vi.fn().mockResolvedValue([{ deviceId: 'device-1' }]),
     createDevice: vi.fn().mockResolvedValue({
       deviceId: 'device-2',
@@ -51,6 +54,7 @@ function store(role: 'admin' | 'viewer' = 'admin') {
     events: vi.fn().mockResolvedValue([]),
     trips: vi.fn().mockResolvedValue([]),
     dailyStats: vi.fn().mockResolvedValue([]),
+    tenantEvents: vi.fn().mockResolvedValue([]),
     createCommand: vi.fn().mockResolvedValue({ commandId: 'command-1' }),
     updateDevice: vi.fn().mockResolvedValue({ deviceId: 'device-1', vehicleType: 'bus' }),
     deleteDevice: vi.fn().mockResolvedValue(true),
@@ -337,12 +341,7 @@ describe('fleet API', () => {
     expect(viewerResult.statusCode).toBe(403);
     expect(viewer.createCommand).not.toHaveBeenCalled();
 
-    const dispatcher = store();
-    dispatcher.membership.mockResolvedValue({
-      tenantId: 'tenant-a',
-      userId: 'user-1',
-      role: 'dispatcher',
-    });
+    const dispatcher = store('dispatcher');
     const engineResult = await createHandler(dispatcher)(
       eventWithBody('POST', '/devices/device-1/commands', { type: 'engineStop' }),
     );
@@ -382,6 +381,7 @@ function activityStore() {
       { entryId: 'e2', type: 'issue', photoKey: 'tenants/other/devices/device-1/p.jpg' },
     ]),
     listAlerts: vi.fn().mockResolvedValue([{ alertId: 'a1' }]),
+    getAlert: vi.fn().mockResolvedValue({ alertId: 'a1', deviceId: 'device-1' }),
     acknowledgeAlert: vi.fn().mockResolvedValue({ alertId: 'a1', status: 'acknowledged' }),
   };
 }

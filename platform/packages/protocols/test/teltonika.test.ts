@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { TeltonikaDecoder, crc16Ibm } from '../src/index';
+import { TeltonikaDecoder, crc16Ibm, encodeTeltonikaCommand } from '../src/index';
 
 function avlFrame(): Buffer {
   const record = Buffer.alloc(8 + 1 + 4 + 4 + 2 + 2 + 1 + 2 + 2 + 2 + 3 + 2 + 2 + 2 + 2);
@@ -71,5 +71,33 @@ describe('Teltonika', () => {
     const frame = avlFrame();
     frame[10] = (frame[10] ?? 0) ^ 1;
     expect(() => new TeltonikaDecoder().push(frame)).toThrow('checksum');
+  });
+});
+
+describe('Teltonika codec 12 commands', () => {
+  // Expected bytes from the legacy server's Teltonika encoder tests.
+  it('encodes text and hex commands exactly like the legacy server', () => {
+    const decoder = new TeltonikaDecoder();
+    expect(
+      decoder.encodeCommand({ type: 'custom', payload: { data: 'setdigout 11' } })?.toString('hex'),
+    ).toBe('00000000000000140c01050000000c7365746469676f7574203131010000bed5');
+    expect(
+      decoder
+        .encodeCommand({ type: 'custom', payload: { data: '03030000000185E8' } })
+        ?.toString('hex'),
+    ).toBe('00000000000000100c01050000000803030000000185e8010000da8b');
+    expect(
+      decoder.encodeCommand({ type: 'engineStop', payload: {} })?.subarray(15, 26).toString(),
+    ).toBe('setdigout 1');
+  });
+
+  it('reads a command response instead of dropping the connection', () => {
+    const reply = Buffer.from('DOUT1:1 Timeout:INFINITY', 'ascii');
+    const frame = encodeTeltonikaCommand(reply);
+    frame[10] = 0x06; // response type
+    frame.writeUInt32BE(crc16Ibm(frame.subarray(8, frame.length - 4)), frame.length - 4);
+    expect(new TeltonikaDecoder().push(frame)).toEqual([
+      { kind: 'commandResult', result: 'DOUT1:1 Timeout:INFINITY' },
+    ]);
   });
 });

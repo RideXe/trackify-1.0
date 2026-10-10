@@ -12,9 +12,37 @@ export interface GeofenceRule {
   id: string;
   shape: GeofenceShape;
 }
+/** Another vehicle this one is linked to (a trailer, an escort), where it was last seen. */
+export interface LinkedVehicle {
+  deviceId: string;
+  latitude: number;
+  longitude: number;
+}
+
+/** Service due every `period` from `start`, in metres, engine seconds or epoch milliseconds. */
+export interface MaintenanceRule {
+  maintenanceId: string;
+  name: string;
+  type: 'odometerM' | 'engineHoursS' | 'fixTime';
+  start: number;
+  period: number;
+}
+
 export interface FleetRules {
   speedLimitKmh?: number;
   geofences: GeofenceRule[];
+  /** Fuel level change, in percentage points, that raises a fuel event. Unset is off. */
+  fuel?: { dropThreshold?: number; increaseThreshold?: number };
+  /** Harsh driving, in m/s² between consecutive fixes. Unset is off. */
+  behaviour?: { accelerationThresholdMs2?: number; brakingThresholdMs2?: number };
+  proximity?: {
+    enterDistanceM?: number;
+    exitDistanceM?: number;
+    /** Starting to move with no linked vehicle this close raises unaccompaniedMotion. */
+    unaccompaniedDistanceM?: number;
+    linked: LinkedVehicle[];
+  };
+  maintenances?: MaintenanceRule[];
 }
 export interface FleetState {
   /** Time of the latest reading, even when GPS drift kept the position below unchanged. */
@@ -30,11 +58,17 @@ export interface FleetState {
   overspeeding: boolean;
   geofencesInside: string[];
   odometerM: number;
+  /** Engine running time: as reported by the tracker, or counted while ignition is on. */
+  engineHoursS?: number;
+  fuelLevelPct?: number;
+  driverUniqueId?: string;
   trip?: {
     tripId: string;
     startTime: number;
     startLatitude: number;
     startLongitude: number;
+    /** Filled in by processing when reverse geocoding is on. */
+    startAddress?: string;
     distanceM: number;
     maxSpeedKmh: number;
   };
@@ -49,6 +83,8 @@ export interface CompletedTrip {
   startLongitude: number;
   endLatitude: number;
   endLongitude: number;
+  startAddress?: string;
+  endAddress?: string;
 }
 export interface FleetTransition {
   state: FleetState;
@@ -98,10 +134,16 @@ export function evaluatePosition(
     .sort();
   const overspeeding = rules.speedLimitKmh !== undefined && speedKmh > rules.speedLimitKmh;
   const events: EventMessage[] = [];
-  const emit = (type: EventType, extra: Partial<EventMessage> = {}) =>
+  // `key` keeps ids unique when one fix raises the same event type more than once.
+  const emit = (type: EventType, extra: Partial<EventMessage> = {}, key = '') =>
     events.push({
       v: 1,
-      eventId: deterministicId(position.deviceId, type, position.fixTime, extra.geofenceId ?? ''),
+      eventId: deterministicId(
+        position.deviceId,
+        type,
+        position.fixTime,
+        extra.geofenceId ?? extra.alarm ?? key,
+      ),
       tenantId: position.tenantId,
       deviceId: position.deviceId,
       type,
@@ -118,9 +160,35 @@ export function evaluatePosition(
   if (overspeeding && !previous?.overspeeding) emit('deviceOverspeed');
   for (const geofenceId of inside.filter((id) => !previous?.geofencesInside.includes(id)))
     emit('geofenceEnter', { geofenceId });
-  for (const geofenceId of (previous?.geofencesInside ?? []).filter((id) => !inside.includes(id)))
-    emit('geofenceExit', { geofenceId });
+  // A geofence deleted while a vehicle was inside it is dropped silently, not reported as an exit.
+  const exited = (previous?.geofencesInside ?? []).filter(
+    (id) => !inside.includes(id) && rules.geofences.some((rule) => rule.id === id),
+  );
+  for (const geofenceId of exited) emit('geofenceExit', { geofenceId });
   for (const alarm of position.attributes.alarms ?? []) emit('alarm', { alarm });
+
+  const odometerM = (previous?.odometerM ?? 0) + segmentM;
+  const engineHoursS = engineHours(previous, position);
+  const fuelLevelPct = position.attributes.fuelLevelPct ?? previous?.fuelLevelPct;
+  const driverUniqueId = position.attributes.driverUniqueId ?? previous?.driverUniqueId;
+  if (previous) {
+    detectFuel(previous, position, rules, emit);
+    detectBehaviour(previous, position, rules, emit);
+    detectProximity(previous, position, rules, motion, emit);
+    detectMaintenance(
+      {
+        odometerM: previous.odometerM,
+        engineHoursS: previous.engineHoursS,
+        fixTime: previous.fixTime,
+      },
+      { odometerM, engineHoursS, fixTime: position.fixTime },
+      rules,
+      emit,
+    );
+    const driver = position.attributes.driverUniqueId;
+    if (driver !== undefined && driver !== previous.driverUniqueId)
+      emit('driverChanged', { attributes: { driverUniqueId: driver } });
+  }
 
   let trip = previous?.trip;
   let completedTrip: CompletedTrip | undefined;
@@ -162,7 +230,10 @@ export function evaluatePosition(
       ignition,
       overspeeding,
       geofencesInside: inside,
-      odometerM: (previous?.odometerM ?? 0) + segmentM,
+      odometerM,
+      engineHoursS,
+      fuelLevelPct,
+      driverUniqueId,
       trip,
     },
     events,
@@ -180,4 +251,112 @@ export function deterministicId(...parts: Array<string | number>): string {
     value >>= 5n;
   }
   return result;
+}
+
+export * from './computed';
+export * from './expression';
+
+type Emit = (type: EventType, extra?: Partial<EventMessage>, key?: string) => void;
+
+/** A gap longer than this is lost signal, not engine running time. */
+const MAX_ENGINE_GAP_MS = 15 * 60_000;
+
+/** Counted while the ignition was on since the previous fix, unless the tracker reports it. */
+function engineHours(previous: FleetState | undefined, position: PositionMessage) {
+  const reported = position.attributes.engineHoursS;
+  if (reported !== undefined) return reported;
+  const base = previous?.engineHoursS;
+  if (!previous || previous.ignition !== true) return base;
+  const gap = position.fixTime - previous.fixTime;
+  return gap > 0 && gap <= MAX_ENGINE_GAP_MS ? (base ?? 0) + gap / 1000 : base;
+}
+
+function detectFuel(
+  previous: FleetState,
+  position: PositionMessage,
+  rules: FleetRules,
+  emit: Emit,
+) {
+  const after = position.attributes.fuelLevelPct;
+  const before = previous.fuelLevelPct;
+  if (after === undefined || before === undefined || !rules.fuel) return;
+  const change = after - before;
+  const attributes = { before, after, fuelChange: `${Math.abs(change).toFixed(1)}%` };
+  const { dropThreshold, increaseThreshold } = rules.fuel;
+  if (change < 0 && dropThreshold && -change >= dropThreshold)
+    emit('deviceFuelDrop', { attributes });
+  if (change > 0 && increaseThreshold && change >= increaseThreshold)
+    emit('deviceFuelIncrease', { attributes });
+}
+
+/** Speed change between consecutive fixes, as the legacy behaviour handler measured it. */
+function detectBehaviour(
+  previous: FleetState,
+  position: PositionMessage,
+  rules: FleetRules,
+  emit: Emit,
+) {
+  const thresholds = rules.behaviour;
+  const seconds = (position.fixTime - previous.fixTime) / 1000;
+  if (!thresholds || seconds <= 0 || position.speedKmh === undefined) return;
+  const acceleration = (position.speedKmh - (previous.speedKmh ?? 0)) / 3.6 / seconds;
+  if (thresholds.accelerationThresholdMs2 && acceleration >= thresholds.accelerationThresholdMs2)
+    emit('alarm', { alarm: 'hardAcceleration' });
+  else if (thresholds.brakingThresholdMs2 && acceleration <= -thresholds.brakingThresholdMs2)
+    emit('alarm', { alarm: 'hardBraking' });
+}
+
+function detectProximity(
+  previous: FleetState,
+  position: PositionMessage,
+  rules: FleetRules,
+  motion: boolean,
+  emit: Emit,
+) {
+  const proximity = rules.proximity;
+  if (!proximity?.linked.length) return;
+  const { enterDistanceM = 0, exitDistanceM = 0, unaccompaniedDistanceM = 0 } = proximity;
+  const checkUnaccompanied = unaccompaniedDistanceM > 0 && !previous.motion && motion;
+  let accompanied = false;
+  for (const linked of proximity.linked) {
+    const now = distanceMeters(position, linked);
+    const before = distanceMeters(previous, linked);
+    const attributes = { linkedDeviceId: linked.deviceId };
+    if (enterDistanceM > 0 && before > enterDistanceM && now <= enterDistanceM)
+      emit('proximityEnter', { attributes }, linked.deviceId);
+    else if (exitDistanceM > 0 && before <= exitDistanceM && now > exitDistanceM)
+      emit('proximityExit', { attributes }, linked.deviceId);
+    if (now <= unaccompaniedDistanceM) accompanied = true;
+  }
+  if (checkUnaccompanied && !accompanied) emit('unaccompaniedMotion');
+}
+
+/** Fires each time a service interval is crossed, as the legacy maintenance handler did. */
+function detectMaintenance(
+  before: Record<MaintenanceRule['type'], number | undefined>,
+  after: Record<MaintenanceRule['type'], number | undefined>,
+  rules: FleetRules,
+  emit: Emit,
+) {
+  for (const rule of rules.maintenances ?? []) {
+    const oldValue = before[rule.type];
+    const newValue = after[rule.type];
+    if (!rule.period || !oldValue || !newValue || newValue < rule.start) continue;
+    const crossed =
+      oldValue < rule.start ||
+      Math.floor((oldValue - rule.start) / rule.period) <
+        Math.floor((newValue - rule.start) / rule.period);
+    if (crossed)
+      emit(
+        'maintenance',
+        {
+          attributes: {
+            maintenanceId: rule.maintenanceId,
+            maintenanceName: rule.name,
+            [rule.type]: newValue,
+          },
+        },
+        rule.maintenanceId,
+      );
+  }
 }

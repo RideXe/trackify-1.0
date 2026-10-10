@@ -8,7 +8,11 @@ import { CfnAlias } from 'aws-cdk-lib/aws-lambda';
 import { CfnLogGroup } from 'aws-cdk-lib/aws-logs';
 import { CfnSecret } from 'aws-cdk-lib/aws-secretsmanager';
 import { describe, expect, it } from 'vitest';
-import { CostGuardrails } from '../lib/aspects/cost-guardrails';
+import {
+  acknowledgeCost,
+  CostGuardrails,
+  guardrailWarningId,
+} from '../lib/aspects/cost-guardrails';
 import type { ScaleSwitches } from '../lib/config';
 
 const ALL_OFF: ScaleSwitches = {
@@ -122,5 +126,25 @@ describe('CostGuardrails', () => {
     });
     expect(findings.errors).toHaveLength(0);
     expect(findings.warnings).toHaveLength(1);
+  });
+
+  it('warns with an id CDK accepts, so a full synth does not crash', () => {
+    const app = new App();
+    const stack = new Stack(app, 'Test');
+    new CfnSecret(stack, 'Secret', {});
+    Aspects.of(app).add(new CostGuardrails(ALL_OFF), { priority: AspectPriority.READONLY });
+    expect(() => app.synth()).not.toThrow();
+    expect(guardrailWarningId('AWS::SecretsManager::Secret')).toBe(
+      'trackify:cost-guardrail:AWS-SecretsManager-Secret',
+    );
+  });
+
+  it('lets a deliberate small cost be acknowledged, but never an error', () => {
+    const findings = guardrailFindings((stack) => {
+      acknowledgeCost(new CfnSecret(stack, 'Secret', {}), 'needed');
+      acknowledgeCost(new CfnNatGateway(stack, 'Nat', { subnetId: 'subnet-1' }), 'please');
+    });
+    expect(findings.warnings).toHaveLength(0);
+    expect(findings.errors.map((error) => error.id)).toEqual(['/Test/Nat']);
   });
 });

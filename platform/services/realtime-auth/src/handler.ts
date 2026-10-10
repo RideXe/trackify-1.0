@@ -1,4 +1,5 @@
-import { createDocumentClient, DynamoFleetStore } from '@trackify/data';
+import { createDocumentClient, DynamoFleetStore, type Membership } from '@trackify/data';
+import { channels } from '@trackify/realtime';
 
 interface SubscribeEvent {
   operation: 'SUBSCRIBE';
@@ -8,7 +9,7 @@ interface SubscribeEvent {
 }
 
 interface MembershipReader {
-  membership(subject: string): Promise<{ tenantId: string } | undefined>;
+  membership(subject: string): Promise<Membership | undefined>;
 }
 
 export function createHandler(store: MembershipReader) {
@@ -17,9 +18,24 @@ export function createHandler(store: MembershipReader) {
     const channel = event.info?.channel?.path ?? event.channel;
     if (!subject || !channel) throw unauthorized();
     const membership = await store.membership(subject);
-    if (!membership || channel !== `/fleet/${membership.tenantId}`) throw unauthorized();
+    if (!membership || !allowedChannels(membership).includes(channel)) throw unauthorized();
     return null;
   };
+}
+
+/**
+ * A user limited to groups gets only those groups' live positions; everyone else the whole fleet.
+ * Each user also has a private channel for their notifications.
+ */
+export function allowedChannels(membership: Membership): string[] {
+  const { tenantId, userId, role, groupIds } = membership;
+  const limited = role !== 'admin' && groupIds.length > 0;
+  return [
+    ...(limited
+      ? groupIds.map((groupId) => channels.group(tenantId, groupId))
+      : [channels.fleet(tenantId)]),
+    channels.user(tenantId, userId),
+  ];
 }
 
 function unauthorized() {

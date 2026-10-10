@@ -21,3 +21,15 @@ export function crc16Ibm(bytes: Uint8Array): number {
   }
   return crc & 0xffff;
 }
+
+/** CRC-16/KERMIT used by Ruptela. */
+export function crc16Kermit(bytes: Uint8Array): number {
+  let crc = 0;
+  for (const byte of bytes) {
+    crc ^= byte;
+    for (let bit = 0; bit < 8; bit += 1) {
+      crc = (crc & 1) !== 0 ? (crc >>> 1) ^ 0x8408 : crc >>> 1;
+    }
+  }
+  return crc & 0xffff;
+}

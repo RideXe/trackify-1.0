@@ -28,6 +28,8 @@ export interface Membership {
   userId: string;
   role: FleetRole;
   email?: string;
+  /** Groups a dispatcher or viewer is limited to; empty means the whole fleet. */
+  groupIds: string[];
 }
 
 export interface FleetDevice {
@@ -46,6 +48,18 @@ export interface FleetDevice {
   purchasedOn?: string;
   colour?: string;
   driverId?: string;
+  /** Overspeed events fire above this; unset means no limit. */
+  speedLimitKmh?: number;
+  /** Fuel level change, in percentage points, that raises a fuel event. */
+  fuelDropThreshold?: number;
+  fuelIncreaseThreshold?: number;
+  /** Harsh driving thresholds in m/s². */
+  accelerationThresholdMs2?: number;
+  brakingThresholdMs2?: number;
+  /** Linked vehicles (a trailer, an escort) and the distances that raise proximity events. */
+  proximity?: DeviceProximity;
+  /** The latest odometer and engine-hours correction; processing applies it once. */
+  accumulators?: { odometerM?: number; engineHoursS?: number; setAt: number };
   /** Admin-set phone behaviour; the phone uses the domain defaults when these are unset. */
   trackerIntervalSeconds?: number;
   pauseLimitMinutes?: number;
@@ -56,12 +70,21 @@ export interface FleetDevice {
   pauseUntil?: number;
 }
 
+export interface DeviceProximity {
+  linkedDeviceIds: string[];
+  enterDistanceM?: number;
+  exitDistanceM?: number;
+  unaccompaniedDistanceM?: number;
+}
+
 export interface Driver {
   tenantId: string;
   driverId: string;
   name: string;
   phone?: string;
   licenceNumber?: string;
+  /** RFID card or iButton the tracker reports as driverUniqueId. */
+  rfid?: string;
 }
 
 /** An update where null clears an optional field and undefined leaves it untouched. */
@@ -114,6 +137,7 @@ export class DynamoFleetStore {
       userId: String(item.userId),
       role,
       email: item.email === undefined ? undefined : String(item.email),
+      groupIds: Array.isArray(item.groupIds) ? item.groupIds.map(String) : [],
     };
   }
 
@@ -194,9 +218,28 @@ export class DynamoFleetStore {
     tenantId: string,
     deviceId: string,
     changes: Partial<
-      Pick<FleetDevice, 'name' | 'vehicleType' | 'trackerIntervalSeconds' | 'pauseLimitMinutes'>
+      Pick<
+        FleetDevice,
+        'name' | 'vehicleType' | 'groupId' | 'trackerIntervalSeconds' | 'pauseLimitMinutes'
+      >
     > &
-      Clearable<Pick<FleetDevice, 'model' | 'fuelType' | 'purchasedOn' | 'colour' | 'driverId'>>,
+      Clearable<
+        Pick<
+          FleetDevice,
+          | 'model'
+          | 'fuelType'
+          | 'purchasedOn'
+          | 'colour'
+          | 'driverId'
+          | 'speedLimitKmh'
+          | 'fuelDropThreshold'
+          | 'fuelIncreaseThreshold'
+          | 'accelerationThresholdMs2'
+          | 'brakingThresholdMs2'
+          | 'proximity'
+        >
+      > &
+      Partial<Pick<FleetDevice, 'accumulators'>>,
   ): Promise<FleetDevice | undefined> {
     const attributes = await updateItem(
       this.client,
@@ -230,7 +273,7 @@ export class DynamoFleetStore {
 
   async createDriver(
     tenantId: string,
-    input: Pick<Driver, 'name' | 'phone' | 'licenceNumber'>,
+    input: Pick<Driver, 'name' | 'phone' | 'licenceNumber' | 'rfid'>,
   ): Promise<Driver> {
     const driverId = ulid();
     const driver: Driver = { ...input, tenantId, driverId };
@@ -246,7 +289,8 @@ export class DynamoFleetStore {
   async updateDriver(
     tenantId: string,
     driverId: string,
-    changes: Partial<Pick<Driver, 'name'>> & Clearable<Pick<Driver, 'phone' | 'licenceNumber'>>,
+    changes: Partial<Pick<Driver, 'name'>> &
+      Clearable<Pick<Driver, 'phone' | 'licenceNumber' | 'rfid'>>,
   ): Promise<Driver | undefined> {
     const attributes = await updateItem(
       this.client,
@@ -311,6 +355,17 @@ export class DynamoFleetStore {
     return result.Item ? toDevice(result.Item) : undefined;
   }
 
+  /** The vehicle's live state, as processing last wrote it. */
+  async deviceState(tenantId: string, deviceId: string): Promise<DeviceState | undefined> {
+    const result = await this.client.send(
+      new GetCommand({
+        TableName: this.stateTable,
+        Key: { pk: `TENANT#${tenantId}#DEVICE#${deviceId}` },
+      }),
+    );
+    return result.Item?.tenantId === tenantId ? (result.Item as DeviceState) : undefined;
+  }
+
   async positions(tenantId: string, deviceId: string, from: number, to: number, limit: number) {
     if (!(await this.getDevice(tenantId, deviceId))) return undefined;
     const result = await this.client.send(
@@ -352,6 +407,38 @@ export class DynamoFleetStore {
       }),
     );
     return result.Items ?? [];
+  }
+
+  /**
+   * Fleet-wide events in a time range, newest first, from the per-month tenant index. The range is
+   * walked month by month, so callers should keep it to a few months.
+   */
+  async tenantEvents(tenantId: string, from: number, to: number, limit: number) {
+    const items: Record<string, unknown>[] = [];
+    for (const month of monthsBetween(from, to).reverse()) {
+      let startKey: Record<string, unknown> | undefined;
+      do {
+        const result = await this.client.send(
+          new QueryCommand({
+            TableName: this.requiredTable('events'),
+            IndexName: 'byTenantMonth',
+            KeyConditionExpression: 'tenantMonthPk = :pk AND tenantMonthSk BETWEEN :from AND :to',
+            ExpressionAttributeValues: {
+              ':pk': `${tenantId}#${month}`,
+              ':from': String(from).padStart(13, '0'),
+              ':to': `${String(to).padStart(13, '0')}#~`,
+            },
+            ScanIndexForward: false,
+            Limit: limit - items.length,
+            ExclusiveStartKey: startKey,
+          }),
+        );
+        items.push(...(result.Items ?? []));
+        startKey = result.LastEvaluatedKey;
+      } while (startKey && items.length < limit);
+      if (items.length >= limit) break;
+    }
+    return items;
   }
 
   async createCommand(
@@ -439,6 +526,16 @@ function toDevice(item: Record<string, unknown>): FleetDevice {
     purchasedOn: typeof item.purchasedOn === 'string' ? item.purchasedOn : undefined,
     colour: typeof item.colour === 'string' ? item.colour : undefined,
     driverId: typeof item.driverId === 'string' ? item.driverId : undefined,
+    speedLimitKmh: optionalNumber(item.speedLimitKmh),
+    fuelDropThreshold: optionalNumber(item.fuelDropThreshold),
+    fuelIncreaseThreshold: optionalNumber(item.fuelIncreaseThreshold),
+    accelerationThresholdMs2: optionalNumber(item.accelerationThresholdMs2),
+    brakingThresholdMs2: optionalNumber(item.brakingThresholdMs2),
+    proximity: toProximity(item.proximity),
+    accumulators:
+      typeof item.accumulators === 'object' && item.accumulators !== null
+        ? (item.accumulators as FleetDevice['accumulators'])
+        : undefined,
     trackerIntervalSeconds: optionalNumber(item.trackerIntervalSeconds),
     pauseLimitMinutes: optionalNumber(item.pauseLimitMinutes),
     dutyStatus: isOneOf(['off', 'on', 'paused'] as const, item.dutyStatus)
@@ -448,6 +545,19 @@ function toDevice(item: Record<string, unknown>): FleetDevice {
     pauseReason: isOneOf(pauseReasons, item.pauseReason) ? item.pauseReason : undefined,
     pauseUntil: optionalNumber(item.pauseUntil),
   };
+}
+
+/** YYYY-MM months (UTC, as the index is keyed) from the month of `from` to that of `to`. */
+export function monthsBetween(from: number, to: number): string[] {
+  const months: string[] = [];
+  const cursor = new Date(from);
+  cursor.setUTCDate(1);
+  cursor.setUTCHours(0, 0, 0, 0);
+  while (cursor.getTime() <= to) {
+    months.push(cursor.toISOString().slice(0, 7));
+    cursor.setUTCMonth(cursor.getUTCMonth() + 1);
+  }
+  return months;
 }
 
 function optionalNumber(value: unknown): number | undefined {
@@ -461,6 +571,20 @@ function toDriver(item: Record<string, unknown>): Driver {
     name: String(item.name),
     phone: typeof item.phone === 'string' ? item.phone : undefined,
     licenceNumber: typeof item.licenceNumber === 'string' ? item.licenceNumber : undefined,
+    rfid: typeof item.rfid === 'string' ? item.rfid : undefined,
+  };
+}
+
+function toProximity(value: unknown): DeviceProximity | undefined {
+  if (typeof value !== 'object' || value === null) return undefined;
+  const proximity = value as Record<string, unknown>;
+  return {
+    linkedDeviceIds: Array.isArray(proximity.linkedDeviceIds)
+      ? proximity.linkedDeviceIds.map(String)
+      : [],
+    enterDistanceM: optionalNumber(proximity.enterDistanceM),
+    exitDistanceM: optionalNumber(proximity.exitDistanceM),
+    unaccompaniedDistanceM: optionalNumber(proximity.unaccompaniedDistanceM),
   };
 }
 

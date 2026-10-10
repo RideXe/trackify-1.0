@@ -39,7 +39,9 @@ const valid = {
 describe('position processor', () => {
   it('saves valid positions and publishes where the vehicle now shows', async () => {
     const live = { latitude: 1.5, longitude: 2.5, speedKmh: 0 };
-    const process = vi.fn().mockResolvedValue({ duplicate: false, eventCount: 0, live });
+    const process = vi
+      .fn()
+      .mockResolvedValue({ duplicate: false, eventCount: 0, live, groupId: 'north' });
     const publish = vi.fn().mockResolvedValue(undefined);
     const result = await createHandler({ process } satisfies FleetProcessingStore, { publish })({
       Records: [record('a', valid)],
@@ -48,6 +50,7 @@ describe('position processor', () => {
     expect(process).toHaveBeenCalledWith(expect.objectContaining({ deviceId: valid.deviceId }));
     expect(publish).toHaveBeenCalledWith(
       expect.objectContaining({ deviceId: valid.deviceId, ...live }),
+      'north',
     );
   });
 

@@ -21,6 +21,7 @@ describe('gateway session', () => {
     });
     const decoder: ProtocolDecoder = {
       protocol: 'gt06',
+      encodeCommand: () => undefined,
       push: vi
         .fn()
         .mockReturnValueOnce([
@@ -71,6 +72,7 @@ describe('gateway session', () => {
     const socket = { write: vi.fn(), destroy: vi.fn() };
     const decoder: ProtocolDecoder = {
       protocol: 'gt06',
+      encodeCommand: () => undefined,
       push: () => [{ kind: 'identity', uniqueId: 'unknown', acknowledgement: Buffer.from([1]) }],
     };
     const session = new GatewaySession(
@@ -89,6 +91,7 @@ describe('gateway session', () => {
     const sent: PositionMessage[] = [];
     const decoder: ProtocolDecoder = {
       protocol: 'gt06',
+      encodeCommand: () => undefined,
       push: vi
         .fn()
         .mockReturnValueOnce([

@@ -2,7 +2,7 @@
 
 A rewrite of the Trackify GPS platform for car fleets: serverless, scales automatically, and costs
 very little when idle. The legacy Java server in `../../trackify/` stays as a reference (protocol
-decoders, test samples, business logic) until the new platform reaches parity.
+decoders, test samples, business logic) until the remaining protocols are ported.
 
 ## 1. Targets
 
@@ -96,7 +96,7 @@ a measured regional estimate for idle, steady-state, reconnect burst, storage, a
 ## 8. Security and tenancy
 
 - Tenant id comes from the login token, never the request; every key is tenant-prefixed.
-- Roles: admin, dispatcher, viewer. Current authorization is tenant-wide; group scoping is a launch decision.
+- Roles: admin, dispatcher, viewer. Dispatchers and viewers can be limited to groups of vehicles.
 - Only registered IMEIs accepted; unknown devices are rate-limited and queued for onboarding.
 - MQTT trackers use per-device certificates; phones get a per-device token in a later app release.
 - API throttling, Cognito authentication, private S3 origins, and one IAM role per Lambda are in the local infrastructure.
@@ -139,15 +139,15 @@ platform/
 
 ## 12. Roadmap
 
-| Phase                  | Scope                                                                                 | Exit criteria                                      |
-| ---------------------- | ------------------------------------------------------------------------------------- | -------------------------------------------------- |
-| 0. Foundations         | Implemented locally: monorepo, CDK, cost guardrails, budget, ADRs, CI                 | Full local check passes                            |
-| 1. Ingest backbone     | Implemented locally: gateway, protocols, FIFO queue, processing, tables, simulator    | Production reconnect/load test remains             |
-| 2. Identity, API, map  | Implemented locally: Cognito, tenant API, AppSync, dashboard                          | Production viewer/load test remains                |
-| 3. Fleet logic         | Trips, geofences, overspeed, alarms and offline implemented; delivery adapters remain | Real-drive and tracker command tests               |
-| 4. Reports and history | Hot reports, replay and compressed S3 archive implemented                             | Athena normalization and one-year benchmark remain |
-| 5. Scale hardening     | Load tests, autoscaling tuning, quotas, alarms, canary, security review               | All section 1 targets met                          |
-| 6. Launch              | Data import, pilot fleet, tracker cutover to the new endpoint                         | Pilot fleet stable for two weeks                   |
+| Phase                  | Scope                                                                                                                                                                                                                                                                                                                              | Exit criteria                                      |
+| ---------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------- |
+| 0. Foundations         | Implemented locally: monorepo, CDK, cost guardrails, budget, ADRs, CI                                                                                                                                                                                                                                                              | Full local check passes                            |
+| 1. Ingest backbone     | Implemented locally: gateway, protocols, FIFO queue, processing, tables, simulator                                                                                                                                                                                                                                                 | Production reconnect/load test remains             |
+| 2. Identity, API, map  | Implemented locally: Cognito, tenant API, AppSync, dashboard                                                                                                                                                                                                                                                                       | Production viewer/load test remains                |
+| 3. Fleet logic         | Implemented locally: trips, geofences, overspeed, alarms, offline, fuel, harsh driving, proximity, maintenance, driver cards, computed attributes; alert rules with web/email/push/SMS/Telegram/WhatsApp/Pushover/command delivery; command delivery to GT06/Teltonika/H02/GPS103/Meitrack/Queclink/Suntech/TK103/Ruptela trackers | Real-drive and tracker command tests               |
+| 4. Reports and history | Implemented locally: trips, stops, summary, events, geofence visits, positions, charts, CSV exports, fleet-wide reports, scheduled email reports, compressed S3 archive                                                                                                                                                            | Athena normalization and one-year benchmark remain |
+| 5. Scale hardening     | Load tests, autoscaling tuning, quotas, alarms, canary, security review                                                                                                                                                                                                                                                            | All section 1 targets met                          |
+| 6. Launch              | Data import, pilot fleet, tracker cutover to the new endpoint                                                                                                                                                                                                                                                                      | Pilot fleet stable for two weeks                   |
 
 ## 13. Scope
 
@@ -155,8 +155,13 @@ platform/
 cut, offline), trips/stops/summary reports, commands including engine cut-off, users/roles/groups,
 device management, push and email notifications.
 
-**Later:** drivers and RFID, maintenance, fuel sensors, calendars, computed attributes, video,
-single sign-on, share links, and the long tail of protocols.
+**Also implemented locally (beyond the first release):** drivers and RFID, maintenance, fuel
+events, calendars, computed attributes, single sign-on, share links, audit log, statistics,
+announcements, reverse geocoding, and the protocols H02, GPS103, Watch, Meitrack, Queclink, Suntech,
+TK103, Ruptela and Topin, plus an importer for the legacy server's data.
+
+**Later:** video, the long tail of protocols, and the newer Suntech universal and Meitrack binary
+formats.
 
 ## 14. Risks
 

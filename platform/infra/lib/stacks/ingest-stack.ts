@@ -8,6 +8,7 @@ import type { Construct } from 'constructs';
 import type { EnvConfig } from '../config';
 import type { DataStack } from './data-stack';
 import type { RealtimeStack } from './realtime-stack';
+import { allowGeocoding } from '../constructs/geocoding';
 
 export interface IngestStackProps extends StackProps {
   config: EnvConfig;
@@ -64,6 +65,7 @@ export class IngestStack extends Stack {
     props.data.trips.grantWriteData(processor);
     props.data.dailyStats.grantWriteData(processor);
     props.realtime?.api.grantPublish(processor);
+    allowGeocoding(processor, props.config);
   }
 }
 

@@ -10,6 +10,7 @@
   "dependencies": {
     "@trackify/data": "0.1.0",
     "@trackify/domain": "0.1.0",
+    "@trackify/geocoder": "0.1.0",
     "@trackify/realtime": "0.1.0"
   }
 }

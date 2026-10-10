@@ -171,7 +171,8 @@ export interface DriverChanges {
 export interface CreateDeviceInput {
   name: string;
   uniqueId: string;
-  protocol: 'gt06' | 'teltonika' | 'osmand';
+  /** 'osmand' for the phone app, otherwise a tracker protocol such as 'gt06' or 'h02'. */
+  protocol: string;
   retentionDays?: number;
   groupId?: string;
   vehicleType?: VehicleType;

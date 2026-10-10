@@ -21,6 +21,8 @@ describe('loadConfig', () => {
       enableArchive: false,
       dashboardUrl: 'http://localhost:5173',
       cognitoDomainPrefix: 'trackify-123456789012-dev',
+      geocoding: false,
+      sso: [],
       anomalyAlerts: { mode: 'none' },
       switches: {
         gatewayNlb: false,
@@ -149,5 +151,13 @@ describe('loadConfig', () => {
         loadConfig(contextOf({ ...REQUIRED, anomalyMonitorArn: 'arn:aws:sns:ap-south-1:1:topic' })),
       ).toThrowError(/anomalyMonitorArn/);
     });
+  });
+
+  it('turns optional paid features on only when asked', () => {
+    const config = loadConfig(
+      contextOf({ ...REQUIRED, geocoding: 'true', emailSender: 'alerts@fleet.example' }),
+    );
+    expect(config).toMatchObject({ geocoding: true, emailSender: 'alerts@fleet.example' });
+    expect(() => loadConfig(contextOf({ ...REQUIRED, geocoding: 'maybe' }))).toThrow(/geocoding/);
   });
 });

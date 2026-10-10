@@ -5,6 +5,7 @@ import {
   type FleetProcessingStore,
 } from '@trackify/data';
 import { parsePositionMessage } from '@trackify/domain';
+import { geocoderFromEnv } from '@trackify/geocoder';
 import { AppSyncPositionPublisher, type PositionPublisher } from '@trackify/realtime';
 
 export function createHandler(store: FleetProcessingStore, publisher?: PositionPublisher) {
@@ -24,7 +25,10 @@ export function createHandler(store: FleetProcessingStore, publisher?: PositionP
         // Publish where the vehicle now shows, not the raw fix: GPS drift must not move the live
         // map, and readings that only went into history must not move it at all.
         if (!result.duplicate && result.live)
-          await publisher?.publish({ ...parsed.data, ...result.live });
+          await publisher?.publish(
+            { ...(result.position ?? parsed.data), ...result.live },
+            result.groupId,
+          );
       } catch (error) {
         console.error('position processing failed', { messageId: record.messageId, error });
         failedGroups.add(groupId);
@@ -41,14 +45,19 @@ function storeFromEnvironment(): FleetProcessingStore {
     if (!value) throw new Error(`${key} is required`);
     return value;
   };
-  return new DynamoFleetProcessingStore(createDocumentClient(), {
-    core: required('CORE_TABLE'),
-    positions: required('POSITIONS_TABLE'),
-    state: required('DEVICE_STATE_TABLE'),
-    events: required('EVENTS_TABLE'),
-    trips: required('TRIPS_TABLE'),
-    dailyStats: required('DAILY_STATS_TABLE'),
-  });
+  return new DynamoFleetProcessingStore(
+    createDocumentClient(),
+    {
+      core: required('CORE_TABLE'),
+      positions: required('POSITIONS_TABLE'),
+      state: required('DEVICE_STATE_TABLE'),
+      events: required('EVENTS_TABLE'),
+      trips: required('TRIPS_TABLE'),
+      dailyStats: required('DAILY_STATS_TABLE'),
+    },
+    Date.now,
+    geocoderFromEnv(),
+  );
 }
 
 const realtimeDns = process.env.REALTIME_HTTP_DNS;

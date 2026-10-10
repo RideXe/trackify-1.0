@@ -22,6 +22,8 @@ export interface Organisation {
   name: string;
   /** Who drivers reach with the "Call dispatcher" button. */
   dispatcherPhone?: string;
+  /** IANA zone for notification and report times. Unset means Asia/Kolkata. */
+  timeZone?: string;
 }
 
 export interface FleetAlert {
@@ -72,7 +74,7 @@ export class DynamoActivityStore {
 
   async updateOrganisation(
     tenantId: string,
-    changes: { name?: string; dispatcherPhone?: string | null },
+    changes: { name?: string; dispatcherPhone?: string | null; timeZone?: string },
   ): Promise<Organisation | undefined> {
     const attributes = await updateItem(
       this.client,
@@ -167,6 +169,16 @@ export class DynamoActivityStore {
     return (result.Items ?? []).map((item) => item as FleetAlert);
   }
 
+  async getAlert(tenantId: string, alertId: string): Promise<FleetAlert | undefined> {
+    const result = await this.client.send(
+      new GetCommand({
+        TableName: this.coreTable,
+        Key: { pk: tenantPartitionKey(tenantId), sk: `ALERT#${alertId}` },
+      }),
+    );
+    return result.Item as FleetAlert | undefined;
+  }
+
   async acknowledgeAlert(
     tenantId: string,
     alertId: string,
@@ -188,6 +200,7 @@ function toOrganisation(item: Record<string, unknown>): Organisation {
     tenantId: String(item.tenantId),
     name: typeof item.name === 'string' ? item.name : '',
     dispatcherPhone: typeof item.dispatcherPhone === 'string' ? item.dispatcherPhone : undefined,
+    timeZone: typeof item.timeZone === 'string' ? item.timeZone : undefined,
   };
 }
 

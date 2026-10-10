@@ -6,11 +6,12 @@ import { Architecture, Runtime } from 'aws-cdk-lib/aws-lambda';
 import { NodejsFunction } from 'aws-cdk-lib/aws-lambda-nodejs';
 import { LogGroup, RetentionDays } from 'aws-cdk-lib/aws-logs';
 import { BlockPublicAccess, Bucket, BucketEncryption } from 'aws-cdk-lib/aws-s3';
-import { Topic } from 'aws-cdk-lib/aws-sns';
+import { Topic, type ITopic } from 'aws-cdk-lib/aws-sns';
 import { EmailSubscription } from 'aws-cdk-lib/aws-sns-subscriptions';
 import type { IQueue } from 'aws-cdk-lib/aws-sqs';
 import type { Construct } from 'constructs';
 import type { EnvConfig } from '../config';
+import { allowGeocoding } from '../constructs/geocoding';
 import type { DataStack } from './data-stack';
 import type { IdentityStack } from './identity-stack';
 
@@ -22,6 +23,8 @@ export interface ApiStackProps extends StackProps {
   dashboardUrl?: string;
   additionalBrowserOrigins?: string[];
   ingestQueue: IQueue;
+  /** New announcements are published here for the notification service to deliver. */
+  announcementsTopic?: ITopic;
 }
 
 export class ApiStack extends Stack {
@@ -74,6 +77,10 @@ export class ApiStack extends Stack {
         ONBOARDING_TABLE: props.data.onboarding.tableName,
         ONBOARDING_WEB_URL: dashboardUrl,
         PHOTOS_BUCKET: photos.bucketName,
+        USER_POOL_ID: props.identity.userPool.userPoolId,
+        ...(props.announcementsTopic
+          ? { ANNOUNCEMENTS_TOPIC_ARN: props.announcementsTopic.topicArn }
+          : {}),
       },
       logGroup: new LogGroup(this, 'FleetApiLogs', { retention: RetentionDays.ONE_WEEK }),
       bundling: { minify: true, sourceMap: true },
@@ -87,6 +94,15 @@ export class ApiStack extends Stack {
     props.data.commands.grantReadWriteData(handler);
     props.data.onboarding.grantReadWriteData(handler);
     photos.grantRead(handler);
+    allowGeocoding(handler, props.config);
+    props.announcementsTopic?.grantPublish(handler);
+    props.identity.userPool.grant(
+      handler,
+      'cognito-idp:AdminCreateUser',
+      'cognito-idp:AdminDeleteUser',
+      'cognito-idp:AdminDisableUser',
+      'cognito-idp:AdminEnableUser',
+    );
     const authorizer = new HttpJwtAuthorizer(
       'CognitoAuthorizer',
       `https://cognito-idp.${this.region}.amazonaws.com/${props.identity.userPool.userPoolId}`,
@@ -107,8 +123,20 @@ export class ApiStack extends Stack {
     });
     const integration = new HttpLambdaIntegration('FleetApiIntegration', handler);
     this.api.addRoutes({
+      path: '/me/push-tokens',
+      methods: [HttpMethod.GET, HttpMethod.POST],
+      integration,
+      authorizer,
+    });
+    this.api.addRoutes({
+      path: '/me/push-tokens/{tokenId}',
+      methods: [HttpMethod.DELETE],
+      integration,
+      authorizer,
+    });
+    this.api.addRoutes({
       path: '/me',
-      methods: [HttpMethod.GET],
+      methods: [HttpMethod.GET, HttpMethod.PATCH],
       integration,
       authorizer,
     });
@@ -128,9 +156,68 @@ export class ApiStack extends Stack {
       '/devices/{deviceId}/events',
       '/devices/{deviceId}/trips',
       '/devices/{deviceId}/summary',
+      '/devices/{deviceId}/stops',
+      '/devices/{deviceId}/geofence-visits',
+      '/devices/{deviceId}/chart',
+      '/events',
+      '/reports/{kind}',
+      '/audit',
+      '/statistics',
+      '/geocode',
     ]) {
       this.api.addRoutes({ path, methods: [HttpMethod.GET], integration, authorizer });
     }
+    this.api.addRoutes({
+      path: '/announcements',
+      methods: [HttpMethod.GET, HttpMethod.POST],
+      integration,
+      authorizer,
+    });
+    this.api.addRoutes({
+      path: '/devices/{deviceId}/shares',
+      methods: [HttpMethod.GET, HttpMethod.POST],
+      integration,
+      authorizer,
+    });
+    this.api.addRoutes({
+      path: '/devices/{deviceId}/shares/{shareId}',
+      methods: [HttpMethod.DELETE],
+      integration,
+      authorizer,
+    });
+    // Public share links: no sign-in, read-only, and only the linked vehicle's live position.
+    const shared = new NodejsFunction(this, 'SharedLocationHandler', {
+      entry: `${props.platformPath}/services/api/src/shared.ts`,
+      runtime: Runtime.NODEJS_24_X,
+      architecture: Architecture.ARM_64,
+      memorySize: 256,
+      timeout: Duration.seconds(10),
+      environment: {
+        CORE_TABLE: props.data.core.tableName,
+        DEVICE_STATE_TABLE: props.data.deviceState.tableName,
+      },
+      logGroup: new LogGroup(this, 'SharedLocationLogs', { retention: RetentionDays.ONE_WEEK }),
+      bundling: { minify: true, sourceMap: true },
+    });
+    props.data.core.grantReadData(shared);
+    props.data.deviceState.grantReadData(shared);
+    this.api.addRoutes({
+      path: '/shared/{token}',
+      methods: [HttpMethod.GET],
+      integration: new HttpLambdaIntegration('SharedLocationIntegration', shared),
+    });
+    this.api.addRoutes({
+      path: '/computed-attributes/test',
+      methods: [HttpMethod.POST],
+      integration,
+      authorizer,
+    });
+    this.api.addRoutes({
+      path: '/devices/{deviceId}/accumulators',
+      methods: [HttpMethod.POST],
+      integration,
+      authorizer,
+    });
     this.api.addRoutes({
       path: '/devices/{deviceId}/commands',
       methods: [HttpMethod.POST],
@@ -216,6 +303,40 @@ export class ApiStack extends Stack {
         authorizer,
       });
     }
+    for (const resource of [
+      'groups',
+      'geofences',
+      'alert-rules',
+      'calendars',
+      'scheduled-reports',
+      'computed-attributes',
+      'maintenances',
+    ]) {
+      this.api.addRoutes({
+        path: `/${resource}`,
+        methods: [HttpMethod.GET, HttpMethod.POST],
+        integration,
+        authorizer,
+      });
+      this.api.addRoutes({
+        path: `/${resource}/{id}`,
+        methods: [HttpMethod.PATCH, HttpMethod.DELETE],
+        integration,
+        authorizer,
+      });
+    }
+    this.api.addRoutes({
+      path: '/users',
+      methods: [HttpMethod.GET, HttpMethod.POST],
+      integration,
+      authorizer,
+    });
+    this.api.addRoutes({
+      path: '/users/{userId}',
+      methods: [HttpMethod.PATCH, HttpMethod.DELETE],
+      integration,
+      authorizer,
+    });
     this.api.addRoutes({ path: '/alerts', methods: [HttpMethod.GET], integration, authorizer });
     this.api.addRoutes({ path: '/trips', methods: [HttpMethod.GET], integration, authorizer });
     this.api.addRoutes({

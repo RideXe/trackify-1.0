@@ -1,4 +1,5 @@
 import {
+  BatchGetCommand,
   GetCommand,
   QueryCommand,
   TransactWriteCommand,
@@ -6,14 +7,25 @@ import {
 } from '@aws-sdk/lib-dynamodb';
 import type { TransactWriteCommandInput } from '@aws-sdk/lib-dynamodb';
 import type { PositionMessage } from '@trackify/domain';
+import { noGeocoder, type Geocoder } from '@trackify/geocoder';
 import {
+  applyComputed,
   evaluatePosition,
   isPlausibleLiveFix,
+  type ComputedAttribute,
   type FleetRules,
   type FleetState,
   type GeofenceRule,
+  type LinkedVehicle,
+  type MaintenanceRule,
 } from '@trackify/fleet';
-import { devicePartitionKey, positionSortKey, tenantPartitionKey, ttlSeconds } from './keys';
+import {
+  devicePartitionKey,
+  eventItem,
+  positionSortKey,
+  tenantPartitionKey,
+  ttlSeconds,
+} from './keys';
 
 /** Where the vehicle now shows on the map; drift-filtered, so it can differ from the raw fix. */
 export interface LivePosition {
@@ -24,10 +36,33 @@ export interface LivePosition {
 
 export interface FleetProcessingStore {
   /** `live` is set only when this reading updated the vehicle's live state. */
-  process(
-    position: PositionMessage,
-  ): Promise<{ duplicate: boolean; eventCount: number; live?: LivePosition }>;
+  process(position: PositionMessage): Promise<ProcessResult>;
 }
+
+export interface ProcessResult {
+  duplicate: boolean;
+  eventCount: number;
+  live?: LivePosition;
+  /** The vehicle's group, for live updates to users limited to it. */
+  groupId?: string;
+  /** The position as stored, with computed attributes applied. */
+  position?: PositionMessage;
+}
+
+/** Tenant configuration that processing applies to every position. */
+interface TenantConfig {
+  geofences: GeofenceRule[];
+  computed: Array<ComputedAttribute & { order: number }>;
+  maintenances: Array<MaintenanceRule & { deviceIds: string[]; groupIds: string[] }>;
+}
+
+/**
+ * Configuration is read at most once a minute per tenant and Lambda instance, instead of on every
+ * position (data-access-patterns AP-15). Edits therefore apply within about a minute.
+ */
+const CONFIG_TTL_MS = 60_000;
+const MAX_CACHED_TENANTS = 500;
+const MAX_LINKED_VEHICLES = 10;
 
 export class DynamoFleetProcessingStore implements FleetProcessingStore {
   constructor(
@@ -40,34 +75,39 @@ export class DynamoFleetProcessingStore implements FleetProcessingStore {
       trips: string;
       dailyStats: string;
     },
+    private readonly now: () => number = Date.now,
+    private readonly geocoder: Geocoder = noGeocoder,
   ) {}
 
-  async process(
-    position: PositionMessage,
-  ): Promise<{ duplicate: boolean; eventCount: number; live?: LivePosition }> {
-    const pk = devicePartitionKey(position.tenantId, position.deviceId);
-    const [stateResult, deviceResult, geofenceResult] = await Promise.all([
+  private readonly configs = new Map<string, { config: TenantConfig; expires: number }>();
+
+  async process(raw: PositionMessage): Promise<ProcessResult> {
+    const pk = devicePartitionKey(raw.tenantId, raw.deviceId);
+    const [stateResult, deviceResult, config] = await Promise.all([
       this.client.send(
         new GetCommand({ TableName: this.tables.state, Key: { pk }, ConsistentRead: true }),
       ),
       this.client.send(
         new GetCommand({
           TableName: this.tables.core,
-          Key: { pk: tenantPartitionKey(position.tenantId), sk: `DEVICE#${position.deviceId}` },
+          Key: { pk: tenantPartitionKey(raw.tenantId), sk: `DEVICE#${raw.deviceId}` },
         }),
       ),
-      this.client.send(
-        new QueryCommand({
-          TableName: this.tables.core,
-          KeyConditionExpression: 'pk = :pk AND begins_with(sk, :prefix)',
-          ExpressionAttributeValues: {
-            ':pk': tenantPartitionKey(position.tenantId),
-            ':prefix': 'GEOFENCE#',
-          },
-        }),
-      ),
+      this.tenantConfig(raw.tenantId),
     ]);
-    const previous = toFleetState(stateResult.Item);
+    const groupId = groupOf(deviceResult.Item);
+    const position = applyComputed(raw, config.computed, groupId);
+    const reset = accumulatorReset(deviceResult.Item, stateResult.Item);
+    const stored = toFleetState(stateResult.Item);
+    // An administrator's odometer or engine-hours correction replaces the running totals once.
+    const previous =
+      stored && reset
+        ? {
+            ...stored,
+            odometerM: reset.odometerM ?? stored.odometerM,
+            engineHoursS: reset.engineHoursS ?? stored.engineHoursS,
+          }
+        : stored;
     if (previous && previous.fixTime >= position.fixTime) {
       await this.putHistoricalPosition(position, pk);
       return { duplicate: previous.fixTime === position.fixTime, eventCount: 0 };
@@ -76,11 +116,19 @@ export class DynamoFleetProcessingStore implements FleetProcessingStore {
       await this.putHistoricalPosition(position, pk);
       return { duplicate: false, eventCount: 0 };
     }
+    const linked = await this.linkedVehicles(position.tenantId, deviceResult.Item);
     const transition = evaluatePosition(
       previous,
       position,
-      toRules(deviceResult.Item, geofenceResult.Items ?? []),
+      toRules(deviceResult.Item, config, groupId, linked),
     );
+    await this.addTripAddresses(transition);
+    // A correction entered before the first report becomes the starting totals.
+    if (!stored && reset) {
+      if (reset.odometerM !== undefined) transition.state.odometerM += reset.odometerM;
+      if (reset.engineHoursS !== undefined)
+        transition.state.engineHoursS = (transition.state.engineHoursS ?? 0) + reset.engineHoursS;
+    }
     const expiresAt = ttlSeconds(position.fixTime, position.retentionDays);
     const eventExpiresAt = ttlSeconds(position.fixTime, 365);
     const transaction: NonNullable<TransactWriteCommandInput['TransactItems']> = [
@@ -102,7 +150,7 @@ export class DynamoFleetProcessingStore implements FleetProcessingStore {
             staleSk: position.receivedAt,
             tenantId: position.tenantId,
             deviceId: position.deviceId,
-            groupId: 'UNGROUPED',
+            groupId: groupOf(deviceResult.Item),
             status: 'online',
             lastSeenAt: position.receivedAt,
             speedKmh: position.speedKmh ?? 0,
@@ -110,6 +158,7 @@ export class DynamoFleetProcessingStore implements FleetProcessingStore {
             valid: position.valid,
             attributes: position.attributes,
             ...transition.state,
+            accumulatorsSetAt: reset?.setAt ?? optionalNumber(stateResult.Item?.accumulatorsSetAt),
           },
           ConditionExpression: 'attribute_not_exists(fixTime) OR fixTime < :fixTime',
           ExpressionAttributeValues: { ':fixTime': position.fixTime },
@@ -118,14 +167,7 @@ export class DynamoFleetProcessingStore implements FleetProcessingStore {
       ...transition.events.map((event) => ({
         Put: {
           TableName: this.tables.events,
-          Item: {
-            pk,
-            sk: `${String(event.eventTime).padStart(13, '0')}#${event.eventId}`,
-            ...event,
-            tenantMonthPk: `${event.tenantId}#${new Date(event.eventTime).toISOString().slice(0, 7)}`,
-            tenantMonthSk: `${String(event.eventTime).padStart(13, '0')}#${event.eventId}`,
-            expiresAt: eventExpiresAt,
-          },
+          Item: eventItem(event, eventExpiresAt),
           ConditionExpression: 'attribute_not_exists(pk) AND attribute_not_exists(sk)',
         },
       })),
@@ -167,11 +209,103 @@ export class DynamoFleetProcessingStore implements FleetProcessingStore {
         duplicate: false,
         eventCount: transition.events.length,
         live: { latitude, longitude, speedKmh },
+        groupId,
+        position,
       };
     } catch (error) {
       if (isTransactionCanceled(error)) return { duplicate: true, eventCount: 0 };
       throw error;
     }
+  }
+
+  /** Trip start and end addresses, looked up once each; stored, so licensed for storage. */
+  private async addTripAddresses(transition: ReturnType<typeof evaluatePosition>) {
+    const trip = transition.state.trip;
+    if (
+      trip &&
+      !trip.startAddress &&
+      transition.events.some((event) => event.type === 'tripStarted')
+    )
+      trip.startAddress = await this.geocoder.address(
+        trip.startLatitude,
+        trip.startLongitude,
+        'storage',
+      );
+    const completed = transition.completedTrip;
+    if (completed)
+      completed.endAddress = await this.geocoder.address(
+        completed.endLatitude,
+        completed.endLongitude,
+        'storage',
+      );
+  }
+
+  private async tenantConfig(tenantId: string): Promise<TenantConfig> {
+    const cached = this.configs.get(tenantId);
+    if (cached && cached.expires > this.now()) return cached.config;
+    const [geofences, computed, maintenances] = await Promise.all(
+      ['GEOFENCE#', 'COMPUTED#', 'MAINT#'].map((prefix) => this.listPrefix(tenantId, prefix)),
+    );
+    const config: TenantConfig = {
+      geofences: geofences!.flatMap((item) => {
+        const shape = toShape(item.shape);
+        return shape ? [{ id: String(item.geofenceId), shape }] : [];
+      }),
+      computed: computed!
+        .flatMap((item) => toComputed(item) ?? [])
+        .sort((a, b) => a.order - b.order),
+      maintenances: maintenances!.flatMap((item) => toMaintenance(item) ?? []),
+    };
+    if (this.configs.size >= MAX_CACHED_TENANTS) this.configs.clear();
+    this.configs.set(tenantId, { config, expires: this.now() + CONFIG_TTL_MS });
+    return config;
+  }
+
+  private async listPrefix(tenantId: string, prefix: string) {
+    const items: Record<string, unknown>[] = [];
+    let startKey: Record<string, unknown> | undefined;
+    do {
+      const result = await this.client.send(
+        new QueryCommand({
+          TableName: this.tables.core,
+          KeyConditionExpression: 'pk = :pk AND begins_with(sk, :prefix)',
+          ExpressionAttributeValues: { ':pk': tenantPartitionKey(tenantId), ':prefix': prefix },
+          ExclusiveStartKey: startKey,
+        }),
+      );
+      items.push(...(result.Items ?? []));
+      startKey = result.LastEvaluatedKey;
+    } while (startKey);
+    return items;
+  }
+
+  /** Where linked vehicles were last seen, read only for vehicles that have links. */
+  private async linkedVehicles(
+    tenantId: string,
+    device: Record<string, unknown> | undefined,
+  ): Promise<LinkedVehicle[]> {
+    const proximity = isRecord(device?.proximity) ? device.proximity : undefined;
+    const ids = Array.isArray(proximity?.linkedDeviceIds)
+      ? proximity.linkedDeviceIds.map(String).slice(0, MAX_LINKED_VEHICLES)
+      : [];
+    if (!ids.length) return [];
+    const result = await this.client.send(
+      new BatchGetCommand({
+        RequestItems: {
+          [this.tables.state]: {
+            Keys: ids.map((id) => ({ pk: devicePartitionKey(tenantId, id) })),
+            ProjectionExpression: 'deviceId, tenantId, latitude, longitude',
+          },
+        },
+      }),
+    );
+    return (result.Responses?.[this.tables.state] ?? []).flatMap((item) =>
+      item.tenantId === tenantId &&
+      typeof item.latitude === 'number' &&
+      typeof item.longitude === 'number'
+        ? [{ deviceId: String(item.deviceId), latitude: item.latitude, longitude: item.longitude }]
+        : [],
+    );
   }
 
   private async putHistoricalPosition(position: PositionMessage, pk: string) {
@@ -213,22 +347,49 @@ function toFleetState(item: Record<string, unknown> | undefined): FleetState | u
     overspeeding: item.overspeeding === true,
     geofencesInside: Array.isArray(item.geofencesInside) ? item.geofencesInside.map(String) : [],
     odometerM: Number(item.odometerM ?? 0),
+    engineHoursS: typeof item.engineHoursS === 'number' ? item.engineHoursS : undefined,
+    fuelLevelPct: typeof item.fuelLevelPct === 'number' ? item.fuelLevelPct : undefined,
+    driverUniqueId: typeof item.driverUniqueId === 'string' ? item.driverUniqueId : undefined,
     trip: isRecord(item.trip) ? (item.trip as unknown as FleetState['trip']) : undefined,
   };
 }
 
 function toRules(
   device: Record<string, unknown> | undefined,
-  geofenceItems: Record<string, unknown>[],
+  config: TenantConfig,
+  groupId: string,
+  linked: LinkedVehicle[],
 ): FleetRules {
-  const geofences: GeofenceRule[] = geofenceItems.flatMap((item) => {
-    const shape = toShape(item.shape);
-    return shape ? [{ id: String(item.geofenceId), shape }] : [];
-  });
+  const deviceId = typeof device?.deviceId === 'string' ? device.deviceId : '';
+  const proximity = isRecord(device?.proximity) ? device.proximity : undefined;
   return {
-    speedLimitKmh: typeof device?.speedLimitKmh === 'number' ? device.speedLimitKmh : undefined,
-    geofences,
+    speedLimitKmh: positive(device?.speedLimitKmh),
+    geofences: config.geofences,
+    fuel: {
+      dropThreshold: positive(device?.fuelDropThreshold),
+      increaseThreshold: positive(device?.fuelIncreaseThreshold),
+    },
+    behaviour: {
+      accelerationThresholdMs2: positive(device?.accelerationThresholdMs2),
+      brakingThresholdMs2: positive(device?.brakingThresholdMs2),
+    },
+    proximity: proximity && {
+      enterDistanceM: positive(proximity.enterDistanceM),
+      exitDistanceM: positive(proximity.exitDistanceM),
+      unaccompaniedDistanceM: positive(proximity.unaccompaniedDistanceM),
+      linked,
+    },
+    maintenances: config.maintenances.filter(
+      (rule) =>
+        (!rule.deviceIds.length && !rule.groupIds.length) ||
+        rule.deviceIds.includes(deviceId) ||
+        rule.groupIds.includes(groupId),
+    ),
   };
+}
+
+function positive(value: unknown) {
+  return typeof value === 'number' && value > 0 ? value : undefined;
 }
 
 function toShape(value: unknown): GeofenceRule['shape'] | undefined {
@@ -255,10 +416,73 @@ function toShape(value: unknown): GeofenceRule['shape'] | undefined {
   return undefined;
 }
 
+function groupOf(device: Record<string, unknown> | undefined) {
+  return typeof device?.groupId === 'string' ? device.groupId : 'UNGROUPED';
+}
+
 function isTransactionCanceled(error: unknown) {
   return error instanceof Error && error.name === 'TransactionCanceledException';
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null;
+}
+
+function strings(value: unknown) {
+  return Array.isArray(value) ? value.map(String) : [];
+}
+
+function toComputed(
+  item: Record<string, unknown>,
+): (ComputedAttribute & { order: number }) | undefined {
+  if (typeof item.expression !== 'string' || typeof item.attribute !== 'string') return undefined;
+  const type = item.type === 'boolean' || item.type === 'string' ? item.type : 'number';
+  return {
+    attributeId: String(item.attributeId),
+    attribute: item.attribute,
+    expression: item.expression,
+    type,
+    deviceIds: strings(item.deviceIds),
+    groupIds: strings(item.groupIds),
+    order: typeof item.order === 'number' ? item.order : 0,
+  };
+}
+
+function toMaintenance(
+  item: Record<string, unknown>,
+): (MaintenanceRule & { deviceIds: string[]; groupIds: string[] }) | undefined {
+  const type = item.type;
+  if (type !== 'odometerM' && type !== 'engineHoursS' && type !== 'fixTime') return undefined;
+  if (typeof item.start !== 'number' || typeof item.period !== 'number') return undefined;
+  return {
+    maintenanceId: String(item.maintenanceId),
+    name: String(item.name),
+    type,
+    start: item.start,
+    period: item.period,
+    deviceIds: strings(item.deviceIds),
+    groupIds: strings(item.groupIds),
+  };
+}
+
+/** A correction set on the device after the live state last applied one, if any. */
+function accumulatorReset(
+  device: Record<string, unknown> | undefined,
+  state: Record<string, unknown> | undefined,
+): { odometerM?: number; engineHoursS?: number; setAt: number } | undefined {
+  const accumulators = isRecord(device?.accumulators) ? device.accumulators : undefined;
+  const setAt = accumulators?.setAt;
+  if (typeof setAt !== 'number') return undefined;
+  const applied = typeof state?.accumulatorsSetAt === 'number' ? state.accumulatorsSetAt : 0;
+  if (setAt <= applied) return undefined;
+  return {
+    setAt,
+    odometerM: typeof accumulators?.odometerM === 'number' ? accumulators.odometerM : undefined,
+    engineHoursS:
+      typeof accumulators?.engineHoursS === 'number' ? accumulators.engineHoursS : undefined,
+  };
+}
+
+function optionalNumber(value: unknown) {
+  return typeof value === 'number' ? value : undefined;
 }

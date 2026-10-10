@@ -198,11 +198,30 @@ export class CostGuardrails implements IAspect {
       if (rule.allowedWhen?.(this.switches)) continue;
 
       const message = `[cost-guardrail] ${rule.resourceType}: ${rule.reason}`;
+      const acknowledged = node.node.metadata.find((entry) => entry.type === ACKNOWLEDGED);
       if (rule.severity === 'error') {
         Annotations.of(node).addError(message);
+      } else if (acknowledged) {
+        Annotations.of(node).addInfo(`${message} — accepted: ${String(acknowledged.data)}`);
       } else {
-        Annotations.of(node).addWarningV2(`trackify:cost-guardrail:${rule.resourceType}`, message);
+        Annotations.of(node).addWarningV2(guardrailWarningId(rule.resourceType), message);
       }
     }
   }
+}
+
+const ACKNOWLEDGED = 'trackify:cost-acknowledged';
+
+/**
+ * Accepts a small fixed cost (a warning-level guardrail) for one resource, with the reason kept in
+ * the synthesized metadata. Error-level guardrails cannot be acknowledged; use the scale switches.
+ */
+export function acknowledgeCost(resource: IConstruct, reason: string) {
+  const target = resource.node.defaultChild ?? resource;
+  target.node.addMetadata(ACKNOWLEDGED, reason);
+}
+
+/** CDK reserves `::` in warning ids, so the resource type's separators become dashes. */
+export function guardrailWarningId(resourceType: string) {
+  return `trackify:cost-guardrail:${resourceType.replaceAll('::', '-')}`;
 }

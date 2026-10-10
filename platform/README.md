@@ -1,14 +1,18 @@
 # Trackify platform
 
-Serverless fleet-tracking rewrite. The legacy applications remain alongside this folder while the
-new platform is tested and migrated.
+Serverless fleet-tracking rewrite. The legacy Java server remains alongside as a reference for porting
+further tracker protocols.
 
-Implemented locally: GT06 and Teltonika ingestion, phone ingestion, ordered processing, GPS quality
-filtering, trips, geofences, overspeed and offline events, DynamoDB reports, command authorization and
-expiry, Cognito identity, tenant-safe APIs, AppSync live updates, route/history dashboard, compressed
-S3 archive, private hosting, cost guardrails, and a simulator. Tracker-specific command delivery,
-customer notification preferences, migration rehearsal, and production load testing remain launch
-gates. Nothing is deployed by this repository checkout.
+Implemented locally: tracker ingestion for GT06, Teltonika, H02, GPS103, Watch, Meitrack, Queclink,
+Suntech, TK103, Ruptela and Topin, plus the phone app; ordered processing with GPS quality filtering;
+trips, geofences, overspeed, offline, fuel, harsh driving, proximity, maintenance and driver-card
+events; computed attributes; alert rules delivered by web, email, push, SMS, Telegram, WhatsApp,
+Pushover or a command to the vehicle; command delivery to trackers; users, groups and group-limited
+access; reports with CSV export and scheduled emails; share links, audit log, statistics,
+announcements, reverse geocoding and single sign-on; Cognito identity, tenant-safe APIs, AppSync live
+updates, compressed S3 archive, private hosting, cost guardrails, a simulator, and an importer for
+the legacy server. Migration rehearsal and production load testing remain launch gates. Nothing is
+deployed by this repository checkout.
 
 ## Local checks
 

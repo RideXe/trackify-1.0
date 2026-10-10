@@ -13,6 +13,7 @@ import { HostingStack } from '../lib/stacks/hosting-stack';
 import { DashboardAssetsStack } from '../lib/stacks/dashboard-assets-stack';
 import { OperationsStack } from '../lib/stacks/operations-stack';
 import { ArchiveStack } from '../lib/stacks/archive-stack';
+import { NotificationStack } from '../lib/stacks/notification-stack';
 
 const app = new App();
 const config = loadConfig((key) => app.node.tryGetContext(key));
@@ -56,6 +57,7 @@ const identity = new IdentityStack(app, `Trackify-${config.envName}-Identity`, {
   env: { account: config.account, region: config.region },
   config,
   dashboardUrl: hosting.dashboardUrl,
+  platformPath: new URL('../..', import.meta.url).pathname,
   terminationProtection: config.envName === 'prod',
   tags,
 });
@@ -75,6 +77,14 @@ const ingest = new IngestStack(app, `Trackify-${config.envName}-Ingest`, {
   realtime,
   tags,
 });
+const notifications = new NotificationStack(app, `Trackify-${config.envName}-Notifications`, {
+  env: { account: config.account, region: config.region },
+  config,
+  data,
+  realtime,
+  platformPath,
+  tags,
+});
 const api = new ApiStack(app, `Trackify-${config.envName}-Api`, {
   env: { account: config.account, region: config.region },
   config,
@@ -84,6 +94,7 @@ const api = new ApiStack(app, `Trackify-${config.envName}-Api`, {
   dashboardUrl: config.dashboardUrl,
   additionalBrowserOrigins: [hosting.dashboardUrl],
   ingestQueue: ingest.queue,
+  announcementsTopic: notifications.announcementsTopic,
   tags,
 });
 new DashboardAssetsStack(app, `Trackify-${config.envName}-DashboardAssets`, {

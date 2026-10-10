@@ -2,27 +2,55 @@ import { createHash, createHmac } from 'node:crypto';
 import type { PositionMessage } from '@trackify/domain';
 
 export interface PositionPublisher {
-  publish(position: PositionMessage): Promise<void>;
+  /** groupId, when the vehicle has one, also reaches users limited to that group. */
+  publish(position: PositionMessage, groupId?: string): Promise<void>;
 }
 
-export class AppSyncPositionPublisher implements PositionPublisher {
+/** Channels under the `fleet` namespace; realtime-auth decides who may subscribe to which. */
+export const channels = {
+  fleet: (tenantId: string) => `/fleet/${tenantId}`,
+  group: (tenantId: string, groupId: string) => `/fleet/${tenantId}/groups/${groupId}`,
+  user: (tenantId: string, userId: string) => `/fleet/${tenantId}/users/${userId}`,
+};
+
+const UNGROUPED = 'UNGROUPED';
+
+/** Publishes one event to one channel over the AppSync Events HTTP API. */
+export class AppSyncPublisher {
   constructor(
     private readonly httpDns: string,
     private readonly region: string,
     private readonly fetcher: typeof fetch = fetch,
   ) {}
 
-  async publish(position: PositionMessage): Promise<void> {
+  async publish(channel: string, event: unknown): Promise<void> {
     const request = signedPublishRequest(
       this.httpDns,
       this.region,
-      `/fleet/${position.tenantId}`,
-      position,
+      channel,
+      event,
       credentialsFromEnvironment(),
       new Date(),
     );
     const result = await this.fetcher(request);
     if (!result.ok) throw new Error(`realtime publish failed: ${result.status}`);
+  }
+}
+
+export class AppSyncPositionPublisher implements PositionPublisher {
+  private readonly publisher: AppSyncPublisher;
+
+  constructor(httpDns: string, region: string, fetcher: typeof fetch = fetch) {
+    this.publisher = new AppSyncPublisher(httpDns, region, fetcher);
+  }
+
+  async publish(position: PositionMessage, groupId?: string): Promise<void> {
+    await Promise.all([
+      this.publisher.publish(channels.fleet(position.tenantId), position),
+      ...(groupId && groupId !== UNGROUPED
+        ? [this.publisher.publish(channels.group(position.tenantId, groupId), position)]
+        : []),
+    ]);
   }
 }
 

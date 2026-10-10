@@ -1,5 +1,5 @@
 import { App } from 'aws-cdk-lib';
-import { Template } from 'aws-cdk-lib/assertions';
+import { Match, Template } from 'aws-cdk-lib/assertions';
 import { describe, it } from 'vitest';
 import { loadConfig } from '../lib/config';
 import { IdentityStack } from '../lib/stacks/identity-stack';
@@ -26,5 +26,51 @@ describe('IdentityStack', () => {
       CallbackURLs: ['http://localhost:5173', 'trackify://auth/callback'],
       LogoutURLs: ['http://localhost:5173', 'trackify://auth/callback'],
     });
+  });
+});
+
+describe('IdentityStack single sign-on', () => {
+  it('adds providers with secrets from Secrets Manager and an invited-users-only linker', () => {
+    const app = new App();
+    const config = loadConfig(
+      (key) =>
+        ({
+          env: 'dev',
+          account: '123456789012',
+          alertEmail: 'alerts@example.com',
+          oidcName: 'Microsoft',
+          oidcIssuerUrl: 'https://login.microsoftonline.com/tenant/v2.0',
+          oidcClientId: 'client',
+          oidcClientSecretName: 'trackify/sso/microsoft',
+        })[key],
+    );
+    const template = Template.fromStack(
+      new IdentityStack(app, 'Identity', {
+        config,
+        platformPath: new URL('../..', import.meta.url).pathname,
+      }),
+    );
+    template.hasResourceProperties('AWS::Cognito::UserPoolIdentityProvider', {
+      ProviderName: 'Microsoft',
+      ProviderType: 'OIDC',
+      ProviderDetails: Match.objectLike({
+        client_secret: '{{resolve:secretsmanager:trackify/sso/microsoft:SecretString:::}}',
+      }),
+    });
+    template.hasResourceProperties('AWS::Cognito::UserPoolClient', {
+      SupportedIdentityProviders: ['COGNITO', { Ref: Match.stringLikeRegexp('^OidcProvider') }],
+    });
+    template.hasResourceProperties('AWS::Cognito::UserPool', {
+      LambdaConfig: { PreSignUp: Match.anyValue() },
+    });
+  });
+
+  it('is off by default', () => {
+    const app = new App();
+    const config = loadConfig(
+      (key) => ({ env: 'dev', account: '123456789012', alertEmail: 'a@b.co' })[key],
+    );
+    const template = Template.fromStack(new IdentityStack(app, 'Identity', { config }));
+    template.resourceCountIs('AWS::Cognito::UserPoolIdentityProvider', 0);
   });
 });

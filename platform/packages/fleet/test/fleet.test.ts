@@ -79,6 +79,26 @@ describe('fleet transition', () => {
       'tripStarted',
     ]);
   });
+
+  it('reports leaving a geofence but not the deletion of one the vehicle was inside', () => {
+    const depot = {
+      id: '01J9ZQ3X9K8J7H6G5F4E3D2C1B',
+      shape: { type: 'circle' as const, center: base, radiusM: 100 },
+    };
+    const yard = {
+      id: '01J9ZQ3X9K8J7H6G5F4E3D2C1C',
+      shape: { type: 'circle' as const, center: base, radiusM: 200 },
+    };
+    const inside = evaluatePosition(undefined, base, { geofences: [depot, yard] }).state;
+    const next = { ...base, messageId: 'fedcba9876543210', fixTime: 2_000, latitude: 12.9734 };
+    const result = evaluatePosition(inside, next, { geofences: [depot] });
+    expect(
+      result.events
+        .filter((event) => event.type === 'geofenceExit')
+        .map((event) => event.geofenceId),
+    ).toEqual([depot.id]);
+    expect(result.state.geofencesInside).toEqual([]);
+  });
 });
 
 describe('GPS drift while parked', () => {

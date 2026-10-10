@@ -33,6 +33,8 @@ export class DataStack extends Stack {
       sortKey: { name: 'sk', type: AttributeType.STRING },
       billingMode: BillingMode.PAY_PER_REQUEST,
       pointInTimeRecoverySpecification: { pointInTimeRecoveryEnabled: true },
+      // Only short-lived items set this: share links, audit entries, announcements.
+      timeToLiveAttribute: 'expiresAt',
       removalPolicy,
     });
     this.core.addGlobalSecondaryIndex({
@@ -46,6 +48,13 @@ export class DataStack extends Stack {
       partitionKey: { name: 'cognitoPk', type: AttributeType.STRING },
       sortKey: { name: 'cognitoSk', type: AttributeType.STRING },
       projectionType: ProjectionType.ALL,
+    });
+    // Sparse: only enabled scheduled reports carry dueKey, so the hourly sender reads what is due.
+    this.core.addGlobalSecondaryIndex({
+      indexName: 'byDueTime',
+      partitionKey: { name: 'dueKey', type: AttributeType.STRING },
+      sortKey: { name: 'dueAt', type: AttributeType.NUMBER },
+      projectionType: ProjectionType.KEYS_ONLY,
     });
     this.positions = new Table(this, 'Positions', {
       partitionKey: { name: 'pk', type: AttributeType.STRING },

@@ -36,6 +36,51 @@ Anomaly detection is disabled by default. Attach an existing monitor with
 use `-c createAnomalyMonitor=true`. These options are mutually exclusive.
 `-c anomalyThresholdUsd=5` controls the daily email threshold.
 
+## Optional features
+
+Each is off unless its context value is given; all go on the same `cdk deploy` command.
+
+| Context                                                                                                             | What it turns on                                                                                                                                                                                                      |
+| ------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `-c emailSender=alerts@your-domain`                                                                                 | Alert and scheduled-report emails through SES. AWS emails a verification link to that address first; new SES accounts are in the sandbox and can only send to verified recipients until production access is granted. |
+| `-c geocoding=true`                                                                                                 | Street addresses for trip starts/ends and alerts (Amazon Location, billed per lookup).                                                                                                                                |
+| `-c oidcName=Microsoft -c oidcIssuerUrl=https://… -c oidcClientId=… -c oidcClientSecretName=trackify/sso/microsoft` | Single sign-on through any OpenID Connect provider. Create the Secrets Manager secret (plain-text client secret) before deploying.                                                                                    |
+| `-c googleClientId=… -c googleClientSecretName=trackify/sso/google`                                                 | Google sign-in.                                                                                                                                                                                                       |
+
+Only invited users can sign in with single sign-on; their first SSO sign-in is linked to the
+invited account with the same email. Some Cognito versions reject that very first attempt with
+"Already found an entry for username"; signing in again succeeds.
+
+**Notification channel credentials.** The Notifications stack outputs the name of a Secrets
+Manager secret. Set its value (console or CLI) to the JSON for the channels you use; leave out the
+rest:
+
+```json
+{
+  "fcm": {
+    "projectId": "…",
+    "clientEmail": "…@….iam.gserviceaccount.com",
+    "privateKey": "-----BEGIN PRIVATE KEY-----\n…"
+  },
+  "telegram": { "botToken": "…" },
+  "whatsapp": {
+    "token": "…",
+    "phoneNumberId": "…",
+    "templateName": "fleet_alert",
+    "templateLanguage": "en"
+  },
+  "pushover": { "appToken": "…" }
+}
+```
+
+SMS goes through SNS: in a new account, request SMS production access (and for India, register
+the sender ID and DLT templates) before alerts can reach unverified numbers.
+
+**Importing from the legacy server.** `tools/legacy-import` reads the legacy REST API and
+prints what it would import (vehicles, groups, geofences, drivers, notifications as alert rules,
+maintenance, computed attributes) and the users to invite. Nothing is written without `--apply`.
+See `npm start -w @trackify/legacy-import` for its options.
+
 ## Later deployment gates
 
 Before ingestion: verify tracker model and firmware, authentication, buffering, and acknowledgement

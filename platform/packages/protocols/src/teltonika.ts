@@ -1,7 +1,9 @@
 import {
   concatPending,
+  customCommandData,
   stableMessageId,
   type DecodedPosition,
+  type ProtocolCommand,
   type ProtocolDecoder,
   type ProtocolPacket,
 } from './common';
@@ -20,6 +22,17 @@ export class TeltonikaDecoder implements ProtocolDecoder {
       packets.push(decodeTeltonikaFrame(frame));
     }
     return packets;
+  }
+
+  /** Codec 12 text commands; engine cut drives digital output 1, as in the legacy encoder. */
+  encodeCommand(command: ProtocolCommand): Buffer | undefined {
+    if (command.type === 'engineStop') return encodeTeltonikaCommand(Buffer.from('setdigout 1'));
+    if (command.type === 'engineResume') return encodeTeltonikaCommand(Buffer.from('setdigout 0'));
+    const data = customCommandData(command);
+    if (command.type !== 'custom' || !data) return undefined;
+    return encodeTeltonikaCommand(
+      /^([0-9a-fA-F]{2})+$/.test(data) ? Buffer.from(data, 'hex') : Buffer.from(data, 'ascii'),
+    );
   }
 
   private takeFrame(): Buffer | undefined {
@@ -63,6 +76,7 @@ export function decodeTeltonikaFrame(frame: Buffer): ProtocolPacket {
   const expectedCrc = frame.readUInt32BE(8 + dataLength) & 0xffff;
   if (crc16Ibm(data) !== expectedCrc) throw new Error('invalid Teltonika checksum');
   const codec = data[0];
+  if (codec === CODEC_12) return decodeCommandResponse(data);
   if (codec !== 0x08 && codec !== 0x8e) throw new Error(`unsupported Teltonika codec ${codec}`);
   const count = data[1] ?? 0;
   let offset = 2;
@@ -170,4 +184,33 @@ function prefixIo(io: Record<string, number | string | boolean>) {
 
 function ensure(data: Buffer, offset: number, width: number) {
   if (offset + width > data.length) throw new Error('truncated Teltonika AVL record');
+}
+
+const CODEC_12 = 0x0c;
+const COMMAND_TYPE = 0x05;
+const RESPONSE_TYPE = 0x06;
+
+export function encodeTeltonikaCommand(content: Buffer): Buffer {
+  const data = Buffer.alloc(1 + 1 + 1 + 4 + content.length + 1);
+  data[0] = CODEC_12;
+  data[1] = 1;
+  data[2] = COMMAND_TYPE;
+  data.writeUInt32BE(content.length, 3);
+  content.copy(data, 7);
+  data[data.length - 1] = 1;
+  const frame = Buffer.alloc(8 + data.length + 4);
+  frame.writeUInt32BE(0, 0);
+  frame.writeUInt32BE(data.length, 4);
+  data.copy(frame, 8);
+  frame.writeUInt32BE(crc16Ibm(data), 8 + data.length);
+  return frame;
+}
+
+/** Codec 12 replies have no command id: the gateway pairs them with the oldest unanswered one. */
+function decodeCommandResponse(data: Buffer): ProtocolPacket {
+  if (data[2] !== RESPONSE_TYPE || data.length < 7)
+    throw new Error('unexpected Teltonika codec 12 message');
+  const length = data.readUInt32BE(3);
+  ensure(data, 7, length);
+  return { kind: 'commandResult', result: data.subarray(7, 7 + length).toString('ascii') };
 }

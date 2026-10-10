@@ -1,4 +1,4 @@
-import type { LocationFix } from '../native/location';
+import type { CleanPoint, FilterReport } from '@trackify/geo';
 import {
   addTrackerLog,
   appendPendingPosition,
@@ -7,28 +7,44 @@ import {
   type TrackerConfig,
 } from './storage';
 
-export function positionBody(config: TrackerConfig, location: LocationFix, batteryPct?: number) {
-  const c = location.coords;
+/**
+ * One filtered window as a batch (format v2 of POST /phone/positions). Speeds are m/s. `filter`
+ * says what the phone dropped and why, so the server can log it for support.
+ */
+export function batchBody(
+  config: TrackerConfig,
+  points: CleanPoint[],
+  report: FilterReport,
+  batteryPct?: number,
+) {
   return JSON.stringify({
-    batt: batteryPct,
+    v: 2,
     id: config.uniqueId,
-    lat: c.latitude,
-    lon: c.longitude,
-    altitude: c.altitude ?? undefined,
-    speed: c.speed == null || c.speed < 0 ? undefined : c.speed * 1.94384,
-    bearing: c.heading == null || c.heading < 0 ? undefined : c.heading,
-    accuracy: c.accuracy == null || c.accuracy < 0 ? undefined : c.accuracy,
-    timestamp: location.timestamp,
+    batt: batteryPct,
+    points,
+    filter: {
+      raw: report.raw,
+      kept: report.kept,
+      uploaded: report.uploaded,
+      rejected: report.rejected,
+      relocations: report.relocations,
+      distanceM: Math.round(report.distanceM),
+      samples: report.samples,
+    },
   });
 }
 
 let pending: Promise<unknown> = Promise.resolve();
-export function uploadLocation(
+/** Uploads one filtered window; with buffering on it is queued first and survives going offline. */
+export function uploadBatch(
   config: TrackerConfig,
-  location: LocationFix,
+  points: CleanPoint[],
+  report: FilterReport,
   batteryPct?: number,
 ): Promise<void> {
-  const operation = pending.then(() => deliver(config, location, batteryPct));
+  const operation = pending.then(() =>
+    deliver(config, batchBody(config, points, report, batteryPct), points.length),
+  );
   pending = operation.catch(() => undefined);
   return operation;
 }
@@ -48,14 +64,13 @@ async function post(config: TrackerConfig, body: string) {
   }
 }
 
-async function deliver(config: TrackerConfig, location: LocationFix, batteryPct?: number) {
+async function deliver(config: TrackerConfig, body: string, pointCount: number) {
   if (!config.credential || !config.endpoint || !config.deviceId)
     throw new Error('Complete tracker setup first');
-  const body = positionBody(config, location, batteryPct);
   if (!config.buffer) {
     const response = await post(config, body);
     if (!response.ok) throw new Error(`Location upload failed: ${await rejectionReason(response)}`);
-    await addTrackerLog('Location uploaded');
+    await addTrackerLog(`${pointCount} location${pointCount === 1 ? '' : 's'} uploaded`);
     return;
   }
   await appendPendingPosition({ deviceId: config.deviceId, endpoint: config.endpoint, body });
@@ -70,7 +85,7 @@ async function deliver(config: TrackerConfig, location: LocationFix, batteryPct?
     try {
       response = await post(config, item.body);
     } catch {
-      await addTrackerLog('Location saved on phone; retrying with the next GPS update');
+      await addTrackerLog('Locations saved on phone; retrying with the next GPS update');
       throw new Error('Location saved offline. Keep tracking enabled to retry automatically.');
     }
     if (response.status === 400) {
@@ -94,7 +109,9 @@ async function deliver(config: TrackerConfig, location: LocationFix, batteryPct?
     uploaded += 1;
   }
   if (uploaded)
-    await addTrackerLog(uploaded === 1 ? 'Location uploaded' : `${uploaded} locations uploaded`);
+    await addTrackerLog(
+      uploaded === 1 ? 'Locations uploaded' : `${uploaded} location batches uploaded`,
+    );
 }
 
 /** The server explains rejections as `{ "message": "..." }`. */

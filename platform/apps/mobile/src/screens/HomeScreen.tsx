@@ -32,7 +32,7 @@ import {
   type TodaySummary,
 } from '../services/phone-api';
 import { loadTrackerConfig, updateTrackerConfig, type TrackerConfig } from '../services/storage';
-import { startTracking } from '../services/tracking';
+import { applySyncInterval } from '../services/tracking';
 import { colors } from '../theme';
 import { CheckSheet, FuelSheet, IssueSheet } from './ReportSheets';
 import { MessagesSheet } from './MessagesSheet';
@@ -81,9 +81,9 @@ export function HomeScreen({
         const settings = await fetchPhoneSettings(current);
         const intervalChanged = settings.trackerIntervalSeconds !== current.intervalSeconds;
         current = await applySettings(settings);
-        // A new interval from the dashboard takes effect by restarting the tracker (foreground only).
+        // A new interval from the dashboard applies to running tracking without a restart.
         if (intervalChanged && current.duty.status !== 'off')
-          await startTracking(current).catch(() => undefined);
+          await applySyncInterval(current.intervalSeconds).catch(() => undefined);
         const since = Date.now() - 7 * 86_400_000;
         setMessages(await fetchMessages(current, since));
         await flushActivity(current);

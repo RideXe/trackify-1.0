@@ -103,24 +103,30 @@ export function isPlausibleLiveFix(
   return distance === 0 || plausibleDistance(previous, position) > 0;
 }
 
+export interface EvaluateOptions {
+  /** The fix was accepted as a genuine jump: no distance for the jump itself. */
+  relocated?: boolean;
+}
+
 export function evaluatePosition(
   previous: FleetState | undefined,
   position: PositionMessage,
   rules: FleetRules,
+  options: EvaluateOptions = {},
 ): FleetTransition {
-  // A reading within GPS drift of the last accepted position is the same place: it keeps the
+  // A phone that filtered its own track says whether it moved and how far it drove; otherwise a
+  // reading within GPS drift of the last accepted position is the same place: it keeps the
   // vehicle online but adds no distance and cannot start a trip on a noisy speed reading.
-  const moved = !previous || movedBeyondDrift(previous, position);
+  const path = position.attributes.pathDistanceM;
+  const filtered = path !== undefined && position.attributes.motion !== undefined;
+  const moved =
+    !previous ||
+    (filtered ? position.attributes.motion === true : movedBeyondDrift(previous, position));
   const motion = position.attributes.motion ?? (moved && (position.speedKmh ?? 0) >= 3);
   const speedKmh = motion ? (position.speedKmh ?? 0) : 0;
   const ignition = position.attributes.ignition;
   const segmentM =
-    previous && moved
-      ? plausibleDistance(
-          { latitude: previous.latitude, longitude: previous.longitude, fixTime: previous.fixTime },
-          position,
-        )
-      : 0;
+    previous && moved && !options.relocated ? segmentDistance(previous, position) : 0;
   // While parked, a clearly more accurate reading (at least twice as precise) may refine where
   // the vehicle is shown; marginally better readings would just make the dot wander again.
   const refines =
@@ -360,3 +366,25 @@ function detectMaintenance(
       );
   }
 }
+
+/**
+ * Distance for one step. The phone's along-track distance is more accurate than the straight
+ * line (it follows curves between reported points), so it is used when it is plausible: not
+ * shorter than the straight line allows, not absurdly longer, and not faster than possible.
+ */
+function segmentDistance(previous: FleetState, position: PositionMessage): number {
+  const straight = plausibleDistance(
+    { latitude: previous.latitude, longitude: previous.longitude, fixTime: previous.fixTime },
+    position,
+  );
+  const path = position.attributes.pathDistanceM;
+  if (path === undefined) return straight;
+  const direct = distanceMeters(previous, position);
+  const seconds = (position.fixTime - previous.fixTime) / 1000;
+  const slack = (previous.accuracyM ?? 10) + (position.accuracyM ?? 10);
+  const plausible =
+    path >= direct - slack && path <= direct * 1.6 + 50 && (seconds <= 0 || path / seconds <= 83);
+  return plausible ? path : straight;
+}
+
+export * from './fix-quality';

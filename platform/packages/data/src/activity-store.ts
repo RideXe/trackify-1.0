@@ -24,6 +24,10 @@ export interface Organisation {
   dispatcherPhone?: string;
   /** IANA zone for notification and report times. Unset means Asia/Kolkata. */
   timeZone?: string;
+  /** Subscription plan, set by the platform operator; unset means the default plan. */
+  plan?: string;
+  /** How often vehicles sync unless a vehicle has its own setting. */
+  trackerIntervalSeconds?: number;
 }
 
 export interface FleetAlert {
@@ -74,7 +78,12 @@ export class DynamoActivityStore {
 
   async updateOrganisation(
     tenantId: string,
-    changes: { name?: string; dispatcherPhone?: string | null; timeZone?: string },
+    changes: {
+      name?: string;
+      dispatcherPhone?: string | null;
+      timeZone?: string;
+      trackerIntervalSeconds?: number | null;
+    },
   ): Promise<Organisation | undefined> {
     const attributes = await updateItem(
       this.client,
@@ -201,6 +210,9 @@ function toOrganisation(item: Record<string, unknown>): Organisation {
     name: typeof item.name === 'string' ? item.name : '',
     dispatcherPhone: typeof item.dispatcherPhone === 'string' ? item.dispatcherPhone : undefined,
     timeZone: typeof item.timeZone === 'string' ? item.timeZone : undefined,
+    plan: typeof item.plan === 'string' ? item.plan : undefined,
+    trackerIntervalSeconds:
+      typeof item.trackerIntervalSeconds === 'number' ? item.trackerIntervalSeconds : undefined,
   };
 }
 

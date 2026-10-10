@@ -1,7 +1,7 @@
 import { PermissionsAndroid, Platform } from 'react-native';
-import TrackifyLocation from '../native/NativeTrackifyLocation';
-import { toLocationFix } from '../native/location';
-import { uploadLocation } from './upload';
+import TrackifyLocation, { type NativeLocation } from '../native/NativeTrackifyLocation';
+import { filterGpsWindow, resetGpsFilter } from './gps-window';
+import { uploadBatch } from './upload';
 import { addTrackerLog, type TrackerConfig } from './storage';
 
 const { PERMISSIONS, RESULTS } = PermissionsAndroid;
@@ -38,13 +38,25 @@ export async function startTracking(config: TrackerConfig) {
   // Android 13+ hides the tracking notification without this; tracking itself still runs.
   if (Number(Platform.Version) >= 33)
     await PermissionsAndroid.request(PERMISSIONS.POST_NOTIFICATIONS);
+  await resetGpsFilter();
   await TrackifyLocation.start({
-    intervalMs: Math.max(15, Math.min(300, config.intervalSeconds || 30)) * 1000,
+    intervalMs: syncIntervalMs(config.intervalSeconds),
     accuracy: config.accuracy,
     notificationTitle: 'On shift · Trackify',
     notificationBody: 'Your location is shared with your fleet until you end the shift.',
   });
   await addTrackerLog('Background tracking started');
+}
+
+/** The server's sync interval in milliseconds, kept within what the phone supports. */
+export function syncIntervalMs(seconds: number) {
+  return Math.max(5, Math.min(300, seconds || 30)) * 1000;
+}
+
+/** Applies a new sync interval to running tracking, foreground or background. */
+export async function applySyncInterval(seconds: number) {
+  if (await TrackifyLocation.isRunning())
+    await TrackifyLocation.setInterval(syncIntervalMs(seconds));
 }
 
 export async function stopTracking() {
@@ -55,7 +67,28 @@ export async function stopTracking() {
 export async function sendCurrentPosition(config: TrackerConfig) {
   if (!(await requestForegroundLocation())) throw new Error('Location permission is required');
   const location = await TrackifyLocation.getCurrentPosition(config.accuracy);
-  await uploadLocation(config, toLocationFix(location), await batteryPct());
+  // A one-off position goes through the same filter, flushed straight away.
+  const { points, report } = await filterGpsWindow([toRawFix(location)], true);
+  if (!points.length) throw new Error('Location is not accurate enough yet. Try again outdoors.');
+  await uploadBatch(config, points, report, await batteryPct());
+}
+
+export function toRawFix(location: NativeLocation) {
+  return {
+    t: location.timestamp,
+    e: location.elapsedMs,
+    lat: location.latitude,
+    lon: location.longitude,
+    acc: location.accuracy,
+    spd: location.speed,
+    spdAcc: location.speedAccuracy,
+    brg: location.heading,
+    brgAcc: location.bearingAccuracy,
+    alt: location.altitude,
+    provider: location.provider,
+    mock: location.mock,
+    sats: location.satellites,
+  };
 }
 
 /** Where the phone is right now, or undefined if no fix arrives in time (e.g. indoors). */

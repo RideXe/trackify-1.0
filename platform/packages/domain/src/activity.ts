@@ -40,9 +40,46 @@ export type ActivityType = DriverActivityType | 'message';
 
 export type DutyStatus = 'off' | 'on' | 'paused';
 
-/** Admin-chosen update intervals offered in the dashboard; the phone accepts only these. */
-export const trackerIntervals = [15, 30, 60, 120, 300] as const;
+/**
+ * How often a phone sends its filtered location to the server (it measures every second either
+ * way). Offered in the dashboard; the phone accepts only these.
+ */
+export const trackerIntervals = [5, 10, 15, 30, 60, 120, 300] as const;
 export const defaultTrackerIntervalSeconds = 30;
+
+/** Subscription plans; each allows syncing no faster than its limit. */
+export const subscriptionPlans = ['basic', 'standard', 'premium'] as const;
+export type SubscriptionPlan = (typeof subscriptionPlans)[number];
+
+export const planFastestIntervalSeconds: Record<SubscriptionPlan, number> = {
+  basic: 30,
+  standard: 15,
+  premium: 5,
+};
+
+/** Fleets created before plans existed keep what they could already choose (15 s). */
+export const defaultSubscriptionPlan: SubscriptionPlan = 'standard';
+
+export function isSubscriptionPlan(value: unknown): value is SubscriptionPlan {
+  return typeof value === 'string' && (subscriptionPlans as readonly string[]).includes(value);
+}
+
+export function fastestIntervalFor(plan: unknown): number {
+  return planFastestIntervalSeconds[isSubscriptionPlan(plan) ? plan : defaultSubscriptionPlan];
+}
+
+/**
+ * The interval a vehicle actually uses: its own setting, else the fleet's default, else 30 s;
+ * never faster than the plan allows, so a downgrade slows vehicles without editing each one.
+ */
+export function effectiveTrackerInterval(input: {
+  vehicle?: number;
+  fleet?: number;
+  plan?: unknown;
+}): number {
+  const requested = input.vehicle ?? input.fleet ?? defaultTrackerIntervalSeconds;
+  return Math.max(requested, fastestIntervalFor(input.plan));
+}
 export const pauseLimits = [15, 30, 45, 60, 90, 120] as const;
 export const defaultPauseLimitMinutes = 30;
 

@@ -105,6 +105,26 @@ describe('phone config', () => {
   });
 });
 
+describe('phone sync interval', () => {
+  it('sends the effective interval: vehicle, else fleet default, within the plan', async () => {
+    const deps = dependencies();
+    deps.activity.organisation.mockResolvedValue({
+      tenantId: 't',
+      name: 'Acme',
+      plan: 'basic',
+      trackerIntervalSeconds: 60,
+    });
+    const fleetDefault = await createPhoneHandler(deps)(request('GET', '/phone/config'));
+    expect(JSON.parse(fleetDefault.body)).toMatchObject({ trackerIntervalSeconds: 60 });
+    deps.fleet.getDevice.mockResolvedValue({
+      ...(await deps.fleet.getDevice('t', 'd')),
+      trackerIntervalSeconds: 5,
+    });
+    const downgraded = await createPhoneHandler(deps)(request('GET', '/phone/config'));
+    expect(JSON.parse(downgraded.body)).toMatchObject({ trackerIntervalSeconds: 30 });
+  });
+});
+
 describe('driver activity', () => {
   it('starts a shift and records the duty change on the vehicle', async () => {
     const deps = dependencies();

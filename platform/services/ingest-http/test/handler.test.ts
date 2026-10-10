@@ -30,7 +30,7 @@ describe('phone HTTP ingest', () => {
     const send = vi.fn().mockResolvedValue(undefined);
     const handler = createHandler({
       credentials: { resolveCredential: vi.fn().mockResolvedValue(device) },
-      queue: { send },
+      queue: { send, sendAll: vi.fn() },
       now: () => 1_757_836_800_500,
     });
     const result = await handler(
@@ -51,13 +51,13 @@ describe('phone HTTP ingest', () => {
     const send = vi.fn();
     const unknown = createHandler({
       credentials: { resolveCredential: vi.fn().mockResolvedValue(undefined) },
-      queue: { send },
+      queue: { send, sendAll: vi.fn() },
       now: Date.now,
     });
     expect((await unknown(event({ id: 'nope', lat: '1', lon: '2' }))).statusCode).toBe(401);
     const known = createHandler({
       credentials: { resolveCredential: vi.fn().mockResolvedValue(device) },
-      queue: { send },
+      queue: { send, sendAll: vi.fn() },
       now: Date.now,
     });
     expect((await known(event({ id: device.uniqueId, lat: '100', lon: '2' }))).statusCode).toBe(
@@ -70,7 +70,7 @@ describe('phone HTTP ingest', () => {
     const send = vi.fn().mockResolvedValue(undefined);
     const handler = createHandler({
       credentials: { resolveCredential: vi.fn().mockResolvedValue(device) },
-      queue: { send },
+      queue: { send, sendAll: vi.fn() },
       now: () => 1_757_836_800_500,
     });
     const result = await handler({
@@ -93,7 +93,7 @@ it('accepts nullable optional sensors on a stationary phone', async () => {
   const send = vi.fn().mockResolvedValue(undefined);
   const handler = createHandler({
     credentials: { resolveCredential: vi.fn().mockResolvedValue(device) },
-    queue: { send },
+    queue: { send, sendAll: vi.fn() },
     now: Date.now,
   });
   const result = await handler({
@@ -113,4 +113,134 @@ it('accepts nullable optional sensors on a stationary phone', async () => {
   expect(send).toHaveBeenCalledWith(
     expect.objectContaining({ latitude: 12.9, longitude: 77.5, speedKmh: 0 }),
   );
+});
+
+describe('phone batches (v2)', () => {
+  const batchEvent = (body: unknown) =>
+    ({
+      ...event({}),
+      headers: { authorization: 'Bearer valid-device-secret', 'content-type': 'application/json' },
+      body: JSON.stringify(body),
+    }) as APIGatewayProxyEventV2;
+  const point = (t: number, extra = {}) => ({
+    t,
+    lat: 12.97,
+    lon: 77.59,
+    acc: 4.2,
+    spd: 10,
+    brg: 90,
+    still: false,
+    path: 12.5,
+    ...extra,
+  });
+
+  function handlerWith(sendAll = vi.fn().mockResolvedValue(undefined)) {
+    return {
+      sendAll,
+      handler: createHandler({
+        credentials: { resolveCredential: vi.fn().mockResolvedValue(device) },
+        queue: { send: vi.fn(), sendAll },
+        now: () => 1_760_000_100_000,
+      }),
+    };
+  }
+
+  it('queues every point in time order with the phone’s motion, path distance and accuracy', async () => {
+    const { handler, sendAll } = handlerWith();
+    const result = await handler(
+      batchEvent({
+        v: 2,
+        id: device.uniqueId,
+        batt: 76,
+        points: [
+          point(1_760_000_002_000),
+          point(1_760_000_001_000, { still: true, spd: 0, path: 0 }),
+        ],
+        filter: {
+          raw: 30,
+          kept: 27,
+          uploaded: 2,
+          rejected: { inaccurate: 3 },
+          relocations: 0,
+          distanceM: 25,
+        },
+      }),
+    );
+    expect(result).toMatchObject({
+      statusCode: 202,
+      body: JSON.stringify({ accepted: 2, skipped: 0 }),
+    });
+    const [positions] = sendAll.mock.calls[0] as [Array<Record<string, unknown>>];
+    expect(positions.map((position) => position.fixTime)).toEqual([
+      1_760_000_001_000, 1_760_000_002_000,
+    ]);
+    expect(positions[1]).toMatchObject({
+      speedKmh: 36,
+      accuracyM: 4.2,
+      courseDeg: 90,
+      attributes: { motion: true, pathDistanceM: 12.5 },
+    });
+    expect(positions[0]).toMatchObject({ attributes: { motion: false } });
+  });
+
+  it('keeps the filter report and battery on the window’s last point for debugging', async () => {
+    const { handler, sendAll } = handlerWith();
+    await handler(
+      batchEvent({
+        v: 2,
+        batt: 55,
+        points: [point(1), point(2)].map((p, i) => ({ ...p, t: 1_760_000_000_000 + i * 1000 })),
+        filter: {
+          raw: 30,
+          kept: 28,
+          uploaded: 2,
+          rejected: { spike: 1, 'bad key!': 2 },
+          distanceM: 30,
+        },
+      }),
+    );
+    const [positions] = sendAll.mock.calls[0] as [Array<{ attributes: Record<string, unknown> }>];
+    expect(positions[1]!.attributes).toMatchObject({
+      batteryLevelPct: 55,
+      io: {
+        'filter.raw': 30,
+        'filter.kept': 28,
+        'filter.uploaded': 2,
+        'filter.distanceM': 30,
+        'filter.rejected.spike': 1,
+      },
+    });
+    expect(positions[0]!.attributes.io).toBeUndefined();
+  });
+
+  it('gives a re-sent point the same id, so retries are not duplicated', async () => {
+    const { handler, sendAll } = handlerWith();
+    const body = { v: 2, points: [point(1_760_000_001_000)] };
+    await handler(batchEvent(body));
+    await handler(batchEvent(body));
+    const ids = sendAll.mock.calls.map(
+      (call) => (call[0] as Array<{ messageId: string }>)[0]!.messageId,
+    );
+    expect(ids[0]).toBe(ids[1]);
+  });
+
+  it('skips bad points, rejects oversized batches and other devices’ ids', async () => {
+    const { handler } = handlerWith();
+    const mixed = await handler(
+      batchEvent({
+        v: 2,
+        points: [point(1_760_000_001_000), point(1_760_000_002_000, { lat: 200 })],
+      }),
+    );
+    expect(JSON.parse(mixed.body as string)).toEqual({ accepted: 1, skipped: 1 });
+    const huge = await handler(
+      batchEvent({
+        v: 2,
+        points: Array.from({ length: 301 }, (_, i) => point(1_760_000_000_000 + i)),
+      }),
+    );
+    expect(huge.statusCode).toBe(400);
+    const other = await handler(batchEvent({ v: 2, id: 'someone-else', points: [point(1)] }));
+    expect(other.statusCode).toBe(403);
+  });
 });

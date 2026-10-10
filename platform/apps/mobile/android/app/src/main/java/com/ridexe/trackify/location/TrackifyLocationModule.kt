@@ -39,6 +39,11 @@ class TrackifyLocationModule(context: ReactApplicationContext) :
     }
   }
 
+  override fun setInterval(intervalMs: Double, promise: Promise) {
+    TrackifyLocationService.reconfigure(reactApplicationContext, intervalMs.toLong())
+    promise.resolve(null)
+  }
+
   override fun stop(promise: Promise) {
     TrackifyLocationService.stop(reactApplicationContext)
     promise.resolve(null)

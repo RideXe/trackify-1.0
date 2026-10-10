@@ -10,6 +10,9 @@
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
     <!-- Headless JS holds a wake lock while each location upload runs. -->
     <uses-permission android:name="android.permission.WAKE_LOCK" />
+    <!-- Optional: motion sensors tell parked from driving (better parking, battery saving). -->
+    <uses-permission android:name="android.permission.ACTIVITY_RECOGNITION" />
+    <uses-permission android:name="com.google.android.gms.permission.ACTIVITY_RECOGNITION" />
 
     <application
       android:name=".MainApplication"
@@ -46,6 +49,9 @@
         android:foregroundServiceType="location" />
       <service
         android:name=".location.TrackifyLocationTaskService"
+        android:exported="false" />
+      <receiver
+        android:name=".location.ActivityTransitionReceiver"
         android:exported="false" />
     </application>
 </manifest>

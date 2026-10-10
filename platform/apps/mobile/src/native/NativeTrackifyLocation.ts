@@ -5,6 +5,7 @@ import type { TurboModule } from 'react-native';
 import { TurboModuleRegistry } from 'react-native';
 
 export type TrackingOptions = {
+  /** How often the native service hands a window of fixes to JS; it samples every second. */
   intervalMs: number;
   accuracy: string;
   notificationTitle: string;
@@ -18,6 +19,14 @@ export type NativeLocation = {
   speed?: number;
   heading?: number;
   accuracy?: number;
+  speedAccuracy?: number;
+  bearingAccuracy?: number;
+  /** Monotonic milliseconds since boot, for ordering and time gaps. */
+  elapsedMs?: number;
+  /** From a mock provider ("fake GPS" app). */
+  mock?: boolean;
+  provider?: string;
+  satellites?: number;
   timestamp: number;
 };
 
@@ -33,6 +42,8 @@ export type DeviceHealth = {
 export interface Spec extends TurboModule {
   start(options: TrackingOptions): Promise<void>;
   stop(): Promise<void>;
+  /** Changes how often windows are handed to JS, without restarting tracking. */
+  setInterval(intervalMs: number): Promise<void>;
   isRunning(): Promise<boolean>;
   getCurrentPosition(accuracy: string): Promise<NativeLocation>;
   deviceHealth(): Promise<DeviceHealth>;

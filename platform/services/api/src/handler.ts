@@ -19,8 +19,12 @@ import {
   type Organisation,
 } from '@trackify/data';
 import {
+  defaultSubscriptionPlan,
   defaultVehicleType,
+  effectiveTrackerInterval,
+  fastestIntervalFor,
   isFuelType,
+  isSubscriptionPlan,
   isTimeZone,
   isVehicleType,
   pauseLimits,
@@ -140,7 +144,12 @@ interface ActivityStore {
   organisation(tenantId: string): Promise<Organisation | undefined>;
   updateOrganisation(
     tenantId: string,
-    changes: { name?: string; dispatcherPhone?: string | null; timeZone?: string },
+    changes: {
+      name?: string;
+      dispatcherPhone?: string | null;
+      timeZone?: string;
+      trackerIntervalSeconds?: number | null;
+    },
   ): Promise<Organisation | undefined>;
   append(
     tenantId: string,
@@ -338,9 +347,22 @@ export function createHandler(
       });
     }
     if (method === 'GET' && path === '/devices') {
-      const devices = await store.listDevices(membership.tenantId);
+      const [devices, organisation] = await Promise.all([
+        store.listDevices(membership.tenantId),
+        activity?.organisation(membership.tenantId),
+      ]);
       return response(200, {
-        items: devices.filter((device) => sees(membership, device.groupId)),
+        items: devices
+          .filter((device) => sees(membership, device.groupId))
+          .map((device) => ({
+            ...device,
+            // What the phone actually uses after the fleet default and the plan limit.
+            effectiveTrackerIntervalSeconds: effectiveTrackerInterval({
+              vehicle: (device as { trackerIntervalSeconds?: number }).trackerIntervalSeconds,
+              fleet: organisation?.trackerIntervalSeconds,
+              plan: organisation?.plan,
+            }),
+          })),
       });
     }
     if (method === 'POST' && path === '/devices') {
@@ -373,6 +395,11 @@ export function createHandler(
     if (method === 'PATCH' && deviceMatch?.[1]) {
       if (membership.role !== 'admin') return response(403, { message: 'admin role required' });
       const changes = parseDeviceChanges(event.body);
+      if (changes.trackerIntervalSeconds !== undefined && activity)
+        requireAllowedInterval(
+          changes.trackerIntervalSeconds,
+          await activity.organisation(membership.tenantId),
+        );
       if (changes.driverId && !(await store.getDriver(membership.tenantId, changes.driverId)))
         return response(400, { message: 'driverId does not match a driver' });
       if (changes.groupId && admin)
@@ -440,15 +467,20 @@ export function createHandler(
     if (method === 'GET' && path === '/organisation') {
       const organisation = await activity!.organisation(membership.tenantId);
       return organisation
-        ? response(200, organisation)
+        ? response(200, withPlan(organisation))
         : response(404, { message: 'organisation not found' });
     }
     if (method === 'PATCH' && path === '/organisation') {
       if (membership.role !== 'admin') return response(403, { message: 'admin role required' });
       const changes = parseOrganisationChanges(event.body);
+      if (typeof changes.trackerIntervalSeconds === 'number')
+        requireAllowedInterval(
+          changes.trackerIntervalSeconds,
+          await activity!.organisation(membership.tenantId),
+        );
       const organisation = await activity!.updateOrganisation(membership.tenantId, changes);
       return organisation
-        ? response(200, organisation)
+        ? response(200, withPlan(organisation))
         : response(404, { message: 'organisation not found' });
     }
     if (method === 'GET' && path === '/alerts') {
@@ -896,9 +928,42 @@ function parseDevice(body: string | undefined): DeviceInput {
   };
 }
 
+/** The plan limit applies to every interval a fleet admin sets, fleet-wide or per vehicle. */
+function requireAllowedInterval(seconds: number, organisation: Organisation | undefined) {
+  const fastest = fastestIntervalFor(organisation?.plan);
+  if (seconds < fastest)
+    throw new InputError(`your plan allows syncing every ${fastest} seconds at the fastest`);
+}
+
+/** The organisation with its plan spelled out, so the dashboard can offer only allowed intervals. */
+function withPlan(organisation: Organisation) {
+  const plan = isSubscriptionPlan(organisation.plan) ? organisation.plan : defaultSubscriptionPlan;
+  return {
+    ...organisation,
+    plan,
+    fastestTrackerIntervalSeconds: fastestIntervalFor(plan),
+    effectiveTrackerIntervalSeconds: effectiveTrackerInterval({
+      fleet: organisation.trackerIntervalSeconds,
+      plan,
+    }),
+  };
+}
+
 function parseOrganisationChanges(body: string | undefined) {
   const value = jsonObject(body);
-  const changes: { name?: string; dispatcherPhone?: string | null; timeZone?: string } = {};
+  const changes: {
+    name?: string;
+    dispatcherPhone?: string | null;
+    timeZone?: string;
+    trackerIntervalSeconds?: number | null;
+  } = {};
+  // null goes back to the platform default (30 s).
+  if (value.trackerIntervalSeconds !== undefined)
+    changes.trackerIntervalSeconds = clearable(value.trackerIntervalSeconds, (seconds) => {
+      if (!(trackerIntervals as readonly unknown[]).includes(seconds))
+        throw new InputError('trackerIntervalSeconds is unsupported');
+      return seconds as number;
+    });
   if (value.name !== undefined) changes.name = text(value.name, 'name', 1, 100).trim();
   if (value.name !== undefined && !changes.name) throw new InputError('name is invalid');
   if (value.dispatcherPhone !== undefined)

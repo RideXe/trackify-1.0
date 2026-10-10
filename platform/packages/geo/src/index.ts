@@ -74,3 +74,6 @@ export function plausibleDistance(
 function radians(value: number): number {
   return (value * Math.PI) / 180;
 }
+
+export * from './kalman';
+export * from './track-filter';

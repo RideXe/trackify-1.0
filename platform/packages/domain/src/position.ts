@@ -83,6 +83,13 @@ export const positionAttributesSchema = z.object({
   hdop: z.number().nonnegative().optional(),
   rssi: z.number().optional(),
   driverUniqueId: z.string().min(1).max(64).optional(),
+  /**
+   * Distance driven since the previous reported point, measured along the phone's full-rate
+   * filtered track; more accurate than the straight line between reported points.
+   */
+  pathDistanceM: z.number().nonnegative().optional(),
+  /** Why a fix was kept out of the live track and trips (stored in history for debugging). */
+  rejectedReason: z.string().max(40).optional(),
   io: ioValuesSchema.optional(),
 });
 export type PositionAttributes = z.infer<typeof positionAttributesSchema>;

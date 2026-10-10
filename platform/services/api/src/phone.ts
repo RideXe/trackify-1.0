@@ -15,7 +15,7 @@ import {
   alertFor,
   checkItems,
   defaultPauseLimitMinutes,
-  defaultTrackerIntervalSeconds,
+  effectiveTrackerInterval,
   driverActivityTypes,
   dutyAfter,
   isOneOf,
@@ -116,7 +116,12 @@ export function createPhoneHandler(deps: PhoneDependencies) {
           vehicleName: device.name,
           vehicleType: device.vehicleType,
           driverName: driver?.name,
-          trackerIntervalSeconds: device.trackerIntervalSeconds ?? defaultTrackerIntervalSeconds,
+          // Vehicle setting, else the fleet default, never faster than the fleet's plan.
+          trackerIntervalSeconds: effectiveTrackerInterval({
+            vehicle: device.trackerIntervalSeconds,
+            fleet: organisation?.trackerIntervalSeconds,
+            plan: organisation?.plan,
+          }),
           pauseLimitMinutes: device.pauseLimitMinutes ?? defaultPauseLimitMinutes,
           dutyStatus: device.dutyStatus ?? 'off',
           dutySince: device.dutySince,

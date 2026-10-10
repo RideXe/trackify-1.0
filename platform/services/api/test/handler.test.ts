@@ -551,3 +551,94 @@ describe('fleet trips', () => {
     expect(tooLong.statusCode).toBe(400);
   });
 });
+
+describe('sync intervals and plans', () => {
+  function activityWith(organisation: Record<string, unknown>) {
+    return {
+      ...activityStore(),
+      organisation: vi
+        .fn()
+        .mockResolvedValue({ tenantId: 'tenant-a', name: 'Acme', ...organisation }),
+      updateOrganisation: vi.fn((_t: string, changes: object) =>
+        Promise.resolve({ tenantId: 'tenant-a', name: 'Acme', ...organisation, ...changes }),
+      ),
+    };
+  }
+
+  it('shows the plan and what vehicles really use', async () => {
+    const result = await createHandler(
+      store(),
+      undefined,
+      undefined,
+      activityWith({ plan: 'premium', trackerIntervalSeconds: 10 }),
+      photos,
+    )(event('GET', '/organisation'));
+    expect(JSON.parse(result.body)).toMatchObject({
+      plan: 'premium',
+      fastestTrackerIntervalSeconds: 5,
+      effectiveTrackerIntervalSeconds: 10,
+    });
+  });
+
+  it('lets an admin set a fleet default within the plan', async () => {
+    const activity = activityWith({ plan: 'basic' });
+    const handler = createHandler(store(), undefined, undefined, activity, photos);
+    expect(
+      (await handler(eventWithBody('PATCH', '/organisation', { trackerIntervalSeconds: 60 })))
+        .statusCode,
+    ).toBe(200);
+    const tooFast = await handler(
+      eventWithBody('PATCH', '/organisation', { trackerIntervalSeconds: 5 }),
+    );
+    expect(tooFast.statusCode).toBe(400);
+    expect(JSON.parse(tooFast.body)).toEqual({
+      message: 'your plan allows syncing every 30 seconds at the fastest',
+    });
+    expect(
+      (await handler(eventWithBody('PATCH', '/organisation', { trackerIntervalSeconds: 7 })))
+        .statusCode,
+    ).toBe(400);
+    expect(
+      (await handler(eventWithBody('PATCH', '/organisation', { trackerIntervalSeconds: null })))
+        .statusCode,
+    ).toBe(200);
+  });
+
+  it('applies the plan limit to vehicle settings too', async () => {
+    const handler = createHandler(
+      store(),
+      undefined,
+      undefined,
+      activityWith({ plan: 'standard' }),
+      photos,
+    );
+    expect(
+      (await handler(eventWithBody('PATCH', '/devices/device-1', { trackerIntervalSeconds: 5 })))
+        .statusCode,
+    ).toBe(400);
+    expect(
+      (await handler(eventWithBody('PATCH', '/devices/device-1', { trackerIntervalSeconds: 15 })))
+        .statusCode,
+    ).toBe(200);
+  });
+
+  it('lists each vehicle’s effective interval after the fleet default and plan', async () => {
+    const dependencies = store();
+    dependencies.listDevices.mockResolvedValue([
+      { deviceId: 'fast', trackerIntervalSeconds: 5 },
+      { deviceId: 'default' },
+    ]);
+    const result = await createHandler(
+      dependencies,
+      undefined,
+      undefined,
+      activityWith({ plan: 'basic', trackerIntervalSeconds: 60 }),
+      photos,
+    )(event('GET', '/devices'));
+    expect(
+      (
+        JSON.parse(result.body) as { items: Array<{ effectiveTrackerIntervalSeconds: number }> }
+      ).items.map((item) => item.effectiveTrackerIntervalSeconds),
+    ).toEqual([30, 60]);
+  });
+});

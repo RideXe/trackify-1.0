@@ -12,6 +12,7 @@
   "dependencies": {
     "@maplibre/maplibre-react-native": "11.4.0",
     "@trackify/api-client": "0.1.0",
+    "@trackify/geo": "0.1.0",
     "react": "19.2.3",
     "react-native": "0.86.3",
     "react-native-camera-kit": "18.0.1",

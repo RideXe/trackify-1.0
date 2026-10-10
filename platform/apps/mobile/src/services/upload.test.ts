@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import type { LocationFix } from '../native/location';
+import type { CleanPoint, FilterReport } from '@trackify/geo';
 const { values } = vi.hoisted(() => ({ values: new Map<string, string>() }));
 vi.mock('./secure-store', () => ({
   getItemAsync: (key: string) => Promise.resolve(values.get(key) ?? null),
@@ -12,7 +12,7 @@ vi.mock('./secure-store', () => ({
     return Promise.resolve();
   },
 }));
-import { uploadLocation, positionBody } from './upload';
+import { batchBody, uploadBatch } from './upload';
 import {
   defaultTrackerConfig,
   readPendingPositions,
@@ -26,29 +26,46 @@ const config = {
   endpoint: 'https://api.example/phone/positions',
   credential: 'test-credential',
 };
-const location = {
-  timestamp: 1000,
-  coords: {
-    latitude: 12.9,
-    longitude: 77.5,
-    altitude: null,
-    speed: -1,
-    heading: -1,
-    accuracy: null,
-    altitudeAccuracy: null,
-  },
-} as LocationFix;
+const point = (t: number): CleanPoint => ({
+  t,
+  lat: 12.9,
+  lon: 77.5,
+  acc: 4,
+  spd: 0,
+  still: true,
+  path: 0,
+});
+const report: FilterReport = {
+  raw: 30,
+  kept: 28,
+  uploaded: 1,
+  rejected: { inaccurate: 2 },
+  relocations: 0,
+  recovered: 0,
+  samples: [],
+  distanceM: 0,
+};
+const upload = (t = 1000) => uploadBatch(config, [point(t)], report);
 beforeEach(() => {
   values.clear();
   vi.unstubAllGlobals();
 });
 describe('phone uploads', () => {
-  it('omits unavailable optional GPS fields while preserving stationary coordinates', () => {
-    expect(JSON.parse(positionBody(config, location))).toEqual({
+  it('sends a filtered window with what the filter dropped', () => {
+    expect(JSON.parse(batchBody(config, [point(1000)], report, 80))).toEqual({
+      v: 2,
       id: 'phone-1',
-      lat: 12.9,
-      lon: 77.5,
-      timestamp: 1000,
+      batt: 80,
+      points: [point(1000)],
+      filter: {
+        raw: 30,
+        kept: 28,
+        uploaded: 1,
+        rejected: { inaccurate: 2 },
+        relocations: 0,
+        distanceM: 0,
+        samples: [],
+      },
     });
   });
   it('persists offline readings, replays in order, then removes acknowledged fixes', async () => {
@@ -57,22 +74,23 @@ describe('phone uploads', () => {
       .mockRejectedValueOnce(new Error('offline'))
       .mockResolvedValue({ ok: true, status: 202 });
     vi.stubGlobal('fetch', fetch);
-    await expect(uploadLocation(config, location)).rejects.toThrow('offline');
+    await expect(upload(1000)).rejects.toThrow('offline');
     expect(await readPendingPositions()).toHaveLength(1);
-    await uploadLocation(config, { ...location, timestamp: 2000 });
+    await upload(2000);
     expect(
       fetch.mock.calls
         .slice(1)
         .map(
           (call) =>
-            (JSON.parse((call[1] as { body: string }).body) as { timestamp: number }).timestamp,
+            (JSON.parse((call[1] as { body: string }).body) as { points: CleanPoint[] }).points[0]
+              .t,
         ),
     ).toEqual([1000, 2000]);
     expect(await readPendingPositions()).toHaveLength(0);
   });
   it('keeps rejected credentials pending and never reports a successful upload', async () => {
     vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ ok: false, status: 401 }));
-    await expect(uploadLocation(config, location)).rejects.toThrow('access');
+    await expect(upload()).rejects.toThrow('access');
     expect(await readPendingPositions()).toHaveLength(1);
   });
   it('drops a reading the server rejects, records why, and does not report it uploaded', async () => {
@@ -84,7 +102,7 @@ describe('phone uploads', () => {
         json: () => Promise.resolve({ message: 'lat is invalid' }),
       }),
     );
-    await uploadLocation(config, location);
+    await upload();
     expect(await readPendingPositions()).toHaveLength(0);
     const logs = await readTrackerLogs();
     expect(logs.some((line) => line.endsWith('GPS reading rejected: lat is invalid'))).toBe(true);
@@ -94,7 +112,7 @@ describe('phone uploads', () => {
     await appendPendingPosition({ deviceId: 'old-car', endpoint: config.endpoint, body: '{}' });
     const fetch = vi.fn().mockResolvedValue({ ok: true, status: 202 });
     vi.stubGlobal('fetch', fetch);
-    await uploadLocation(config, location);
+    await upload();
     expect(fetch).toHaveBeenCalledTimes(1);
     expect(
       (JSON.parse((fetch.mock.calls[0][1] as { body: string }).body) as { id: string }).id,

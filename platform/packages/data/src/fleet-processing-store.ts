@@ -1,6 +1,7 @@
 import {
   BatchGetCommand,
   GetCommand,
+  UpdateCommand,
   QueryCommand,
   TransactWriteCommand,
   type DynamoDBDocumentClient,
@@ -10,14 +11,16 @@ import type { PositionMessage } from '@trackify/domain';
 import { noGeocoder, type Geocoder } from '@trackify/geocoder';
 import {
   applyComputed,
+  assessFix,
   evaluatePosition,
-  isPlausibleLiveFix,
+  maxSpeedFor,
   type ComputedAttribute,
   type FleetRules,
   type FleetState,
   type GeofenceRule,
   type LinkedVehicle,
   type MaintenanceRule,
+  type Suspect,
 } from '@trackify/fleet';
 import {
   devicePartitionKey,
@@ -112,8 +115,18 @@ export class DynamoFleetProcessingStore implements FleetProcessingStore {
       await this.putHistoricalPosition(position, pk);
       return { duplicate: previous.fixTime === position.fixTime, eventCount: 0 };
     }
-    if (!isPlausibleLiveFix(previous, position)) {
-      await this.putHistoricalPosition(position, pk);
+    const verdict = assessFix(
+      previous && { ...previous, suspect: toSuspect(stateResult.Item?.suspect) },
+      position,
+      maxSpeedFor(deviceResult.Item?.vehicleType),
+    );
+    if (!verdict.accept) {
+      // Kept in history with the reason, so a support check can see why the map skipped it.
+      await this.putHistoricalPosition(
+        { ...position, attributes: { ...position.attributes, rejectedReason: verdict.reason } },
+        pk,
+      );
+      if (verdict.suspect && stateResult.Item) await this.rememberSuspect(pk, verdict.suspect);
       return { duplicate: false, eventCount: 0 };
     }
     const linked = await this.linkedVehicles(position.tenantId, deviceResult.Item);
@@ -121,6 +134,7 @@ export class DynamoFleetProcessingStore implements FleetProcessingStore {
       previous,
       position,
       toRules(deviceResult.Item, config, groupId, linked),
+      { relocated: verdict.relocated },
     );
     await this.addTripAddresses(transition);
     // A correction entered before the first report becomes the starting totals.
@@ -308,6 +322,24 @@ export class DynamoFleetProcessingStore implements FleetProcessingStore {
     );
   }
 
+  /** The latest held-out fix, so following fixes that agree with it can prove a real jump. */
+  private async rememberSuspect(pk: string, suspect: Suspect) {
+    await this.client
+      .send(
+        new UpdateCommand({
+          TableName: this.tables.state,
+          Key: { pk },
+          UpdateExpression: 'SET suspect = :suspect',
+          ConditionExpression: 'attribute_exists(pk)',
+          ExpressionAttributeValues: { ':suspect': suspect },
+        }),
+      )
+      .catch((error: unknown) => {
+        if (!(error instanceof Error && error.name === 'ConditionalCheckFailedException'))
+          throw error;
+      });
+  }
+
   private async putHistoricalPosition(position: PositionMessage, pk: string) {
     try {
       await this.client.send(
@@ -485,4 +517,20 @@ function accumulatorReset(
 
 function optionalNumber(value: unknown) {
   return typeof value === 'number' ? value : undefined;
+}
+
+function toSuspect(value: unknown): Suspect | undefined {
+  if (typeof value !== 'object' || value === null) return undefined;
+  const suspect = value as Record<string, unknown>;
+  return typeof suspect.latitude === 'number' &&
+    typeof suspect.longitude === 'number' &&
+    typeof suspect.fixTime === 'number' &&
+    typeof suspect.count === 'number'
+    ? {
+        latitude: suspect.latitude,
+        longitude: suspect.longitude,
+        fixTime: suspect.fixTime,
+        count: suspect.count,
+      }
+    : undefined;
 }

@@ -38,6 +38,8 @@ export interface TrackerConfig {
   lastReadMessageAt: number;
   /** When the setup code was redeemed; 0 for phones connected before this was recorded. */
   connectedAt: number;
+  /** Last time the background task fetched settings (sync interval) from the server. */
+  settingsCheckedAt: number;
 }
 
 export const defaultTrackerConfig: TrackerConfig = {
@@ -56,6 +58,7 @@ export const defaultTrackerConfig: TrackerConfig = {
   sentWarnings: {},
   lastReadMessageAt: 0,
   connectedAt: 0,
+  settingsCheckedAt: 0,
 };
 
 const configKey = 'tracker-config-v2';

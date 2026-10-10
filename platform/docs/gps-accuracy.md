@@ -61,3 +61,20 @@ uploaded (5 s, 10 s, 15 s, 30 s, 1 min, 2 min or 5 min).
   (AWS credentials for the account; the Core table name is a Data stack output).
 
 Faster syncs mean more requests and mobile data (5 s is six times 30 s), not more GPS battery.
+
+## Online, offline and "no GPS signal"
+
+- Every window the phone contacts the server, even without a usable position (indoors, weak
+  signal, or paused). A window with no position is a **check-in**: the server only refreshes
+  "last seen", and any positions saved offline are sent first.
+- A vehicle is **offline** after two missed syncs plus a minute, never under 5 minutes (11 minutes
+  at a 5-minute interval). The server's offline sweeper and the dashboard use the same rule
+  (`offlineAfterMs` in `packages/domain/src/activity.ts`).
+- A phone that checks in but has had no fix for that long shows as **"Phone online · no GPS
+  signal since …"**; one that stops contacting the server shows **"phone not reachable since …"**.
+- The phone's home screen shows what actually reached the server ("Last sent at 14:05"), or why
+  not: no GPS, no internet, access refused, server down.
+- If Android stops the tracker and won't let it restart in the background, the shift stays on.
+  The app restarts tracking as soon as it is opened, and shows "Restart tracking" if nothing has
+  been sent for two missed syncs. Drivers are asked to exclude Trackify from battery optimisation.
+- The dashboard cannot wake a phone whose app Android has stopped: that needs push notifications.

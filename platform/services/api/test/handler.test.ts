@@ -486,6 +486,28 @@ describe('driver activity and messages', () => {
       expect.objectContaining({ deviceId: 'device-1', type: 'message', text: 'Go to depot' }),
     );
 
+    const assigned = store();
+    assigned.getDevice.mockResolvedValue({
+      deviceId: 'device-1',
+      name: 'Demo Car',
+      uniqueId: 'phone-demo-1',
+      protocol: 'osmand',
+      retentionDays: 90,
+      driverId: 'driver-1',
+    });
+    const toDriver = activityStore();
+    await createHandler(
+      assigned,
+      undefined,
+      undefined,
+      toDriver,
+      photos,
+    )(eventWithBody('POST', '/devices/device-1/messages', { text: 'Slow down' }));
+    expect(toDriver.append).toHaveBeenCalledWith(
+      'tenant-a',
+      expect.objectContaining({ driverId: 'driver-1', driverName: 'Ramesh Kumar' }),
+    );
+
     const missing = store();
     missing.getDevice.mockResolvedValue(undefined);
     const notFound = await createHandler(

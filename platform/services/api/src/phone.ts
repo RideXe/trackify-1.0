@@ -135,6 +135,7 @@ export function createPhoneHandler(deps: PhoneDependencies) {
         // The pause limit is the administrator's, whatever the phone thinks it is.
         if (entry.type === 'pause')
           entry.until = entry.at + (device.pauseLimitMinutes ?? defaultPauseLimitMinutes) * 60_000;
+        Object.assign(entry, await assignedDriver(deps, tenantId, device.driverId));
         const stored = await deps.activity.append(tenantId, entry, now);
         const duty = dutyAfter(stored.type);
         if (duty)
@@ -344,3 +345,14 @@ export const handler = createPhoneHandler({
   dashboardUrl: requiredEnv('DASHBOARD_URL'),
   now: Date.now,
 });
+
+/** Who drives the vehicle now, so every entry keeps its driver even after a reassignment. */
+async function assignedDriver(
+  deps: Pick<PhoneDependencies, 'fleet'>,
+  tenantId: string,
+  driverId: string | undefined,
+): Promise<{ driverId?: string; driverName?: string }> {
+  if (!driverId) return {};
+  const driver = await deps.fleet.getDriver(tenantId, driverId);
+  return { driverId, driverName: driver?.name };
+}

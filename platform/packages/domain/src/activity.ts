@@ -135,6 +135,9 @@ export interface ActivityEntry {
   /** message */
   text?: string;
   sentBy?: string;
+  /** The driver assigned to the vehicle when the entry arrived; for a message, its recipient. */
+  driverId?: string;
+  driverName?: string;
 }
 
 export type AlertSeverity = 'critical' | 'high' | 'warning';

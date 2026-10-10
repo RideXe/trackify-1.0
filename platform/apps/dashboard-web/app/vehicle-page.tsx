@@ -14,6 +14,7 @@ import {
   List,
   ListItemButton,
   ListItemText,
+  Menu,
   MenuItem,
   Paper,
   Stack,
@@ -31,16 +32,19 @@ import {
 } from '@trackify/api-client';
 import {
   ArrowLeft,
+  ArrowLeftRight,
   BellRing,
+  Ellipsis,
   LocateFixed,
   MapPin,
+  MessageSquareText,
   Pencil,
-  Phone,
+  PhoneCall,
   Trash2,
   TriangleAlert,
   UserPlus,
+  UserMinus,
   UserRound,
-  UserX,
 } from 'lucide-react';
 import { useEffect, useMemo, useState, type ReactNode } from 'react';
 import { DriverActivityCard, PhoneSettingsCard } from './driver-activity';
@@ -221,9 +225,9 @@ export function VehiclePage({
         >
           <VehicleAvatar
             type={vehicleType}
-            size={48}
-            color={statusColors[status]}
-            background={`${statusColors[status]}1A`}
+            size={52}
+            color="#FFFFFF"
+            background={statusColors[status]}
           />
           <Box sx={{ minWidth: 0, flex: 1 }}>
             <Stack
@@ -348,111 +352,129 @@ export function VehiclePage({
       <Box
         sx={{
           display: 'grid',
-          gridTemplateColumns: {
-            xs: '1fr',
-            lg: 'minmax(0, 1fr) 300px',
-            xl: 'minmax(0, 1fr) 320px',
-          },
           gap: 2,
           alignItems: 'start',
+          gridTemplateColumns: {
+            xs: '1fr',
+            lg: '360px minmax(0, 1fr)',
+            xl: '380px minmax(0, 1fr) 300px',
+          },
+          gridTemplateAreas: {
+            xs: '"map" "activity" "side"',
+            lg: '"map activity" "side side"',
+            xl: '"map activity side"',
+          },
         }}
       >
-        <Stack spacing={2} sx={{ minWidth: 0 }}>
-          <Panel>
-            <PanelHead
-              title="Live position"
-              caption={
-                hasPosition
-                  ? 'Last known location · updates as it moves'
-                  : 'Waiting for the first GPS signal'
-              }
-              action={
-                <Button
-                  disabled={!hasPosition}
-                  onClick={() => setFocusRequest((value) => value + 1)}
-                  startIcon={<LocateFixed size={16} />}
-                  variant="outlined"
-                  color="inherit"
-                  sx={{ minHeight: 36, borderColor: '#DCE2EB', color: '#39445A' }}
-                >
-                  Center map
-                </Button>
-              }
+        <Panel sx={{ gridArea: 'map' }}>
+          <PanelHead
+            title="Live position"
+            caption={
+              hasPosition
+                ? 'Last known location · updates as it moves'
+                : 'Waiting for the first GPS signal'
+            }
+            action={
+              <Button
+                disabled={!hasPosition}
+                onClick={() => setFocusRequest((value) => value + 1)}
+                startIcon={<LocateFixed size={16} />}
+                variant="outlined"
+                color="inherit"
+                sx={{ minHeight: 36, borderColor: '#DCE2EB', color: '#39445A' }}
+              >
+                Center map
+              </Button>
+            }
+          />
+          <Box
+            sx={{
+              position: 'relative',
+              borderTop: { xs: `1px solid ${panelBorder}`, lg: 0 },
+              // On desktop the map looks like the driver's phone screen rather than a wide panel.
+              mx: { lg: 2 },
+              p: { lg: '9px' },
+              bgcolor: { lg: '#172033' },
+              borderRadius: { lg: '30px' },
+              boxShadow: { lg: '0 10px 30px rgba(23,32,51,.18)' },
+              '& > div:first-of-type': { borderRadius: { lg: '22px' }, overflow: 'hidden' },
+            }}
+          >
+            <FleetMap
+              devices={mapDevices}
+              focusRequest={focusRequest}
+              height={{ xs: 340, sm: 420, lg: 600 }}
+              selectedId={device.deviceId}
+              onSelect={() => undefined}
             />
-            <Box
-              sx={{
-                position: 'relative',
-                borderTop: `1px solid ${panelBorder}`,
-              }}
-            >
-              <FleetMap
-                devices={mapDevices}
-                focusRequest={focusRequest}
-                height={{ xs: 340, sm: 420, lg: 435, xl: 490 }}
-                selectedId={device.deviceId}
-                onSelect={() => undefined}
-              />
-              {hasPosition && (
-                <Stack
-                  direction="row"
-                  spacing={1}
+            {hasPosition && (
+              <Stack
+                direction="row"
+                spacing={1}
+                sx={{
+                  position: 'absolute',
+                  top: { xs: 9, sm: 12, lg: 21 },
+                  left: { xs: 9, sm: 12, lg: 21 },
+                  zIndex: 2,
+                  alignItems: 'center',
+                  bgcolor: '#FFFFFF',
+                  border: `1px solid ${panelBorder}`,
+                  borderRadius: '10px',
+                  boxShadow: '0 2px 8px rgba(23,32,51,.06)',
+                  px: { xs: 1.1, sm: 1.4 },
+                  py: { xs: 0.9, sm: 1.1 },
+                  fontSize: 11,
+                  pointerEvents: 'none',
+                }}
+              >
+                <Box
                   sx={{
-                    position: 'absolute',
-                    top: { xs: 9, sm: 12 },
-                    left: { xs: 9, sm: 12 },
-                    zIndex: 2,
-                    alignItems: 'center',
-                    bgcolor: '#FFFFFF',
-                    border: `1px solid ${panelBorder}`,
-                    borderRadius: '10px',
-                    boxShadow: '0 2px 8px rgba(23,32,51,.06)',
-                    px: { xs: 1.1, sm: 1.4 },
-                    py: { xs: 0.9, sm: 1.1 },
-                    fontSize: 11,
-                    pointerEvents: 'none',
+                    width: 7,
+                    height: 7,
+                    borderRadius: '50%',
+                    bgcolor: statusColors[status],
                   }}
-                >
-                  <Box
-                    sx={{
-                      width: 7,
-                      height: 7,
-                      borderRadius: '50%',
-                      bgcolor: statusColors[status],
-                    }}
-                  />
-                  <span>{status === 'moving' ? 'Live position' : 'Last known position'}</span>
-                </Stack>
-              )}
-            </Box>
-            <Stack
-              direction="row"
-              spacing={1.25}
-              sx={{
-                justifyContent: 'space-between',
-                alignItems: 'center',
-                px: { xs: 1.5, sm: 2 },
-                py: 1.4,
-                color: 'text.secondary',
-                fontSize: { xs: 10, sm: 11 },
-              }}
-            >
-              <span>
-                <Box component="strong" sx={{ color: 'text.primary', fontWeight: 700 }}>
-                  GPS coordinates
-                </Box>{' '}
-                · {coordinates ?? 'not received yet'}
-              </span>
-              {state?.lastSeenAt && <span>Updated {timeAgo(state.lastSeenAt)}</span>}
-            </Stack>
-          </Panel>
-
-          <RouteHistory client={client} device={device} />
-        </Stack>
-
+                />
+                <span>{status === 'moving' ? 'Live position' : 'Last known position'}</span>
+              </Stack>
+            )}
+          </Box>
+          <Stack
+            direction="row"
+            spacing={1.25}
+            sx={{
+              justifyContent: 'space-between',
+              alignItems: 'center',
+              flexWrap: 'wrap',
+              rowGap: 0.5,
+              px: { xs: 1.5, sm: 2 },
+              py: 1.4,
+              color: 'text.secondary',
+              fontSize: { xs: 10, sm: 11 },
+            }}
+          >
+            <span>
+              <Box component="strong" sx={{ color: 'text.primary', fontWeight: 700 }}>
+                GPS coordinates
+              </Box>{' '}
+              · {coordinates ?? 'not received yet'}
+            </span>
+            {state?.lastSeenAt && <span>Updated {timeAgo(state.lastSeenAt)}</span>}
+          </Stack>
+        </Panel>
+        <Box sx={{ gridArea: 'activity', minWidth: 0 }}>
+          <DriverActivityCard
+            canMessage={canDispatch}
+            client={client}
+            device={device}
+            driverName={assignedDriver(device, drivers)?.name}
+          />
+        </Box>
         <Box
           sx={{
+            gridArea: 'side',
             display: 'grid',
-            gridTemplateColumns: { xs: '1fr', sm: 'repeat(2, minmax(0, 1fr))', lg: '1fr' },
+            gridTemplateColumns: { xs: '1fr', sm: 'repeat(2, minmax(0, 1fr))', xl: '1fr' },
             gap: 2,
             alignItems: 'start',
             minWidth: 0,
@@ -460,6 +482,7 @@ export function VehiclePage({
         >
           <DriverCard
             admin={admin}
+            canMessage={canDispatch}
             client={client}
             device={device}
             devices={devices}
@@ -477,12 +500,12 @@ export function VehiclePage({
       <Box
         sx={{
           display: 'grid',
-          gridTemplateColumns: { xs: '1fr', lg: 'repeat(2, minmax(0, 1fr))' },
+          gridTemplateColumns: { xs: '1fr', xl: 'minmax(0, 1.6fr) minmax(0, 1fr)' },
           gap: 2,
           alignItems: 'start',
         }}
       >
-        <DriverActivityCard canMessage={canDispatch} client={client} device={device} />
+        <RouteHistory client={client} device={device} />
         <VehicleAlertsCard
           alerts={alerts}
           canAcknowledge={canDispatch}
@@ -610,6 +633,7 @@ function DriverCard({
   drivers,
   driversError,
   admin,
+  canMessage,
   client,
   onChanged,
   onDriversChanged,
@@ -619,12 +643,14 @@ function DriverCard({
   drivers?: Driver[];
   driversError: string;
   admin: boolean;
+  canMessage: boolean;
   client: TrackifyClient;
   onChanged: () => Promise<void>;
   onDriversChanged: () => Promise<void>;
 }) {
   const driver = assignedDriver(device, drivers);
   const [assignOpen, setAssignOpen] = useState(false);
+  const [menu, setMenu] = useState<HTMLElement | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
 
@@ -652,9 +678,43 @@ function DriverCard({
         action={
           admin &&
           driver && (
-            <Button onClick={() => setAssignOpen(true)} size="small" sx={textButtonSx}>
-              Change
-            </Button>
+            <>
+              <Tooltip title="More driver options">
+                <IconButton
+                  aria-label="More driver options"
+                  onClick={(event) => setMenu(event.currentTarget)}
+                  size="small"
+                >
+                  <Ellipsis size={18} />
+                </IconButton>
+              </Tooltip>
+              <Menu anchorEl={menu} open={Boolean(menu)} onClose={() => setMenu(null)}>
+                <MenuItem
+                  onClick={() => {
+                    setMenu(null);
+                    setAssignOpen(true);
+                  }}
+                  sx={{ gap: 1.25, fontSize: 13 }}
+                >
+                  <ArrowLeftRight size={16} /> Switch to another driver
+                </MenuItem>
+                <MenuItem
+                  disabled={busy}
+                  onClick={() => {
+                    setMenu(null);
+                    if (
+                      window.confirm(
+                        `Remove ${driver.name} from ${device.name}? The vehicle will have no driver until you assign one.`,
+                      )
+                    )
+                      void assign(null);
+                  }}
+                  sx={{ gap: 1.25, fontSize: 13, color: 'error.main' }}
+                >
+                  <UserMinus size={16} /> Remove from this vehicle
+                </MenuItem>
+              </Menu>
+            </>
           )
         }
       />
@@ -680,27 +740,42 @@ function DriverCard({
                 <Button
                   fullWidth
                   href={telHref(driver.phone)}
-                  startIcon={<Phone size={16} />}
+                  startIcon={<PhoneCall size={16} />}
                   variant="contained"
+                  color="success"
                   sx={{ minHeight: 38, fontSize: 12 }}
                 >
-                  Call
+                  Call driver
                 </Button>
               )}
-              {admin && (
+              {canMessage && (
                 <Button
-                  color="inherit"
-                  disabled={busy}
                   fullWidth
-                  onClick={() => void assign(null)}
-                  startIcon={<UserX size={16} />}
+                  onClick={() => {
+                    const box = document.getElementById('driver-message');
+                    box?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                    box?.focus({ preventScroll: true });
+                  }}
+                  startIcon={<MessageSquareText size={16} />}
                   variant="outlined"
-                  sx={{ minHeight: 38, fontSize: 12, borderColor: '#DCE2EB', color: '#39445A' }}
+                  sx={{ minHeight: 38, fontSize: 12, borderColor: '#BFD0FF' }}
                 >
-                  Unassign
+                  Message
                 </Button>
               )}
             </Stack>
+            {admin && (
+              <Button
+                color="inherit"
+                disabled={busy}
+                onClick={() => setAssignOpen(true)}
+                startIcon={<ArrowLeftRight size={15} />}
+                size="small"
+                sx={{ ...textButtonSx, alignSelf: 'flex-start', color: '#39445A' }}
+              >
+                Switch driver
+              </Button>
+            )}
           </Stack>
         ) : lookupPending && !driversError ? (
           <CircularProgress size={22} />

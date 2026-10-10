@@ -4,6 +4,7 @@ import {
   GetCommand,
   QueryCommand,
   TransactWriteCommand,
+  UpdateCommand,
   type DynamoDBDocumentClient,
 } from '@aws-sdk/lib-dynamodb';
 import type { PositionMessage } from '@trackify/domain';
@@ -47,7 +48,12 @@ function client(
 ) {
   const queries: string[] = [];
   const writes: Array<Record<string, unknown>> = [];
+  const updates: Array<Record<string, unknown>> = [];
   const send = vi.fn((command: unknown) => {
+    if (command instanceof UpdateCommand) {
+      updates.push(command.input.ExpressionAttributeValues ?? {});
+      return Promise.resolve({});
+    }
     if (command instanceof GetCommand) {
       const input = command.input;
       if (input.TableName === 'state') return Promise.resolve({ Item: options.state });
@@ -71,8 +77,28 @@ function client(
     }
     return Promise.resolve({});
   });
-  return { client: { send } as unknown as DynamoDBDocumentClient, queries, writes };
+  return { client: { send } as unknown as DynamoDBDocumentClient, queries, writes, updates };
 }
+
+describe('fleet processing: last seen', () => {
+  it('counts a late position as contact, so a working tracker does not go offline', async () => {
+    const db = client({ state: { pk: 'x', fixTime: 5_000, lastSeenAt: 5_000 } });
+    await new DynamoFleetProcessingStore(db.client, tables).process({
+      ...position(4_000),
+      receivedAt: 9_000,
+    });
+    expect(db.updates).toContainEqual(expect.objectContaining({ ':seen': 9_000 }));
+  });
+
+  it('allows for a phone’s slow sync interval in the offline deadline', async () => {
+    const db = client();
+    await new DynamoFleetProcessingStore(db.client, tables).process(
+      position(1_000, { syncIntervalS: 300 }),
+    );
+    const state = db.writes.find((item) => item.stalePk === 'ONLINE');
+    expect(state).toMatchObject({ lastSeenAt: 1_000, staleSk: 1_000 + 360_000 });
+  });
+});
 
 describe('fleet processing', () => {
   it('stores positions with computed attributes and the vehicle’s group in live state', async () => {

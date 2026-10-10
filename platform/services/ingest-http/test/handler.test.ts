@@ -3,6 +3,7 @@ import { describe, expect, it, vi } from 'vitest';
 
 process.env.ONBOARDING_TABLE = 'test-onboarding';
 process.env.INGEST_QUEUE_URL = 'https://example.test/queue';
+process.env.DEVICE_STATE_TABLE = 'test-state';
 const { createHandler } = await import('../src/handler');
 
 const device = {
@@ -181,6 +182,33 @@ describe('phone batches (v2)', () => {
       attributes: { motion: true, pathDistanceM: 12.5 },
     });
     expect(positions[0]).toMatchObject({ attributes: { motion: false } });
+  });
+
+  it('records a check-in when a window has no usable position, so the phone stays online', async () => {
+    const sendAll = vi.fn();
+    const markSeen = vi.fn().mockResolvedValue(true);
+    const handler = createHandler({
+      credentials: { resolveCredential: vi.fn().mockResolvedValue(device) },
+      queue: { send: vi.fn(), sendAll },
+      presence: { markSeen },
+      now: () => 1_760_000_100_000,
+    });
+    const result = await handler(batchEvent({ v: 2, id: device.uniqueId, int: 300, points: [] }));
+    expect(result).toMatchObject({ statusCode: 202 });
+    expect(sendAll).not.toHaveBeenCalled();
+    expect(markSeen).toHaveBeenCalledWith(device.tenantId, device.deviceId, 1_760_000_100_000, 300);
+  });
+
+  it('tags positions with the phone’s sync interval and ignores an implausible one', async () => {
+    const { handler, sendAll } = handlerWith();
+    await handler(batchEvent({ v: 2, id: device.uniqueId, int: 120, points: [point(1)] }));
+    await handler(batchEvent({ v: 2, id: device.uniqueId, int: 1e9, points: [point(2)] }));
+    const intervals = sendAll.mock.calls.map(
+      ([positions]) =>
+        (positions as Array<{ attributes: { syncIntervalS?: number } }>)[0]!.attributes
+          .syncIntervalS,
+    );
+    expect(intervals).toEqual([120, undefined]);
   });
 
   it('stores the motion-sensor activity, dropping values it does not know', async () => {

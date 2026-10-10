@@ -12,10 +12,11 @@ vi.mock('./secure-store', () => ({
     return Promise.resolve();
   },
 }));
-import { batchBody, uploadBatch } from './upload';
+import { batchBody, checkIn, uploadBatch } from './upload';
 import {
   defaultTrackerConfig,
   readPendingPositions,
+  readSyncStatus,
   appendPendingPosition,
   readTrackerLogs,
 } from './storage';
@@ -56,6 +57,7 @@ describe('phone uploads', () => {
       v: 2,
       id: 'phone-1',
       batt: 80,
+      int: 30,
       points: [point(1000)],
       filter: {
         raw: 30,
@@ -67,6 +69,38 @@ describe('phone uploads', () => {
         samples: [],
       },
     });
+  });
+  it('checks in without positions, after sending what was saved offline', async () => {
+    await upload(1000).catch(() => undefined); // no fetch stubbed: saved offline
+    expect(await readSyncStatus()).toMatchObject({ problem: 'offline' });
+    const fetch = vi.fn().mockResolvedValue({ ok: true, status: 202 });
+    vi.stubGlobal('fetch', fetch);
+    await checkIn(config, 'no-gps', report);
+    const bodies = fetch.mock.calls.map(
+      (call) => JSON.parse((call[1] as { body: string }).body) as { points: CleanPoint[] },
+    );
+    expect(bodies.map((body) => body.points.length)).toEqual([1, 0]);
+    expect(await readPendingPositions()).toHaveLength(0);
+    const status = await readSyncStatus();
+    expect(status.problem).toBe('no-gps');
+    expect(status.positionsAt).toBeGreaterThan(0);
+    expect(status.contactAt).toBeGreaterThanOrEqual(status.positionsAt!);
+  });
+  it('a paused check-in is not a GPS problem; positions clear any problem', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ ok: true, status: 202 }));
+    await checkIn(config, 'paused');
+    expect((await readSyncStatus()).problem).toBeUndefined();
+    await checkIn(config, 'no-gps');
+    await upload();
+    expect((await readSyncStatus()).problem).toBeUndefined();
+  });
+  it('records a refused phone as an access problem for the driver to see', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue({ ok: false, status: 403, json: () => Promise.resolve({}) }),
+    );
+    await expect(checkIn(config, 'no-gps')).rejects.toThrow('Check-in failed');
+    expect((await readSyncStatus()).problem).toBe('access');
   });
   it('persists offline readings, replays in order, then removes acknowledged fixes', async () => {
     const fetch = vi

@@ -141,6 +141,24 @@ describe('driver activity', () => {
     expect(deps.activity.createAlert).not.toHaveBeenCalled();
   });
 
+  it('stamps each entry with the driver assigned at the time, and none when unassigned', async () => {
+    const deps = dependencies();
+    await createPhoneHandler(deps)(request('POST', '/phone/activity', { type: 'shift-start' }));
+    expect(deps.activity.append).toHaveBeenLastCalledWith(
+      'tenant-a',
+      expect.objectContaining({ driverId: 'driver-1', driverName: 'Ramesh Kumar' }),
+      now,
+    );
+    deps.fleet.getDevice.mockResolvedValue({
+      deviceId: 'device-1',
+      name: 'KA 01',
+      vehicleType: 'car',
+    });
+    await createPhoneHandler(deps)(request('POST', '/phone/activity', { type: 'shift-end' }));
+    const [, unassigned] = deps.activity.append.mock.lastCall!;
+    expect(unassigned).not.toHaveProperty('driverId');
+  });
+
   it("ends a pause at the administrator's limit, not one the phone sends", async () => {
     const deps = dependencies();
     await createPhoneHandler(deps)(

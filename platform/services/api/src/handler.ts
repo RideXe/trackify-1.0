@@ -99,6 +99,7 @@ interface FleetStore {
         protocol: string;
         retentionDays: number;
         groupId?: string;
+        driverId?: string;
       }
     | undefined
   >;
@@ -516,8 +517,8 @@ export function createHandler(
     if (activityMatch?.[1]) {
       if (!activity) return response(503, { message: 'activity unavailable' });
       const deviceId = activityMatch[1];
-      if (!(await store.getDevice(membership.tenantId, deviceId)))
-        return response(404, { message: 'device not found' });
+      const device = await store.getDevice(membership.tenantId, deviceId);
+      if (!device) return response(404, { message: 'device not found' });
       if (method === 'GET' && activityMatch[2] === 'activity') {
         const now = Date.now();
         const from = boundedNumber(event.queryStringParameters?.from, now - 7 * 86_400_000, 0, now);
@@ -539,12 +540,17 @@ export function createHandler(
           return response(403, { message: 'dispatcher role required' });
         const message = text(jsonObject(event.body).text, 'text', 1, 500).trim();
         if (!message) throw new InputError('text is invalid');
+        const driver = device.driverId
+          ? ((await store.getDriver(membership.tenantId, device.driverId)) as
+              { name?: string } | undefined)
+          : undefined;
         const entry = await activity.append(membership.tenantId, {
           deviceId,
           type: 'message',
           at: Date.now(),
           text: message,
           sentBy: membership.email ?? membership.userId,
+          ...(device.driverId && { driverId: device.driverId, driverName: driver?.name }),
         });
         return response(201, entry);
       }

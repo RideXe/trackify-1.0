@@ -5,6 +5,7 @@ import {
   fleetFeatures,
   headingLabel,
   hoverRows,
+  noGpsSince,
   statusCounts,
   timeAgo,
   vehicleStatus,
@@ -25,6 +26,38 @@ function vehicle(id: string, state: Device['state'], extra: Partial<Device> = {}
 }
 
 const at = { latitude: 12.97, longitude: 77.59 };
+
+describe('offline and no-GPS, allowing for the sync interval', () => {
+  const seen = (minutesAgo: number, extra: Partial<Device> = {}, fixMinutesAgo = minutesAgo) =>
+    vehicle(
+      'p',
+      {
+        ...at,
+        status: 'online',
+        lastSeenAt: now - minutesAgo * 60_000,
+        fixTime: now - fixMinutesAgo * 60_000,
+      },
+      extra,
+    );
+
+  it('keeps a phone on a 5-minute interval online between uploads', () => {
+    expect(vehicleStatus(seen(6, { effectiveTrackerIntervalSeconds: 300 }), now)).toBe('parked');
+    expect(vehicleStatus(seen(12, { effectiveTrackerIntervalSeconds: 300 }), now)).toBe('offline');
+    expect(vehicleStatus(seen(6, { effectiveTrackerIntervalSeconds: 30 }), now)).toBe('offline');
+    // Hardware trackers keep the fixed five minutes.
+    expect(
+      vehicleStatus(seen(6, { protocol: 'teltonika', effectiveTrackerIntervalSeconds: 300 }), now),
+    ).toBe('offline');
+  });
+
+  it('shows a phone that checks in without GPS as online with no signal, not offline', () => {
+    const indoors = seen(0.5, { dutyStatus: 'on' }, 20);
+    expect(vehicleStatus(indoors, now)).not.toBe('offline');
+    expect(noGpsSince(indoors, now)).toBe(now - 20 * 60_000);
+    expect(noGpsSince(seen(0.5, { dutyStatus: 'paused' }, 20), now)).toBeUndefined();
+    expect(noGpsSince(seen(0.5, { dutyStatus: 'on' }, 1), now)).toBeUndefined();
+  });
+});
 
 describe('vehicle status', () => {
   it('is offline without a recent update, or when the server says so', () => {

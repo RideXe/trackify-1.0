@@ -56,6 +56,9 @@ export async function startTracking(config: TrackerConfig) {
   if (Number(Platform.Version) >= 33)
     await PermissionsAndroid.request(PERMISSIONS.POST_NOTIFICATIONS);
   const motion = await requestActivityRecognition().catch(() => false);
+  // Without this many phones close tracking when the screen is off. A "Deny" still starts the
+  // shift; the home screen keeps asking with an Allow button.
+  await requestBatteryExemption().catch(() => false);
   await resetGpsFilter();
   // What the home screen shows about sending starts fresh with each start.
   await clearSyncStatus();
@@ -100,6 +103,20 @@ export function isBatteryOptimized() {
 
 export function openBatterySettings() {
   return TrackifyLocation.openBatterySettings();
+}
+
+/** Android's own "always run in the background?" question; falls back to the settings list. */
+export function requestBatteryExemption() {
+  return TrackifyLocation.requestBatteryExemption();
+}
+
+/** "Xiaomi", "Oppo", … when the phone has its own extra auto-start switch. */
+export function vendorPowerScreen() {
+  return TrackifyLocation.vendorPowerScreen();
+}
+
+export function openVendorPowerScreen() {
+  return TrackifyLocation.openVendorPowerScreen();
 }
 
 export async function stopTracking() {

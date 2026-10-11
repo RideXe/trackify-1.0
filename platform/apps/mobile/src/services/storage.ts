@@ -35,6 +35,8 @@ export interface TrackerConfig {
   duty: Duty;
   /** Warnings already sent for a problem that is still going on, so each is sent once. */
   sentWarnings: Partial<Record<WarningKind, boolean>>;
+  /** The driver opened the phone maker's auto-start screen, so stop asking. */
+  vendorScreenOpened?: boolean;
   lastReadMessageAt: number;
   /** When the setup code was redeemed; 0 for phones connected before this was recorded. */
   connectedAt: number;

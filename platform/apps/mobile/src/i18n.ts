@@ -100,8 +100,12 @@ const en = {
   notSending: 'Tracking has stopped sending your location. Tap Restart tracking.',
   restartTracking: 'Restart tracking',
   batteryOptimized:
-    'Android may stop tracking to save battery. Choose "Don\'t optimise" or "No restrictions" for Trackify.',
+    'Android may stop tracking to save battery. Tap Allow so Trackify keeps running.',
   openBatterySettings: 'Battery settings',
+  allowBackground: 'Allow',
+  vendorAutostart: '{brand} phones also need Auto-start turned on for Trackify, or tracking stops.',
+  openVendor: 'Open {brand} settings',
+  'warn_battery-restricted': 'Battery saver may stop tracking on this phone.',
   activityRationaleTitle: 'Motion detection',
   activityRationale:
     'Trackify uses the motion sensors to tell parked from driving. Parked positions stay steady and the battery lasts longer. Tracking works without it.',
@@ -238,8 +242,13 @@ const kn: Strings = {
     'ಟ್ರ್ಯಾಕಿಂಗ್ ನಿಮ್ಮ ಸ್ಥಳವನ್ನು ಕಳುಹಿಸುವುದನ್ನು ನಿಲ್ಲಿಸಿದೆ. ಟ್ರ್ಯಾಕಿಂಗ್ ಮರುಪ್ರಾರಂಭಿಸಿ ಒತ್ತಿ.',
   restartTracking: 'ಟ್ರ್ಯಾಕಿಂಗ್ ಮರುಪ್ರಾರಂಭಿಸಿ',
   batteryOptimized:
-    'ಬ್ಯಾಟರಿ ಉಳಿಸಲು Android ಟ್ರ್ಯಾಕಿಂಗ್ ನಿಲ್ಲಿಸಬಹುದು. Trackify ಗೆ "ಆಪ್ಟಿಮೈಸ್ ಮಾಡಬೇಡಿ" ಅಥವಾ "ನಿರ್ಬಂಧಗಳಿಲ್ಲ" ಆಯ್ಕೆಮಾಡಿ.',
+    'ಬ್ಯಾಟರಿ ಉಳಿಸಲು Android ಟ್ರ್ಯಾಕಿಂಗ್ ನಿಲ್ಲಿಸಬಹುದು. Trackify ನಡೆಯುತ್ತಿರಲು ಅನುಮತಿಸಿ ಒತ್ತಿ.',
   openBatterySettings: 'ಬ್ಯಾಟರಿ ಸೆಟ್ಟಿಂಗ್ಸ್',
+  allowBackground: 'ಅನುಮತಿಸಿ',
+  vendorAutostart:
+    '{brand} ಫೋನ್‌ಗಳಲ್ಲಿ Trackify ಗೆ ಆಟೋ-ಸ್ಟಾರ್ಟ್ ಆನ್ ಮಾಡಬೇಕು, ಇಲ್ಲದಿದ್ದರೆ ಟ್ರ್ಯಾಕಿಂಗ್ ನಿಲ್ಲುತ್ತದೆ.',
+  openVendor: '{brand} ಸೆಟ್ಟಿಂಗ್ಸ್ ತೆರೆಯಿರಿ',
+  'warn_battery-restricted': 'ಬ್ಯಾಟರಿ ಉಳಿತಾಯ ಈ ಫೋನ್‌ನಲ್ಲಿ ಟ್ರ್ಯಾಕಿಂಗ್ ನಿಲ್ಲಿಸಬಹುದು.',
   activityRationaleTitle: 'ಚಲನೆ ಪತ್ತೆ',
   activityRationale:
     'ನಿಲ್ಲಿಸಿದೆಯೇ ಅಥವಾ ಚಲಿಸುತ್ತಿದೆಯೇ ಎಂದು ತಿಳಿಯಲು Trackify ಚಲನೆ ಸೆನ್ಸರ್‌ಗಳನ್ನು ಬಳಸುತ್ತದೆ. ಇದರಿಂದ ಸ್ಥಳ ಸ್ಥಿರವಾಗಿರುತ್ತದೆ ಮತ್ತು ಬ್ಯಾಟರಿ ಉಳಿಯುತ್ತದೆ. ಇದಿಲ್ಲದೆಯೂ ಟ್ರ್ಯಾಕಿಂಗ್ ನಡೆಯುತ್ತದೆ.',
@@ -364,8 +373,13 @@ const hi: Strings = {
   notSending: 'ट्रैकिंग ने आपकी लोकेशन भेजना बंद कर दिया है। ट्रैकिंग फिर शुरू करें दबाएँ।',
   restartTracking: 'ट्रैकिंग फिर शुरू करें',
   batteryOptimized:
-    'बैटरी बचाने के लिए Android ट्रैकिंग रोक सकता है। Trackify के लिए "ऑप्टिमाइज़ न करें" या "कोई प्रतिबंध नहीं" चुनें।',
+    'बैटरी बचाने के लिए Android ट्रैकिंग रोक सकता है। Trackify चालू रखने के लिए अनुमति दें दबाएँ।',
   openBatterySettings: 'बैटरी सेटिंग',
+  allowBackground: 'अनुमति दें',
+  vendorAutostart:
+    '{brand} फ़ोन में Trackify के लिए ऑटो-स्टार्ट भी चालू करना होगा, नहीं तो ट्रैकिंग रुक जाएगी।',
+  openVendor: '{brand} सेटिंग खोलें',
+  'warn_battery-restricted': 'बैटरी सेवर इस फ़ोन पर ट्रैकिंग रोक सकता है।',
   activityRationaleTitle: 'गति पहचान',
   activityRationale:
     'Trackify गति सेंसर से पहचानता है कि गाड़ी खड़ी है या चल रही है। इससे खड़ी गाड़ी की जगह स्थिर रहती है और बैटरी बचती है। इसके बिना भी ट्रैकिंग चलती है।',
@@ -498,8 +512,13 @@ const ta: Strings = {
     'கண்காணிப்பு உங்கள் இருப்பிடத்தை அனுப்புவதை நிறுத்தியுள்ளது. கண்காணிப்பை மீண்டும் தொடங்கு என்பதைத் தட்டவும்.',
   restartTracking: 'கண்காணிப்பை மீண்டும் தொடங்கு',
   batteryOptimized:
-    'பேட்டரியைச் சேமிக்க Android கண்காணிப்பை நிறுத்தலாம். Trackify-க்கு "மேம்படுத்த வேண்டாம்" அல்லது "கட்டுப்பாடுகள் இல்லை" என்பதைத் தேர்ந்தெடுக்கவும்.',
+    'பேட்டரியைச் சேமிக்க Android கண்காணிப்பை நிறுத்தலாம். Trackify தொடர்ந்து இயங்க அனுமதி என்பதைத் தட்டவும்.',
   openBatterySettings: 'பேட்டரி அமைப்புகள்',
+  allowBackground: 'அனுமதி',
+  vendorAutostart:
+    '{brand} போன்களில் Trackify-க்கு ஆட்டோ-ஸ்டார்ட்டையும் இயக்க வேண்டும், இல்லையெனில் கண்காணிப்பு நிற்கும்.',
+  openVendor: '{brand} அமைப்புகளைத் திற',
+  'warn_battery-restricted': 'பேட்டரி சேமிப்பு இந்த போனில் கண்காணிப்பை நிறுத்தலாம்.',
   activityRationaleTitle: 'இயக்கம் கண்டறிதல்',
   activityRationale:
     'வாகனம் நிற்கிறதா ஓடுகிறதா என்பதை அறிய Trackify இயக்க சென்சார்களைப் பயன்படுத்துகிறது. இதனால் நிறுத்திய இடம் நிலையாக இருக்கும், பேட்டரி மிச்சமாகும். இது இல்லாமலும் கண்காணிப்பு வேலை செய்யும்.',

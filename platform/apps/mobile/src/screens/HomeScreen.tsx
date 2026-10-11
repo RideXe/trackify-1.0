@@ -64,6 +64,9 @@ import {
   applySyncInterval,
   isBatteryOptimized,
   openBatterySettings,
+  openVendorPowerScreen,
+  requestBatteryExemption,
+  vendorPowerScreen,
   restartTracking,
 } from '../services/tracking';
 import { colors } from '../theme';
@@ -105,6 +108,8 @@ export function HomeScreen({
   const [pending, setPending] = useState(0);
   const [syncStatus, setSyncStatus] = useState<SyncStatus>({});
   const [batteryOptimized, setBatteryOptimized] = useState(false);
+  // Phones whose maker adds its own auto-start switch (Xiaomi, Oppo, …).
+  const [vendor, setVendor] = useState<string | null>(null);
   const [, setTick] = useState(0);
   const syncing = useRef(false);
 
@@ -143,6 +148,7 @@ export function HomeScreen({
       setPending(await pendingActivityCount());
       setSyncStatus(await readSyncStatus());
       setBatteryOptimized(await isBatteryOptimized().catch(() => false));
+      setVendor(await vendorPowerScreen().catch(() => null));
       setConfig(await loadTrackerConfig());
     } finally {
       syncing.current = false;
@@ -256,7 +262,8 @@ export function HomeScreen({
         }),
     },
     ...problems
-      .filter((kind) => kind !== 'battery-low')
+      // Battery saver has its own notice with an Allow button.
+      .filter((kind) => kind !== 'battery-low' && kind !== 'battery-restricted')
       .map((kind) => ({
         key: kind,
         tone: 'danger' as const,
@@ -283,8 +290,28 @@ export function HomeScreen({
         key: 'battery-optimized',
         tone: 'warning' as const,
         text: t('batteryOptimized'),
-        action: t('openBatterySettings'),
-        onAction: () => void openBatterySettings().catch(() => Linking.openSettings()),
+        action: t('allowBackground'),
+        // Android's one-tap question; the answer is read again when the app returns to the front.
+        onAction: () =>
+          void requestBatteryExemption().catch(() =>
+            openBatterySettings().catch(() => Linking.openSettings()),
+          ),
+      },
+    duty.status !== 'off' &&
+      !batteryOptimized &&
+      vendor &&
+      !config.vendorScreenOpened && {
+        key: 'vendor',
+        tone: 'warning' as const,
+        text: t('vendorAutostart', { brand: vendor }),
+        action: t('openVendor', { brand: vendor }),
+        onAction: () =>
+          void openVendorPowerScreen()
+            .catch(() => Linking.openSettings())
+            .then(() =>
+              updateTrackerConfig((current) => ({ ...current, vendorScreenOpened: true })),
+            )
+            .then(setConfig),
       },
     pending > 0 && {
       key: 'pending',

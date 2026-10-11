@@ -41,6 +41,8 @@ export type DeviceHealth = {
   activity?: string;
   /** How long the current activity has lasted, milliseconds. */
   activityForMs?: number;
+  /** Android may stop the app in the background to save battery. */
+  batteryOptimized?: boolean;
 };
 
 export interface Spec extends TurboModule {
@@ -55,6 +57,11 @@ export interface Spec extends TurboModule {
   isBatteryOptimized(): Promise<boolean>;
   /** Opens the screen where the driver excludes Trackify from battery optimisation. */
   openBatterySettings(): Promise<void>;
+  /** Shows Android's "always run in the background?" question; false when already allowed. */
+  requestBatteryExemption(): Promise<boolean>;
+  /** The phone maker's name when it has its own auto-start screen (Xiaomi, Oppo, …), else null. */
+  vendorPowerScreen(): Promise<string | null>;
+  openVendorPowerScreen(): Promise<void>;
 }
 
 export default TurboModuleRegistry.getEnforcing<Spec>('TrackifyLocation');

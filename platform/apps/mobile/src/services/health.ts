@@ -11,6 +11,8 @@ export interface HealthReading {
   batteryPct?: number;
   charging: boolean;
   locationEnabled: boolean;
+  /** Android may stop the app in the background to save battery. */
+  batteryOptimized?: boolean;
   /** From the motion sensors, when the driver allowed "Physical activity". */
   activity?: string;
   activityForMs?: number;
@@ -29,6 +31,7 @@ export function problemsIn(config: TrackerConfig, reading: HealthReading): Warni
   if (!reading.locationEnabled) problems.push('gps-off');
   if (reading.permitted === false) problems.push('permission-revoked');
   if (reading.running === false) problems.push('tracking-stopped');
+  if (reading.batteryOptimized) problems.push('battery-restricted');
   if (reading.activity === 'foot' && (reading.activityForMs ?? 0) >= PHONE_LEFT_AFTER_MS)
     problems.push('phone-left-vehicle');
   return problems;
@@ -60,8 +63,15 @@ export async function checkHealth(config: TrackerConfig, fromApp: boolean): Prom
   }
   const problems = problemsIn(config, reading);
   const checked: WarningKind[] = fromApp
-    ? ['battery-low', 'gps-off', 'permission-revoked', 'tracking-stopped', 'phone-left-vehicle']
-    : ['battery-low', 'gps-off', 'phone-left-vehicle'];
+    ? [
+        'battery-low',
+        'gps-off',
+        'permission-revoked',
+        'tracking-stopped',
+        'phone-left-vehicle',
+        'battery-restricted',
+      ]
+    : ['battery-low', 'gps-off', 'phone-left-vehicle', 'battery-restricted'];
   const fresh = problems.filter((kind) => !config.sentWarnings[kind]);
   const resolved = checked.filter((kind) => config.sentWarnings[kind] && !problems.includes(kind));
   if (!fresh.length && !resolved.length) return problems;

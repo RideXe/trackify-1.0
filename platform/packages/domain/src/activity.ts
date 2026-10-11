@@ -17,6 +17,7 @@ export const warningKinds = [
   'permission-revoked',
   'tracking-stopped',
   'phone-left-vehicle',
+  'battery-restricted',
 ] as const;
 export type WarningKind = (typeof warningKinds)[number];
 

@@ -72,6 +72,16 @@ describe('health warnings', () => {
     ).toEqual(['gps-off', 'permission-revoked', 'tracking-stopped']);
   });
 
+  it('flags battery saver on shift only, so the office knows tracking may stop', () => {
+    expect(problemsIn(config, { ...healthy, batteryOptimized: true })).toEqual([
+      'battery-restricted',
+    ]);
+    expect(problemsIn(config, { ...healthy, batteryOptimized: false })).toEqual([]);
+    expect(
+      problemsIn({ ...config, duty: { status: 'off' } }, { ...healthy, batteryOptimized: true }),
+    ).toEqual([]);
+  });
+
   it('flags a phone that has been walking for 3 minutes during a shift', () => {
     const walking = (minutes: number) => ({
       ...healthy,

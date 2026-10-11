@@ -21,12 +21,12 @@ VERSION_CODE="$(sed -n 's/^[[:space:]]*versionCode[[:space:]]\{1,\}\([0-9]\{1,\}
 VERSION_NAME="$(sed -n 's/^[[:space:]]*versionName[[:space:]]\{1,\}"\([^"]*\)".*/\1/p' "${GRADLE_FILE}" | head -n1)"
 [ -n "${VERSION_CODE}" ] && [ -n "${VERSION_NAME}" ] || { echo "Could not read versionCode/versionName from ${GRADLE_FILE}"; exit 1; }
 
-echo "→ Finding the upload bucket (${STACK})…"
+echo "→ Finding the upload bucket (${STACK})..."
 BUCKET="$(aws cloudformation describe-stacks --stack-name "${STACK}" --profile "${PROFILE}" \
   --query "Stacks[0].Outputs[?OutputKey=='DriverAppBucket'].OutputValue" --output text)"
 [ -n "${BUCKET}" ] && [ "${BUCKET}" != "None" ] || { echo "No DriverAppBucket output on ${STACK}. Deploy the Api stack first."; exit 1; }
 
-echo "→ Checking the version against the one drivers have…"
+echo "→ Checking the version against the one drivers have..."
 CURRENT_CODE="$(aws s3api head-object --bucket "${BUCKET}" --key "${KEY}" --profile "${PROFILE}" \
   --query 'Metadata."version-code"' --output text 2>/dev/null || echo "")"
 if [ -n "${CURRENT_CODE}" ] && [ "${CURRENT_CODE}" != "None" ] && [ "${VERSION_CODE}" -le "${CURRENT_CODE}" ]; then
@@ -35,11 +35,11 @@ if [ -n "${CURRENT_CODE}" ] && [ "${CURRENT_CODE}" != "None" ] && [ "${VERSION_C
   exit 1
 fi
 
-echo "→ Building version ${VERSION_NAME} (${VERSION_CODE}) for ${ARCHITECTURES}…"
+echo "→ Building version ${VERSION_NAME} (${VERSION_CODE}) for ${ARCHITECTURES}..."
 ./gradlew assembleRelease -PreactNativeArchitectures="${ARCHITECTURES}"
 APK="app/build/outputs/apk/release/app-release.apk"
 
-echo "→ Checking the signature…"
+echo "→ Checking the signature..."
 SDK="${ANDROID_HOME:-${ANDROID_SDK_ROOT:-${HOME}/Library/Android/sdk}}"
 APKSIGNER="$(ls -d "${SDK}"/build-tools/*/apksigner 2>/dev/null | sort -V | tail -n1)"
 [ -n "${APKSIGNER}" ] || { echo "apksigner not found under ${SDK}/build-tools"; exit 1; }
@@ -51,7 +51,7 @@ if grep -q "CN=Android Debug" <<<"${CERTS}"; then
 fi
 echo "${CERTS}" | grep -m1 "SHA-256" || true
 
-echo "→ Publishing to s3://${BUCKET}/${KEY}…"
+echo "→ Publishing to s3://${BUCKET}/${KEY}..."
 aws s3 cp "${APK}" "s3://${BUCKET}/${KEY}" --profile "${PROFILE}" \
   --content-type application/vnd.android.package-archive \
   --metadata "version=${VERSION_NAME},version-code=${VERSION_CODE}"

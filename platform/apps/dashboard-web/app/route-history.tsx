@@ -299,7 +299,11 @@ export function RouteHistory({ device, client }: { device: Device; client: Track
             spacing={2}
             sx={{ alignItems: { md: 'center' }, justifyContent: 'space-between' }}
           >
-            <Stack direction="row" spacing={1.5} sx={{ alignItems: 'center', flex: 1, maxWidth: { md: '60%' } }}>
+            <Stack
+              direction="row"
+              spacing={1.5}
+              sx={{ alignItems: 'center', flex: 1, maxWidth: { md: '60%' } }}
+            >
               <Tooltip title={playing ? 'Pause' : 'Replay the route'}>
                 <IconButton
                   aria-label={playing ? 'Pause replay' : 'Replay the route'}
@@ -362,10 +366,6 @@ export function RouteHistory({ device, client }: { device: Device; client: Track
               ))}
             </Stack>
           </Stack>
-            <Alert severity="info">
-              This period has more than {MAX_ROUTE_POINTS.toLocaleString()} positions, so only the
-            </Typography>
-          )}
         </Stack>
       )}
 

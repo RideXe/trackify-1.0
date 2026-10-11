@@ -150,6 +150,11 @@ export function weekStats(entries: ActivityItem[], speeding: number, now = Date.
           if (shiftStart !== undefined) {
             stats.shiftMs += entry.at - shiftStart;
             if (checked) stats.checkedShifts += 1;
+          } else if (entry.shiftStartedAt !== undefined && entry.shiftStartedAt < entry.at) {
+            // Its start is missing from this driver's entries (they were assigned mid-shift, or
+            // it began before the week): the server noted when it began.
+            stats.shifts += 1;
+            stats.shiftMs += entry.at - entry.shiftStartedAt;
           }
           shiftStart = undefined;
           pauseStart = undefined;
@@ -220,6 +225,28 @@ export function driverScore(stats: WeekStats): DriverScore | undefined {
     label: value >= 85 ? 'Good' : value >= 65 ? 'Fair' : 'Needs coaching',
     reasons,
   };
+}
+
+/**
+ * A driver's own entries, plus the "Started shift" of any shift they ended: a driver is often
+ * assigned to the vehicle after the shift began, so that start carries no driver, or the
+ * previous one.
+ */
+export function entriesFor(all: ActivityItem[], driverId: string): ActivityItem[] {
+  const own = all.filter((entry) => entry.driverId === driverId);
+  const borrowed: ActivityItem[] = [];
+  for (const end of own) {
+    if (end.type !== 'shift-end' || end.shiftStartedAt !== undefined) continue;
+    // The same vehicle's latest start before this end, if no other end came in between.
+    const before = all
+      .filter((entry) => entry.deviceId === end.deviceId && entry.at < end.at)
+      .sort((a, b) => b.at - a.at);
+    const start = before.find(
+      (entry) => entry.type === 'shift-start' || entry.type === 'shift-end',
+    );
+    if (start?.type === 'shift-start' && start.driverId !== driverId) borrowed.push(start);
+  }
+  return [...own, ...borrowed];
 }
 
 /** Speeding episodes this driver started, from raw vehicle events. */

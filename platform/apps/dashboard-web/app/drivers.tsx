@@ -68,6 +68,7 @@ import {
   driverNow,
   driverScore,
   driverStateLabels,
+  entriesFor,
   hoursLabel,
   listDrivers,
   speedingCount,
@@ -152,7 +153,7 @@ function statsFor(
   events: Array<Record<string, unknown>>,
 ) {
   if (!entries) return undefined;
-  const own = entries.filter((entry) => entry.driverId === driverId);
+  const own = entriesFor(entries, driverId);
   return { own, stats: weekStats(own, speedingCount(events, driverId)) };
 }
 

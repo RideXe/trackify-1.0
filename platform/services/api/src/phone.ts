@@ -136,6 +136,18 @@ export function createPhoneHandler(deps: PhoneDependencies) {
         if (entry.type === 'pause')
           entry.until = entry.at + (device.pauseLimitMinutes ?? defaultPauseLimitMinutes) * 60_000;
         Object.assign(entry, await assignedDriver(deps, tenantId, device.driverId));
+        if (entry.type === 'shift-end') {
+          // The vehicle's "since" moves with every break, so the start comes from the log.
+          const [started] = await deps.activity.list(
+            tenantId,
+            deviceId,
+            entry.at - 2 * 86_400_000,
+            entry.at,
+            1,
+            'shift-start',
+          );
+          if (started) entry.shiftStartedAt = started.at;
+        }
         const stored = await deps.activity.append(tenantId, entry, now);
         const duty = dutyAfter(stored.type);
         if (duty)

@@ -4,6 +4,7 @@ import {
   driverCounts,
   driverNow,
   driverScore,
+  entriesFor,
   hoursLabel,
   listDrivers,
   speedingCount,
@@ -130,6 +131,37 @@ describe('a driver week', () => {
     const speedy = weekStats([entry('shift-start', now - hour), entry('check', now)], 20, now);
     expect(driverScore(speedy)).toMatchObject({ value: 70, label: 'Fair' });
     expect(driverScore(weekStats([], 0, now))).toBeUndefined();
+  });
+
+  it('counts a shift for the driver who ended it, when they were assigned mid-shift', () => {
+    // Started at 6:53 with no driver on the vehicle; santhosh assigned later and ended it.
+    const log = [
+      entry('shift-start', now - 4 * hour),
+      entry('shift-end', now, { driverId: 'd1', driverName: 'santhosh' }),
+    ];
+    expect(weekStats(entriesFor(log, 'd1'), 0, now)).toMatchObject({
+      shifts: 1,
+      shiftMs: 4 * hour,
+    });
+  });
+
+  it("uses the start the server noted, and never borrows across another driver's shift", () => {
+    const noted = [entry('shift-end', now, { driverId: 'd1', shiftStartedAt: now - 2 * hour })];
+    expect(weekStats(entriesFor(noted, 'd1'), 0, now)).toMatchObject({
+      shifts: 1,
+      shiftMs: 2 * hour,
+    });
+    // Driver 2 had the vehicle earlier; driver 1's end has no start of its own after that shift.
+    const handover = [
+      entry('shift-start', now - 6 * hour, { driverId: 'd2' }),
+      entry('shift-end', now - 4 * hour, { driverId: 'd2' }),
+      entry('shift-end', now, { driverId: 'd1' }),
+    ];
+    expect(weekStats(entriesFor(handover, 'd1'), 0, now).shifts).toBe(0);
+    expect(weekStats(entriesFor(handover, 'd2'), 0, now)).toMatchObject({
+      shifts: 1,
+      shiftMs: 2 * hour,
+    });
   });
 
   it('counts only the speeding this driver started', () => {

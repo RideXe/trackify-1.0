@@ -160,6 +160,11 @@ export interface ActivityEntry {
   /** message */
   text?: string;
   sentBy?: string;
+  /**
+   * shift-end: when the shift began, so it counts in full for the driver who ended it, even when
+   * they were assigned to the vehicle after it started.
+   */
+  shiftStartedAt?: number;
   /** driver-change: who drove before; driverName is who drives now (absent: no driver). */
   previousDriverName?: string;
   /** The driver assigned to the vehicle when the entry arrived; for a message, its recipient. */

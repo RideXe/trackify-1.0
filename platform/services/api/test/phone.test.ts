@@ -141,6 +141,29 @@ describe('driver activity', () => {
     expect(deps.activity.createAlert).not.toHaveBeenCalled();
   });
 
+  it('notes when the shift began on its end, from the vehicle log', async () => {
+    const deps = dependencies();
+    deps.activity.list.mockResolvedValue([
+      { entryId: 's', type: 'shift-start', at: now - 3_600_000 },
+    ]);
+    await createPhoneHandler(deps)(
+      request('POST', '/phone/activity', { type: 'shift-end', at: now - 1000 }),
+    );
+    expect(deps.activity.list).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.anything(),
+      expect.any(Number),
+      now - 1000,
+      1,
+      'shift-start',
+    );
+    expect(deps.activity.append).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({ type: 'shift-end', shiftStartedAt: now - 3_600_000 }),
+      now,
+    );
+  });
+
   it('stamps each entry with the driver assigned at the time, and none when unassigned', async () => {
     const deps = dependencies();
     await createPhoneHandler(deps)(request('POST', '/phone/activity', { type: 'shift-start' }));

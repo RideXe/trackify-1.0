@@ -283,41 +283,36 @@ function DriverEvent({ item }: { item: ActivityItem }) {
   const { title, detail, tone } = describeActivity(item);
   const map = mapLink(item.latitude, item.longitude);
   return (
-    <Stack direction="row" spacing={1} sx={{ mb: 1, maxWidth: '88%' }}>
-      <Box
-        sx={{
-          width: 10,
-          height: 10,
-          mt: 1.4,
-          borderRadius: '50%',
-          flexShrink: 0,
-          bgcolor: toneColors[tone],
-        }}
-      />
+    <Stack direction="row" sx={{ mb: 1.5, maxWidth: '85%' }}>
       <Box
         sx={{
           minWidth: 0,
-          px: 1.5,
-          py: 1,
+          px: 1.75,
+          py: 1.25,
           bgcolor: '#FFFFFF',
           border: `1px solid ${tone === 'critical' ? '#F3D1CF' : rowDivider}`,
-          borderRadius: '4px 14px 14px 14px',
+          borderLeft: `4px solid ${toneColors[tone]}`,
+          borderRadius: '16px 16px 16px 4px',
+          boxShadow: '0 1px 2px rgba(0,0,0,0.05)',
         }}
       >
-        <Typography sx={{ fontSize: 11, fontWeight: 700, color: 'text.secondary' }}>
+        <Typography sx={{ fontSize: 11, fontWeight: 700, color: 'text.secondary', mb: 0.25 }}>
           {item.driverName ?? 'Driver'}
         </Typography>
         <Typography
           sx={{
-            fontSize: 13,
-            fontWeight: 700,
+            fontSize: 14,
+            fontWeight: 600,
             color: tone === 'critical' ? toneColors.critical : 'text.primary',
+            lineHeight: 1.3,
           }}
         >
           {title}
         </Typography>
         {detail && (
-          <Typography sx={{ fontSize: 12, wordBreak: 'break-word', mt: 0.25 }}>{detail}</Typography>
+          <Typography sx={{ fontSize: 13, wordBreak: 'break-word', mt: 0.5, lineHeight: 1.4, color: 'text.secondary' }}>
+            {detail}
+          </Typography>
         )}
         {item.photoUrl && (
           <Box
@@ -325,23 +320,23 @@ function DriverEvent({ item }: { item: ActivityItem }) {
             href={item.photoUrl}
             rel="noreferrer"
             target="_blank"
-            sx={{ display: 'block', mt: 1 }}
+            sx={{ display: 'block', mt: 1.5 }}
           >
             <Box
               component="img"
               alt={title}
               src={item.photoUrl}
-              sx={{ width: 160, height: 120, objectFit: 'cover', borderRadius: 1.5 }}
+              sx={{ width: 180, height: 135, objectFit: 'cover', borderRadius: 2 }}
             />
           </Box>
         )}
-        <Typography color="text.secondary" sx={{ fontSize: 11, mt: 0.4 }}>
-          {clock(item.at)} · {timeAgo(item.at)}
-          {item.receivedAt - item.at > 120_000 ? ' · sent late (no signal)' : ''}
+        <Typography color="text.secondary" sx={{ fontSize: 10, mt: 0.75, textAlign: 'right' }}>
+          {clock(item.at)}
+          {item.receivedAt - item.at > 120_000 ? ' · late' : ''}
           {map && (
             <>
               {' · '}
-              <Link href={map} rel="noreferrer" target="_blank">
+              <Link href={map} rel="noreferrer" target="_blank" color="inherit" underline="hover">
                 map
               </Link>
             </>
@@ -354,25 +349,29 @@ function DriverEvent({ item }: { item: ActivityItem }) {
 
 function OfficeMessage({ item }: { item: ActivityItem }) {
   return (
-    <Stack sx={{ alignItems: 'flex-end', mb: 1 }}>
+    <Stack sx={{ alignItems: 'flex-end', mb: 1.5 }}>
       <Box
         sx={{
-          maxWidth: '80%',
-          px: 1.5,
-          py: 1,
-          bgcolor: 'primary.main',
+          maxWidth: '85%',
+          px: 1.75,
+          py: 1.25,
+          bgcolor: '#155EEF',
           color: '#FFFFFF',
-          borderRadius: '14px 4px 14px 14px',
-          fontSize: 13,
-          wordBreak: 'break-word',
+          borderRadius: '16px 16px 4px 16px',
+          boxShadow: '0 1px 2px rgba(0,0,0,0.05)',
         }}
       >
-        {item.text}
+        <Typography sx={{ fontSize: 14, wordBreak: 'break-word', lineHeight: 1.4 }}>
+          {item.text}
+        </Typography>
+        <Stack direction="row" spacing={1} sx={{ mt: 0.5, justifyContent: 'flex-end', alignItems: 'center', opacity: 0.9 }}>
+          <Typography sx={{ fontSize: 10 }}>
+            {item.sentBy ?? 'Office'}
+            {item.driverName ? ` → ${item.driverName}` : ''}
+          </Typography>
+          <Typography sx={{ fontSize: 10 }}>{clock(item.at)}</Typography>
+        </Stack>
       </Box>
-      <Typography color="text.secondary" sx={{ fontSize: 11, mt: 0.4, textAlign: 'right' }}>
-        {item.sentBy ?? 'Office'}
-        {item.driverName ? ` → ${item.driverName}` : ''} · {clock(item.at)}
-      </Typography>
     </Stack>
   );
 }

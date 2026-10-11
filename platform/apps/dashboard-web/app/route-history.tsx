@@ -188,8 +188,9 @@ export function RouteHistory({ device, client }: { device: Device; client: Track
           ...pad,
           pb: 2,
           display: 'grid',
-          gridTemplateColumns: 'repeat(2, minmax(0, 1fr))',
+          gridTemplateColumns: { xs: '1fr', sm: '1fr 1fr auto' },
           gap: { xs: 1, sm: 1.25 },
+          alignItems: 'start',
         }}
       >
         {(['from', 'to'] as const).map((edge) => (
@@ -212,63 +213,6 @@ export function RouteHistory({ device, client }: { device: Device; client: Track
             }}
           />
         ))}
-      </Box>
-
-      {loading && <LinearProgress />}
-
-      {route && hasPoints && (
-        <Box
-          sx={{
-            display: 'grid',
-            gridTemplateColumns: {
-              xs: 'repeat(2, minmax(0, 1fr))',
-              sm: 'repeat(4, minmax(0, 1fr))',
-            },
-            borderTop: `1px solid ${panelBorder}`,
-          }}
-        >
-          {[
-            ['Distance', `${(summary.distanceM / 1000).toFixed(1)} km`],
-            ['Duration', formatDuration(summary.durationMs)],
-            ['Top speed', `${Math.round(summary.maxSpeedKmh)} km/h`],
-            ['GPS points', route.points.length.toLocaleString()],
-          ].map(([label, value], position) => (
-            <Box
-              key={label}
-              sx={{
-                px: 1.75,
-                py: 1.6,
-                borderRight: {
-                  xs: position % 2 === 0 ? `1px solid ${panelBorder}` : 0,
-                  sm: position < 3 ? `1px solid ${panelBorder}` : 0,
-                },
-                borderBottom: {
-                  xs: position < 2 ? `1px solid ${panelBorder}` : 0,
-                  sm: 0,
-                },
-              }}
-            >
-              <Typography color="text.secondary" sx={{ fontSize: 10, mb: 0.5 }}>
-                {label}
-              </Typography>
-              <Typography sx={{ fontSize: 14, fontWeight: 700 }}>{value}</Typography>
-            </Box>
-          ))}
-        </Box>
-      )}
-
-      <Stack
-        direction="row"
-        sx={{
-          ...pad,
-          py: 1.6,
-          justifyContent: 'space-between',
-          alignItems: 'center',
-          flexWrap: 'wrap',
-          gap: 1.25,
-          borderTop: `1px solid ${panelBorder}`,
-        }}
-      >
         <Button
           disabled={loading || invalidPeriod}
           onClick={() => void show(period)}
@@ -276,45 +220,51 @@ export function RouteHistory({ device, client }: { device: Device; client: Track
             loading ? <CircularProgress color="inherit" size={16} /> : <History size={16} />
           }
           variant="contained"
-          sx={{ minHeight: 38, width: { xs: '100%', sm: 'auto' } }}
+          sx={{ minHeight: 38, mt: { sm: 0.25 }, height: 38, width: { xs: '100%', sm: 'auto' } }}
         >
           {loading ? 'Loading…' : 'Show route'}
         </Button>
+      </Box>
+
+      {loading && <LinearProgress sx={{ mt: -2 }} />}
+
+      {route && hasPoints && (
         <Stack
           direction="row"
-          sx={{ gap: 0.75, flexWrap: 'wrap', width: { xs: '100%', sm: 'auto' } }}
+          sx={{
+            px: { xs: 1.75, sm: 2 },
+            py: 1.25,
+            borderTop: `1px solid ${panelBorder}`,
+            borderBottom: `1px solid ${panelBorder}`,
+            gap: { xs: 2, sm: 4 },
+            flexWrap: 'wrap',
+            bgcolor: '#FAFBFD',
+          }}
         >
-          {(Object.keys(downloads) as Array<keyof typeof downloads>).map((kind) => (
-            <Button
-              key={kind}
-              color="inherit"
-              disabled={!hasPoints}
-              onClick={() => download(kind)}
-              size="small"
-              startIcon={<Download size={14} />}
-              variant="outlined"
-              sx={{
-                flex: { xs: 1, sm: 'none' },
-                minHeight: 32,
-                fontSize: 11,
-                borderColor: '#DCE2EB',
-                color: '#39445A',
-              }}
-            >
-              {downloads[kind].label}
-            </Button>
+          {[
+            ['Distance', `${(summary.distanceM / 1000).toFixed(1)} km`],
+            ['Duration', formatDuration(summary.durationMs)],
+            ['Top speed', `${Math.round(summary.maxSpeedKmh)} km/h`],
+            ['GPS points', route.points.length.toLocaleString()],
+          ].map(([label, value]) => (
+            <Box key={label}>
+              <Typography color="text.secondary" sx={{ fontSize: 10, mb: 0.25 }}>
+                {label}
+              </Typography>
+              <Typography sx={{ fontSize: 14, fontWeight: 700 }}>{value}</Typography>
+            </Box>
           ))}
         </Stack>
-      </Stack>
+      )}
 
       {error && (
-        <Box sx={{ ...pad, pb: 2 }}>
+        <Box sx={{ ...pad, pb: 2, pt: 2 }}>
           <Alert severity="error">{error}</Alert>
         </Box>
       )}
 
       {route && !loading && !route.points.length && (
-        <Box sx={{ ...pad, pb: 2 }}>
+        <Box sx={{ ...pad, pb: 2, pt: 2 }}>
           <Stack
             spacing={0.75}
             sx={{
@@ -336,7 +286,7 @@ export function RouteHistory({ device, client }: { device: Device; client: Track
       )}
 
       {route && hasPoints && (
-        <Stack spacing={1.5} sx={{ ...pad, pb: 2 }}>
+        <Stack spacing={1.5} sx={{ ...pad, pt: 2, pb: 2 }}>
           {route.truncated && (
             <Alert severity="info">
               This period has more than {MAX_ROUTE_POINTS.toLocaleString()} positions, so only the
@@ -347,9 +297,9 @@ export function RouteHistory({ device, client }: { device: Device; client: Track
           <Stack
             direction={{ xs: 'column', md: 'row' }}
             spacing={2}
-            sx={{ alignItems: { md: 'center' } }}
+            sx={{ alignItems: { md: 'center' }, justifyContent: 'space-between' }}
           >
-            <Stack direction="row" spacing={1.5} sx={{ alignItems: 'center', flex: 1 }}>
+            <Stack direction="row" spacing={1.5} sx={{ alignItems: 'center', flex: 1, maxWidth: { md: '60%' } }}>
               <Tooltip title={playing ? 'Pause' : 'Replay the route'}>
                 <IconButton
                   aria-label={playing ? 'Pause replay' : 'Replay the route'}
@@ -372,27 +322,48 @@ export function RouteHistory({ device, client }: { device: Device; client: Track
                   setIndex(typeof value === 'number' ? value : (value[0] ?? 0));
                 }}
               />
+              <ToggleButtonGroup
+                aria-label="Replay speed"
+                exclusive
+                size="small"
+                value={speed}
+                onChange={(_, value: number | null) => {
+                  if (value) setSpeed(value);
+                }}
+              >
+                {replaySpeeds.map((value) => (
+                  <ToggleButton key={value} value={value}>
+                    {value}×
+                  </ToggleButton>
+                ))}
+              </ToggleButtonGroup>
             </Stack>
-            <ToggleButtonGroup
-              aria-label="Replay speed"
-              exclusive
-              size="small"
-              value={speed}
-              onChange={(_, value: number | null) => {
-                if (value) setSpeed(value);
-              }}
-            >
-              {replaySpeeds.map((value) => (
-                <ToggleButton key={value} value={value}>
-                  {value}×
-                </ToggleButton>
+
+            <Stack direction="row" sx={{ gap: 0.75, flexWrap: 'wrap' }}>
+              {(Object.keys(downloads) as Array<keyof typeof downloads>).map((kind) => (
+                <Button
+                  key={kind}
+                  color="inherit"
+                  disabled={!hasPoints}
+                  onClick={() => download(kind)}
+                  size="small"
+                  startIcon={<Download size={14} />}
+                  variant="outlined"
+                  sx={{
+                    flex: { xs: 1, sm: 'none' },
+                    minHeight: 32,
+                    fontSize: 11,
+                    borderColor: '#DCE2EB',
+                    color: '#39445A',
+                  }}
+                >
+                  {downloads[kind].label}
+                </Button>
               ))}
-            </ToggleButtonGroup>
+            </Stack>
           </Stack>
-          {current && (
-            <Typography color="text.secondary" sx={{ fontSize: 12 }}>
-              {new Date(current.fixTime).toLocaleString()} · {Math.round(current.speedKmh ?? 0)}{' '}
-              km/h · {current.latitude.toFixed(5)}, {current.longitude.toFixed(5)}
+            <Alert severity="info">
+              This period has more than {MAX_ROUTE_POINTS.toLocaleString()} positions, so only the
             </Typography>
           )}
         </Stack>

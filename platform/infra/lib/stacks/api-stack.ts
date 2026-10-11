@@ -121,7 +121,12 @@ export class ApiStack extends Stack {
         ],
       },
     });
-    const integration = new HttpLambdaIntegration('FleetApiIntegration', handler);
+    // One invoke permission for the whole API instead of one per route: with 80+ routes the
+    // per-route statements exceed Lambda's 20 KB resource-policy limit. The handler still checks
+    // the caller's login and role on every request.
+    const integration = new HttpLambdaIntegration('FleetApiIntegration', handler, {
+      scopePermissionToRoute: false,
+    });
     this.api.addRoutes({
       path: '/me/push-tokens',
       methods: [HttpMethod.GET, HttpMethod.POST],

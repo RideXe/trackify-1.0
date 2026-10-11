@@ -257,16 +257,18 @@ export class ApiStack extends Stack {
     });
     props.data.core.grantReadData(appDownload);
     driverApp.grantRead(appDownload);
-    this.api.addRoutes({
+    const [downloadRoute] = this.api.addRoutes({
       path: '/driver-app/{token}',
       methods: [HttpMethod.GET],
       integration: new HttpLambdaIntegration('DriverAppDownloadIntegration', appDownload),
     });
-    // A slow ceiling on the public download route, so a shared link cannot be hammered.
-    (this.api.defaultStage?.node.defaultChild as CfnStage | undefined)?.addPropertyOverride(
-      'RouteSettings',
-      { 'GET /driver-app/{token}': { ThrottlingRateLimit: 2, ThrottlingBurstLimit: 5 } },
-    );
+    // A slow ceiling on the public download route, so a shared link cannot be hammered. The stage
+    // must wait for the route: route settings for a route that does not exist yet are rejected.
+    const stage = this.api.defaultStage?.node.defaultChild as CfnStage | undefined;
+    stage?.addPropertyOverride('RouteSettings', {
+      'GET /driver-app/{token}': { ThrottlingRateLimit: 2, ThrottlingBurstLimit: 5 },
+    });
+    if (stage && downloadRoute) stage.node.addDependency(downloadRoute);
     this.api.addRoutes({
       path: '/computed-attributes/test',
       methods: [HttpMethod.POST],

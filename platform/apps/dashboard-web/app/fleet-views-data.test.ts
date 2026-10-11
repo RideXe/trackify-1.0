@@ -2,8 +2,6 @@ import type { Device, FleetTrip } from '@trackify/api-client';
 import { describe, expect, it } from 'vitest';
 import {
   durationLabel,
-  filterCounts,
-  filterVehicles,
   overviewCounts,
   overviewVehicles,
   tripTotals,
@@ -19,33 +17,6 @@ const vehicle = (id: string, extra: Partial<Device> = {}): Device => ({
   groupId: 'UNGROUPED',
   ...extra,
 });
-const fleet = [
-  vehicle('b', { state: { lastSeenAt: now, motion: true } }),
-  vehicle('a', { state: { lastSeenAt: now, motion: false }, dutyStatus: 'paused' }),
-  vehicle('c', { dutyStatus: 'on', state: { lastSeenAt: now - 3_600_000 } }),
-];
-
-describe('live map filters', () => {
-  it('filters by status, shift and search, sorted by name', () => {
-    expect(filterVehicles(fleet, 'all', '', now).map((d) => d.deviceId)).toEqual(['a', 'b', 'c']);
-    expect(filterVehicles(fleet, 'moving', '', now).map((d) => d.deviceId)).toEqual(['b']);
-    expect(filterVehicles(fleet, 'on-shift', '', now).map((d) => d.deviceId)).toEqual(['a', 'c']);
-    expect(filterVehicles(fleet, 'not-reporting', '', now).map((d) => d.deviceId)).toEqual(['c']);
-    expect(filterVehicles(fleet, 'all', 'GPS-B', now).map((d) => d.deviceId)).toEqual(['b']);
-  });
-
-  it('counts every filter', () => {
-    expect(filterCounts(fleet, now)).toEqual({
-      all: 3,
-      moving: 1,
-      parked: 1,
-      offline: 1,
-      'on-shift': 2,
-      'not-reporting': 1,
-    });
-  });
-});
-
 const trip = (extra: Partial<FleetTrip>): FleetTrip => ({
   tripId: 't',
   deviceId: 'd',
@@ -128,6 +99,10 @@ describe('overview tiles', () => {
     ]);
     expect(overviewVehicles(cars, 'all', 'char', alerts, now).map((car) => car.name)).toEqual([
       'Charlie',
+    ]);
+    // GPS numbers too, whatever the case.
+    expect(overviewVehicles(cars, 'all', 'GPS-B', alerts, now).map((car) => car.name)).toEqual([
+      'Bravo',
     ]);
   });
 });

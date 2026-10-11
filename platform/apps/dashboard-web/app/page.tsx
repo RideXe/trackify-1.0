@@ -38,7 +38,6 @@ import {
   Bell,
   CarFront,
   CheckCircle2,
-  ChevronRight,
   CircleAlert,
   Clock3,
   Copy,
@@ -70,7 +69,6 @@ import {
 import {
   CognitoPasswordClient,
   TrackifyClient,
-  toVehicleType,
   type Device,
   type DeviceState,
   type Driver,
@@ -86,17 +84,18 @@ import {
   overviewVehicles,
   type OverviewFilter,
 } from './fleet-views-data';
+import { VehicleRow } from './vehicle-row';
 import { FleetMap as FleetMapView } from './fleet-map';
-import { noGpsSince, statusColors, timeAgo, vehicleStatus } from './fleet-map-data';
+import { noGpsSince, statusColors, vehicleStatus } from './fleet-map-data';
 import { AlertsPage, SosBanner } from './alerts';
-import { notReporting, presence, type PresenceTone } from './driver-activity-data';
+import { notReporting } from './driver-activity-data';
 import { DriversPage } from './drivers';
 import { LiveMap } from './live-map';
 import { Panel, PanelHead } from './panel';
 import { SettingsPage } from './settings';
 import { TripsPage } from './trips';
 import { VehicleNotFound, VehiclePage } from './vehicle-page';
-import { VehicleAvatar, VehicleTypePicker, vehicleIcons } from './vehicle-icons';
+import { VehicleTypePicker } from './vehicle-icons';
 import { useView, type NamedPage, type View } from './view-state';
 
 const drawerWidth = 256;
@@ -434,7 +433,9 @@ export default function FleetPage() {
           </Stack>
         ) : view.page === 'live-map' ? (
           <LiveMap
+            alerts={alerts}
             devices={devices}
+            drivers={drivers}
             onOpenVehicle={(deviceId) => go({ page: 'vehicle', deviceId })}
           />
         ) : view.page === 'trips' ? (
@@ -922,15 +923,6 @@ function isOnline(device: Device) {
   return vehicleStatus(device) !== 'offline';
 }
 
-/** Status dot colour, matching the vehicle page's badge. */
-const presenceDot: Record<PresenceTone, string> = {
-  moving: statusColors.moving,
-  parked: statusColors.parked,
-  critical: '#D92D20',
-  warning: '#DC6803',
-  muted: '#98A2B3',
-};
-
 function VehicleList({
   devices,
   openAlertIds,
@@ -985,70 +977,14 @@ function VehicleList({
             No vehicles match.
           </Typography>
         )}
-        {devices.map((device) => {
-          const now = presence(device);
-          const seen = device.state?.lastSeenAt;
-          const alert = openAlertIds.has(device.deviceId);
-          return (
-            <ListItemButton
-              key={device.deviceId}
-              onClick={() => onOpen(device.deviceId)}
-              sx={{ px: 2, py: 1.25, gap: 1.5, borderBottom: 1, borderColor: 'divider' }}
-            >
-              <Box sx={{ position: 'relative', flexShrink: 0 }}>
-                <VehicleAvatar
-                  type={toVehicleType(device.vehicleType)}
-                  color={statusColors[vehicleStatus(device)]}
-                  background="#F2F4F7"
-                />
-                <Box
-                  sx={{
-                    position: 'absolute',
-                    right: -1,
-                    bottom: -1,
-                    width: 11,
-                    height: 11,
-                    borderRadius: '50%',
-                    bgcolor: presenceDot[now.tone],
-                    border: '2px solid #FFFFFF',
-                  }}
-                />
-              </Box>
-              <Box sx={{ minWidth: 0, flex: 1 }}>
-                <Stack direction="row" spacing={1} sx={{ alignItems: 'center' }}>
-                  <Typography noWrap sx={{ fontWeight: 700, fontSize: 14, minWidth: 0 }}>
-                    {device.name}
-                  </Typography>
-                  {alert && (
-                    <Chip
-                      color="error"
-                      label="Alert"
-                      size="small"
-                      sx={{ height: 18, fontSize: 10 }}
-                    />
-                  )}
-                </Stack>
-                <Typography noWrap color="text.secondary" sx={{ fontSize: 12 }}>
-                  {[
-                    vehicleIcons[toVehicleType(device.vehicleType)].label,
-                    now.label,
-                    vehicleStatus(device) === 'moving' &&
-                      `${Math.round(device.state?.speedKmh ?? 0)} km/h`,
-                  ]
-                    .filter(Boolean)
-                    .join(' · ')}
-                </Typography>
-              </Box>
-              <Typography
-                color="text.secondary"
-                sx={{ fontSize: 11, flexShrink: 0, textAlign: 'right' }}
-              >
-                {seen ? timeAgo(seen) : 'never'}
-              </Typography>
-              <ChevronRight size={16} color="#98A2B3" />
-            </ListItemButton>
-          );
-        })}
+        {devices.map((device) => (
+          <VehicleRow
+            key={device.deviceId}
+            alert={openAlertIds.has(device.deviceId)}
+            device={device}
+            onClick={() => onOpen(device.deviceId)}
+          />
+        ))}
       </List>
     </Paper>
   );

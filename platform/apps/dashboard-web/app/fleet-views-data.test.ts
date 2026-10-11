@@ -4,6 +4,8 @@ import {
   durationLabel,
   filterCounts,
   filterVehicles,
+  overviewCounts,
+  overviewVehicles,
   tripTotals,
   tripsCsv,
 } from './fleet-views-data';
@@ -77,5 +79,55 @@ describe('trips', () => {
     expect(row).toMatch(/^"'=HYPERLINK\(""x""\)"/);
     expect(row).toContain('"12.00"');
     expect(tripsCsv([trip({ startLatitude: -12.5 })])).toContain('"-12.5"');
+  });
+});
+
+describe('overview tiles', () => {
+  const at = { latitude: 12.97, longitude: 77.59 };
+  const seen = (msAgo: number, extra: Partial<Device['state']> = {}) => ({
+    ...at,
+    status: 'online',
+    lastSeenAt: now - msAgo,
+    fixTime: now - msAgo,
+    ...extra,
+  });
+  const cars = [
+    vehicle('b-parked', { name: 'Bravo', state: seen(60_000) }),
+    vehicle('a-offline', { name: 'Alpha', state: seen(3_600_000) }),
+    vehicle('c-moving', { name: 'Charlie', state: seen(30_000, { motion: true, speedKmh: 40 }) }),
+    // On shift, silent for 20 minutes: the phone cannot be reached.
+    vehicle('d-silent', { name: 'Delta', dutyStatus: 'on', state: seen(1_200_000) }),
+    vehicle('e-alert', { name: 'Echo', state: seen(60_000) }),
+  ];
+  const alerts = new Set(['e-alert']);
+
+  it('counts each tile, with unreachable phones and open alerts as needing attention', () => {
+    expect(overviewCounts(cars, alerts, now)).toEqual({
+      all: 5,
+      moving: 1,
+      parked: 2,
+      offline: 2,
+      attention: 2,
+    });
+  });
+
+  it('lists vehicles needing attention first, then moving, parked and offline', () => {
+    expect(overviewVehicles(cars, 'all', '', alerts, now).map((car) => car.name)).toEqual([
+      'Delta',
+      'Echo',
+      'Charlie',
+      'Bravo',
+      'Alpha',
+    ]);
+  });
+
+  it('filters by the clicked tile and by the search box', () => {
+    expect(overviewVehicles(cars, 'attention', '', alerts, now).map((car) => car.name)).toEqual([
+      'Delta',
+      'Echo',
+    ]);
+    expect(overviewVehicles(cars, 'all', 'char', alerts, now).map((car) => car.name)).toEqual([
+      'Charlie',
+    ]);
   });
 });

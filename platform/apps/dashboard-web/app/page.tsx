@@ -6,8 +6,7 @@ import {
   Avatar,
   Box,
   Button,
-  Card,
-  CardContent,
+  ButtonBase,
   Chip,
   CircularProgress,
   Dialog,
@@ -39,9 +38,8 @@ import {
   Bell,
   CarFront,
   CheckCircle2,
-  CircleAlert,
   ChevronRight,
-  CircleDot,
+  CircleAlert,
   Clock3,
   Copy,
   Eye,
@@ -53,18 +51,20 @@ import {
   Menu,
   Navigation,
   Plus,
+  QrCode,
   Radio,
   RefreshCw,
-  QrCode,
   Route,
   Search,
-  Share2,
   Settings,
+  Share2,
   ShieldCheck,
   Smartphone,
+  SquareParking,
+  TriangleAlert,
   Truck,
   Users,
-  Wifi,
+  WifiOff,
   X,
 } from 'lucide-react';
 import {
@@ -80,17 +80,16 @@ import {
 } from '@trackify/api-client';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import QRCode from 'qrcode';
-import { FleetMap as FleetMapView } from './fleet-map';
 import {
-  noGpsSince,
-  statusColors,
-  statusCounts,
-  statusLabels,
-  vehicleStatus,
-  type VehicleStatus,
-} from './fleet-map-data';
+  overviewCounts,
+  overviewFilters,
+  overviewVehicles,
+  type OverviewFilter,
+} from './fleet-views-data';
+import { FleetMap as FleetMapView } from './fleet-map';
+import { noGpsSince, statusColors, timeAgo, vehicleStatus } from './fleet-map-data';
 import { AlertsPage, SosBanner } from './alerts';
-import { presence } from './driver-activity-data';
+import { notReporting, presence, type PresenceTone } from './driver-activity-data';
 import { DriversPage } from './drivers';
 import { LiveMap } from './live-map';
 import { Panel, PanelHead } from './panel';
@@ -141,10 +140,11 @@ type CreatedDevice = Device & { onboarding?: DeviceInvitation };
 const navItems: Array<{ label: string; icon: typeof Gauge; page?: NamedPage }> = [
   { label: 'Overview', icon: Gauge, page: 'overview' },
   { label: 'Live map', icon: Map, page: 'live-map' },
-  { label: 'Trips', icon: Route, page: 'trips' },
   { label: 'Drivers', icon: IdCard, page: 'drivers' },
   { label: 'Alerts', icon: Bell, page: 'alerts' },
   { label: 'Team', icon: Users },
+  // Not offered yet; the Trips page stays in the code for when it is.
+  { label: 'Trips', icon: Route },
 ];
 
 export default function FleetPage() {
@@ -311,7 +311,6 @@ export default function FleetPage() {
     );
   }
 
-  const online = devices.filter((device) => isOnline(device)).length;
   const admin = membership?.role === 'admin';
   const viewed =
     view.page === 'vehicle'
@@ -387,17 +386,6 @@ export default function FleetPage() {
               {subtitle}
             </Typography>
           </Box>
-          {/* Vehicles are added from the side menu (or the first-vehicle screen). */}
-          <Chip
-            icon={<CircleDot size={14} />}
-            color={online ? 'success' : 'default'}
-            label={
-              desktop ? `${online} of ${devices.length} online` : `${online}/${devices.length}`
-            }
-            size="small"
-            variant="outlined"
-            sx={{ flexShrink: 0 }}
-          />
         </Toolbar>
       </AppBar>
 
@@ -513,9 +501,9 @@ export default function FleetPage() {
           <Dashboard
             devices={devices}
             admin={admin}
-            online={online}
-            openAlerts={openAlerts}
+            alerts={alerts}
             onAdd={() => setOnboardingOpen(true)}
+            onAlerts={() => go({ page: 'alerts' })}
             onOpen={(deviceId) => go({ page: 'vehicle', deviceId })}
           />
         )}
@@ -644,89 +632,195 @@ function NavigationDrawer({
 function Dashboard({
   devices,
   admin,
-  online,
-  openAlerts,
+  alerts,
   onAdd,
   onOpen,
+  onAlerts,
 }: {
   devices: Device[];
   admin: boolean;
-  online: number;
-  openAlerts: number;
+  /** The fleet's recent alerts; undefined while loading. */
+  alerts?: FleetAlert[];
   onAdd: () => void;
   onOpen: (deviceId: string) => void;
+  onAlerts: () => void;
 }) {
+  const [filter, setFilter] = useState<OverviewFilter>('all');
+  const [query, setQuery] = useState('');
+  const openAlerts = useMemo(
+    () => (alerts ?? []).filter((alert) => alert.status === 'open'),
+    [alerts],
+  );
+  const openAlertIds = useMemo(
+    () => new Set(openAlerts.map((alert) => alert.deviceId)),
+    [openAlerts],
+  );
   if (!devices.length) {
     return <EmptyFleet admin={admin} onAdd={onAdd} />;
   }
+  const counts = overviewCounts(devices, openAlertIds);
+  const shown = overviewVehicles(devices, filter, query, openAlertIds);
+  const unreachable = devices.filter((device) => notReporting(device)).length;
+  const attentionParts = [
+    unreachable &&
+      `${unreachable} ${unreachable === 1 ? 'vehicle' : 'vehicles'} not reachable on shift`,
+    openAlerts.length &&
+      `${openAlerts.length} open ${openAlerts.length === 1 ? 'alert' : 'alerts'}`,
+  ].filter(Boolean);
+  const tiles: Array<{ key: OverviewFilter; icon: typeof Truck; tone: string }> = [
+    { key: 'all', icon: Truck, tone: '#155EEF' },
+    { key: 'moving', icon: Navigation, tone: statusColors.moving },
+    { key: 'parked', icon: SquareParking, tone: statusColors.parked },
+    { key: 'offline', icon: WifiOff, tone: '#667085' },
+    { key: 'attention', icon: TriangleAlert, tone: counts.attention ? '#D92D20' : '#98A2B3' },
+  ];
   return (
-    <Stack spacing={3}>
-      <Box>
-        <Typography variant="h4">Good to see you</Typography>
-        <Typography color="text.secondary" sx={{ mt: 0.5 }}>
-          Here is what is happening across your vehicles right now.
-        </Typography>
-      </Box>
+    <Stack spacing={2}>
       <Box
         sx={{
           display: 'grid',
-          gridTemplateColumns: { xs: '1fr', sm: 'repeat(2, 1fr)', xl: 'repeat(4, 1fr)' },
-          gap: 2,
+          // One row everywhere: on phones each tile is just a short label over its number.
+          gridTemplateColumns: 'repeat(5, minmax(0, 1fr))',
+          gap: { xs: 0.75, sm: 1.5 },
         }}
       >
-        <MetricCard icon={Truck} label="Total vehicles" value={devices.length} tone="#155EEF" />
-        <MetricCard icon={Wifi} label="Online now" value={online} tone="#079455" />
-        <MetricCard
-          icon={Clock3}
-          label="Currently quiet"
-          value={devices.length - online}
-          tone="#DC6803"
-        />
-        <MetricCard icon={Bell} label="Open alerts" value={openAlerts} tone="#D92D20" />
+        {tiles.map(({ key, icon, tone }) => (
+          <StatTile
+            key={key}
+            icon={icon}
+            label={overviewFilters[key]}
+            selected={filter === key}
+            tone={tone}
+            value={counts[key]}
+            // Clicking the selected tile again shows everything.
+            onClick={() => setFilter(filter === key && key !== 'all' ? 'all' : key)}
+          />
+        ))}
       </Box>
+      {attentionParts.length > 0 && filter !== 'attention' && (
+        <Alert
+          severity="warning"
+          action={
+            <Stack direction="row" spacing={0.5}>
+              <Button color="inherit" size="small" onClick={() => setFilter('attention')}>
+                Show vehicles
+              </Button>
+              {openAlerts.length > 0 && (
+                <Button color="inherit" size="small" onClick={onAlerts}>
+                  Open alerts
+                </Button>
+              )}
+            </Stack>
+          }
+        >
+          {attentionParts.join(' · ')}
+        </Alert>
+      )}
       <Box
         sx={{
           display: 'grid',
           gridTemplateColumns: { xs: '1fr', xl: 'minmax(0, 1fr) 360px' },
-          gap: 3,
+          gap: 2,
         }}
       >
-        <FleetMap devices={devices} onOpen={onOpen} />
-        <VehicleList devices={devices} onOpen={onOpen} />
+        <OverviewMap
+          devices={shown}
+          filter={filter}
+          total={devices.length}
+          onOpen={onOpen}
+          onShowAll={() => {
+            setFilter('all');
+            setQuery('');
+          }}
+        />
+        {/* Beside the map the list is exactly as tall as the map and scrolls inside. */}
+        <Box sx={{ position: 'relative', minWidth: 0 }}>
+          <Box sx={{ position: { xl: 'absolute' }, inset: 0, display: 'flex' }}>
+            <VehicleList
+              devices={shown}
+              openAlertIds={openAlertIds}
+              query={query}
+              onOpen={onOpen}
+              onQuery={setQuery}
+            />
+          </Box>
+        </Box>
       </Box>
     </Stack>
   );
 }
 
-function MetricCard({
+/** A number on the Overview that also filters the map and the list when clicked. */
+function StatTile({
   icon: Icon,
   label,
   value,
   tone,
+  selected,
+  onClick,
 }: {
   icon: typeof Truck;
   label: string;
   value: number;
   tone: string;
+  selected: boolean;
+  onClick: () => void;
 }) {
   return (
-    <Card>
-      <CardContent>
-        <Stack direction="row" sx={{ justifyContent: 'space-between', alignItems: 'flex-start' }}>
-          <Box>
-            <Typography color="text.secondary" variant="body2">
-              {label}
-            </Typography>
-            <Typography variant="h4" sx={{ mt: 1 }}>
-              {value}
-            </Typography>
-          </Box>
-          <Avatar variant="rounded" sx={{ bgcolor: `${tone}12`, color: tone }}>
-            <Icon size={21} />
-          </Avatar>
-        </Stack>
-      </CardContent>
-    </Card>
+    <ButtonBase
+      aria-pressed={selected}
+      onClick={onClick}
+      sx={{
+        display: 'flex',
+        flexDirection: { xs: 'column', md: 'row' },
+        alignItems: { xs: 'center', md: 'center' },
+        justifyContent: { xs: 'center', md: 'flex-start' },
+        gap: { xs: 0.25, md: 1.5 },
+        p: { xs: 0.9, md: 1.5 },
+        minWidth: 0,
+        textAlign: { xs: 'center', md: 'left' },
+        borderRadius: { xs: '10px', md: '14px' },
+        border: '1px solid',
+        borderColor: selected ? tone : 'divider',
+        bgcolor: selected ? `${tone}0F` : 'background.paper',
+        boxShadow: selected ? `0 0 0 1px ${tone}` : '0 1px 2px rgba(23,32,51,.04)',
+        transition: 'border-color .15s, background-color .15s',
+        '&:hover': { borderColor: tone },
+      }}
+    >
+      <Avatar
+        variant="rounded"
+        sx={{
+          display: { xs: 'none', md: 'flex' },
+          width: 38,
+          height: 38,
+          bgcolor: `${tone}14`,
+          color: tone,
+        }}
+      >
+        <Icon size={19} />
+      </Avatar>
+      <Box sx={{ minWidth: 0, maxWidth: '100%' }}>
+        <Typography
+          noWrap
+          color="text.secondary"
+          sx={{ fontSize: { xs: 10, md: 12 }, fontWeight: 600 }}
+        >
+          {label}
+        </Typography>
+        <Typography
+          sx={{
+            fontSize: { xs: 18, md: 22 },
+            fontWeight: 800,
+            lineHeight: 1.15,
+            // On phones the number carries the tile's colour, since the icon is hidden.
+            color: { xs: value ? tone : 'text.primary', md: 'text.primary' },
+          }}
+        >
+          {value}
+        </Typography>
+      </Box>
+    </ButtonBase>
   );
 }
 
@@ -772,38 +866,50 @@ function EmptyFleet({ admin, onAdd }: { admin: boolean; onAdd: () => void }) {
   );
 }
 
-function FleetMap({ devices, onOpen }: { devices: Device[]; onOpen: (deviceId: string) => void }) {
-  const counts = statusCounts(devices);
+function OverviewMap({
+  devices,
+  total,
+  filter,
+  onOpen,
+  onShowAll,
+}: {
+  /** The vehicles the tiles and search currently show. */
+  devices: Device[];
+  total: number;
+  filter: OverviewFilter;
+  onOpen: (deviceId: string) => void;
+  onShowAll: () => void;
+}) {
   const onMap = devices.filter(hasPosition).length;
+  const filtered = devices.length !== total;
   return (
-    <Paper sx={{ overflow: 'hidden' }}>
+    <Paper sx={{ overflow: 'hidden', minWidth: 0 }}>
       <Stack
-        direction={{ xs: 'column', sm: 'row' }}
+        direction="row"
         spacing={1.5}
-        sx={{ alignItems: { sm: 'center' }, justifyContent: 'space-between', p: 2 }}
+        sx={{ alignItems: 'center', justifyContent: 'space-between', px: 2, py: 1.5 }}
       >
-        <Box>
+        <Box sx={{ minWidth: 0 }}>
           <Typography sx={{ fontWeight: 700 }}>Live map</Typography>
           <Typography color="text.secondary" variant="caption">
-            {onMap
-              ? `${onMap} of ${devices.length} vehicles on the map · point at a vehicle for details, click to open it`
-              : 'Waiting for the first GPS signal'}
+            {filtered
+              ? `Showing ${devices.length} of ${total} · ${overviewFilters[filter]}`
+              : onMap
+                ? `${onMap} of ${total} vehicles on the map · click a vehicle to open it`
+                : 'Waiting for the first GPS signal'}
           </Typography>
         </Box>
-        <Stack direction="row" sx={{ flexWrap: 'wrap', columnGap: 2, rowGap: 0.5 }}>
-          {(Object.keys(counts) as VehicleStatus[]).map((status) => (
-            <Stack key={status} direction="row" spacing={0.75} sx={{ alignItems: 'center' }}>
-              <Box
-                sx={{ width: 10, height: 10, borderRadius: '50%', bgcolor: statusColors[status] }}
-              />
-              <Typography variant="caption">
-                {statusLabels[status]} {counts[status]}
-              </Typography>
-            </Stack>
-          ))}
-        </Stack>
+        {filtered && (
+          <Button size="small" onClick={onShowAll}>
+            Show all
+          </Button>
+        )}
       </Stack>
-      <FleetMapView devices={devices} onSelect={onOpen} />
+      <FleetMapView
+        devices={devices}
+        height={{ xs: 380, xl: 'max(460px, calc(100vh - 300px))' }}
+        onSelect={onOpen}
+      />
     </Paper>
   );
 }
@@ -816,24 +922,51 @@ function isOnline(device: Device) {
   return vehicleStatus(device) !== 'offline';
 }
 
+/** Status dot colour, matching the vehicle page's badge. */
+const presenceDot: Record<PresenceTone, string> = {
+  moving: statusColors.moving,
+  parked: statusColors.parked,
+  critical: '#D92D20',
+  warning: '#DC6803',
+  muted: '#98A2B3',
+};
+
 function VehicleList({
   devices,
+  openAlertIds,
+  query,
+  onQuery,
   onOpen,
 }: {
   devices: Device[];
+  openAlertIds: ReadonlySet<string>;
+  query: string;
+  onQuery: (query: string) => void;
   onOpen: (deviceId: string) => void;
 }) {
   return (
-    <Paper sx={{ overflow: 'hidden', minHeight: 400 }}>
-      <Stack spacing={2} sx={{ px: 2.5, py: 2 }}>
-        <Box>
+    <Paper
+      sx={{
+        overflow: 'hidden',
+        display: 'flex',
+        flexDirection: 'column',
+        flex: 1,
+        minHeight: { xs: 360, xl: 0 },
+        maxHeight: { xs: 520, xl: 'none' },
+      }}
+    >
+      <Stack spacing={1.5} sx={{ px: 2, pt: 1.75, pb: 1.5 }}>
+        <Stack direction="row" sx={{ justifyContent: 'space-between', alignItems: 'baseline' }}>
           <Typography sx={{ fontWeight: 700 }}>Vehicles</Typography>
           <Typography color="text.secondary" variant="caption">
-            Open a vehicle for its live status, driver and history
+            {devices.length} shown
           </Typography>
-        </Box>
+        </Stack>
         <TextField
-          placeholder="Search vehicles"
+          onChange={(event) => onQuery(event.target.value)}
+          placeholder="Search by name or GPS number"
+          size="small"
+          value={query}
           slotProps={{
             input: {
               startAdornment: (
@@ -846,44 +979,73 @@ function VehicleList({
         />
       </Stack>
       <Divider />
-      <List disablePadding>
+      <List disablePadding sx={{ flex: 1, overflowY: 'auto' }}>
+        {!devices.length && (
+          <Typography color="text.secondary" sx={{ p: 3, fontSize: 13, textAlign: 'center' }}>
+            No vehicles match.
+          </Typography>
+        )}
         {devices.map((device) => {
-          const online = isOnline(device);
+          const now = presence(device);
+          const seen = device.state?.lastSeenAt;
+          const alert = openAlertIds.has(device.deviceId);
           return (
             <ListItemButton
               key={device.deviceId}
               onClick={() => onOpen(device.deviceId)}
-              sx={{ px: 2.5, py: 1.75, borderBottom: 1, borderColor: 'divider' }}
+              sx={{ px: 2, py: 1.25, gap: 1.5, borderBottom: 1, borderColor: 'divider' }}
             >
-              <Box sx={{ mr: 1.5 }}>
+              <Box sx={{ position: 'relative', flexShrink: 0 }}>
                 <VehicleAvatar
                   type={toVehicleType(device.vehicleType)}
                   color={statusColors[vehicleStatus(device)]}
                   background="#F2F4F7"
                 />
+                <Box
+                  sx={{
+                    position: 'absolute',
+                    right: -1,
+                    bottom: -1,
+                    width: 11,
+                    height: 11,
+                    borderRadius: '50%',
+                    bgcolor: presenceDot[now.tone],
+                    border: '2px solid #FFFFFF',
+                  }}
+                />
               </Box>
-              <ListItemText
-                primary={device.name}
-                secondary={[
-                  vehicleIcons[toVehicleType(device.vehicleType)].label,
-                  presence(device).label,
-                  vehicleStatus(device) === 'moving' &&
-                    `${Math.round(device.state?.speedKmh ?? 0)} km/h`,
-                ]
-                  .filter(Boolean)
-                  .join(' · ')}
-                slotProps={{ primary: { sx: { fontWeight: 650 } } }}
-              />
-              <Box
-                sx={{
-                  width: 8,
-                  height: 8,
-                  borderRadius: '50%',
-                  bgcolor: online ? 'success.main' : '#D0D5DD',
-                  mr: 1,
-                }}
-              />
-              <ChevronRight size={17} color="#98A2B3" />
+              <Box sx={{ minWidth: 0, flex: 1 }}>
+                <Stack direction="row" spacing={1} sx={{ alignItems: 'center' }}>
+                  <Typography noWrap sx={{ fontWeight: 700, fontSize: 14, minWidth: 0 }}>
+                    {device.name}
+                  </Typography>
+                  {alert && (
+                    <Chip
+                      color="error"
+                      label="Alert"
+                      size="small"
+                      sx={{ height: 18, fontSize: 10 }}
+                    />
+                  )}
+                </Stack>
+                <Typography noWrap color="text.secondary" sx={{ fontSize: 12 }}>
+                  {[
+                    vehicleIcons[toVehicleType(device.vehicleType)].label,
+                    now.label,
+                    vehicleStatus(device) === 'moving' &&
+                      `${Math.round(device.state?.speedKmh ?? 0)} km/h`,
+                  ]
+                    .filter(Boolean)
+                    .join(' · ')}
+                </Typography>
+              </Box>
+              <Typography
+                color="text.secondary"
+                sx={{ fontSize: 11, flexShrink: 0, textAlign: 'right' }}
+              >
+                {seen ? timeAgo(seen) : 'never'}
+              </Typography>
+              <ChevronRight size={16} color="#98A2B3" />
             </ListItemButton>
           );
         })}

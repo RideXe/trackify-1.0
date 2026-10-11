@@ -49,6 +49,68 @@ export function filterCounts(devices: Device[], now = Date.now()): Record<LiveFi
   return counts;
 }
 
+/** The Overview's clickable number tiles; each one filters the map and the vehicle list. */
+export const overviewFilters = {
+  all: 'Total',
+  moving: 'Moving',
+  parked: 'Parked',
+  offline: 'Offline',
+  attention: 'Alerts',
+} as const;
+export type OverviewFilter = keyof typeof overviewFilters;
+
+/** Someone should act: a driver on shift whose phone cannot be reached, or an open alert. */
+export function needsAttention(
+  device: Device,
+  openAlertDeviceIds: ReadonlySet<string>,
+  now = Date.now(),
+) {
+  return notReporting(device, now) || openAlertDeviceIds.has(device.deviceId);
+}
+
+const overviewRank = { attention: 0, moving: 1, parked: 2, offline: 3 };
+
+/**
+ * Vehicles for the Overview: filtered by a tile and a name / GPS id search, with the ones that
+ * need attention first, then moving, parked and offline, each by name.
+ */
+export function overviewVehicles(
+  devices: Device[],
+  filter: OverviewFilter,
+  query: string,
+  openAlertDeviceIds: ReadonlySet<string>,
+  now = Date.now(),
+): Device[] {
+  const needle = query.trim().toLowerCase();
+  const rank = (device: Device) =>
+    needsAttention(device, openAlertDeviceIds, now)
+      ? overviewRank.attention
+      : overviewRank[vehicleStatus(device, now)];
+  return devices
+    .filter((device) => {
+      if (filter === 'attention' && !needsAttention(device, openAlertDeviceIds, now)) return false;
+      if (filter !== 'all' && filter !== 'attention' && vehicleStatus(device, now) !== filter)
+        return false;
+      return (
+        !needle ||
+        device.name.toLowerCase().includes(needle) ||
+        device.uniqueId.toLowerCase().includes(needle)
+      );
+    })
+    .sort((a, b) => rank(a) - rank(b) || a.name.localeCompare(b.name));
+}
+
+export function overviewCounts(
+  devices: Device[],
+  openAlertDeviceIds: ReadonlySet<string>,
+  now = Date.now(),
+): Record<OverviewFilter, number> {
+  const counts = { all: 0, moving: 0, parked: 0, offline: 0, attention: 0 };
+  for (const filter of Object.keys(counts) as OverviewFilter[])
+    counts[filter] = overviewVehicles(devices, filter, '', openAlertDeviceIds, now).length;
+  return counts;
+}
+
 export function tripTotals(trips: FleetTrip[]) {
   let distanceM = 0;
   let drivingMs = 0;

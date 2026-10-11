@@ -49,8 +49,27 @@ describe('fleet transition', () => {
       },
       { geofences: [] },
     );
-    expect(stopped.events.map((event) => event.type)).toEqual(['deviceStopped', 'tripEnded']);
-    expect(stopped.completedTrip?.distanceM).toBeGreaterThan(100);
+    // Stopping alone does not end the trip: it might be a red light.
+    expect(stopped.events.map((event) => event.type)).toEqual(['deviceStopped']);
+    expect(stopped.completedTrip).toBeUndefined();
+    const parked = evaluatePosition(
+      stopped.state,
+      {
+        ...base,
+        messageId: 'parked-000000001',
+        fixTime: 61_000 + 5 * 60_000,
+        receivedAt: 61_000 + 5 * 60_000,
+        latitude: 12.9726,
+        speedKmh: 0,
+        attributes: { motion: false, ignition: true },
+      },
+      { geofences: [] },
+    );
+    expect(parked.events.map((event) => event.type)).toEqual(['tripEnded']);
+    // It ended when the vehicle stopped, not five minutes later.
+    expect(parked.events[0]?.eventTime).toBe(61_000);
+    expect(parked.completedTrip).toMatchObject({ startTime: 1_000, endTime: 61_000 });
+    expect(parked.completedTrip?.distanceM).toBeGreaterThan(100);
   });
 
   it('emits geofence, overspeed, alarm and ignition transitions', () => {
@@ -199,5 +218,73 @@ describe('GPS drift while parked', () => {
     expect(refined.latitude).toBe(metresNorth(50));
     expect(refined.accuracyM).toBe(6);
     expect(refined.odometerM).toBe(0);
+  });
+
+  describe('trips, as a driver would count them', () => {
+    const at = (second: number) => 1_000 + second * 1_000;
+    const fix = (second: number, north: number, moving: boolean, path = 0): PositionMessage => ({
+      ...phone,
+      messageId: `trip-${String(second).padStart(12, '0')}`,
+      fixTime: at(second),
+      receivedAt: at(second),
+      latitude: metresNorth(north),
+      accuracyM: 5,
+      speedKmh: moving ? 36 : 0,
+      attributes: { motion: moving, pathDistanceM: path },
+    });
+    function drive(fixes: PositionMessage[]) {
+      let state = evaluatePosition(undefined, fixes[0]!, { geofences: [] }).state;
+      const trips: Array<NonNullable<ReturnType<typeof evaluatePosition>['completedTrip']>> = [];
+      for (const position of fixes.slice(1)) {
+        const next = evaluatePosition(state, position, { geofences: [] });
+        if (next.completedTrip) trips.push(next.completedTrip);
+        state = next.state;
+      }
+      return { state, trips };
+    }
+
+    it('keeps one trip through a red light, and ends it after five minutes parked', () => {
+      const { state, trips } = drive([
+        fix(0, 0, false),
+        fix(30, 300, true, 300),
+        fix(60, 600, true, 300),
+        fix(90, 650, false, 50), // red light for 60 s
+        fix(150, 650, false, 0),
+        fix(180, 950, true, 300),
+        fix(210, 1_250, false, 300), // parked
+        fix(510, 1_250, false, 0),
+        fix(600, 1_250, false, 0),
+      ]);
+      expect(trips).toHaveLength(1);
+      expect(trips[0]).toMatchObject({ startTime: at(30), endTime: at(210) });
+      // Every metre counted: the first stretch, the slow-down before each stop, and the odometer
+      // agrees with the trip.
+      expect(trips[0]!.distanceM).toBeCloseTo(1_250, -1);
+      expect(state.odometerM).toBeCloseTo(trips[0]!.distanceM, 0);
+    });
+
+    it('counts a car-park shuffle on the odometer but not as a trip', () => {
+      const { state, trips } = drive([
+        fix(0, 0, false),
+        fix(10, 40, true, 40),
+        fix(20, 60, false, 20),
+        fix(400, 60, false, 0),
+      ]);
+      expect(trips).toEqual([]);
+      expect(state.trip).toBeUndefined();
+      expect(state.odometerM).toBeCloseTo(60, 0);
+    });
+
+    it('closes the last trip when the vehicle next reports, even after a long gap', () => {
+      const { trips, state } = drive([
+        fix(0, 0, false),
+        fix(30, 400, true, 400),
+        fix(60, 500, false, 100), // parked, then the shift ends: nothing for hours
+        fix(60 + 6 * 3_600, 500, true, 0), // next morning it drives off
+      ]);
+      expect(trips).toHaveLength(1);
+      expect(trips[0]).toMatchObject({ startTime: at(30), endTime: at(60) });
+      expect(state.trip?.startTime).toBe(at(60 + 6 * 3_600));
+    });
   });
 });

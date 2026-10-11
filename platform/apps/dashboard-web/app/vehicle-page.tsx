@@ -81,8 +81,10 @@ import {
   driverInput,
   formatCalendarDay,
   fuelLabels,
+  EVENT_PAGE,
   telHref,
   todayCalendarDay,
+  todayTotals,
   vehiclesByDriver,
   type DetailsForm,
 } from './vehicle-data';
@@ -110,7 +112,7 @@ const statIcons: Record<string, LucideIcon> = {
   Heading: Compass,
   'Distance today': MapPin,
   'This trip': Navigation,
-  'Trips · 24 h': Route,
+  'Trips today': Route,
   'Events · 24 h': CalendarDays,
   Odometer: Milestone,
 };
@@ -168,23 +170,23 @@ export function VehiclePage({
   const [removeBusy, setRemoveBusy] = useState(false);
   const [removeError, setRemoveError] = useState('');
   const [activity, setActivity] = useState<Activity>();
+  const openTrip = device.state?.trip;
+  // Changes whenever the trip in progress grows by a few hundred metres.
+  const tripCountKey = Math.floor((openTrip?.distanceM ?? 0) / 500);
 
   useEffect(() => {
     let active = true;
     setActivity(undefined);
     const now = Date.now();
     Promise.all([
-      client.trips(device.deviceId, now - 86_400_000, now),
-      client.events(device.deviceId, now - 86_400_000, now),
+      client.events(device.deviceId, now - 86_400_000, now, EVENT_PAGE),
       client.summary(device.deviceId),
     ])
-      .then(([trips, events, summary]) => {
+      .then(([events, summary]) => {
         if (!active) return;
         setActivity({
-          trips: trips.items.length,
+          ...todayTotals(summary.items, openTrip),
           events: events.items.length,
-          distanceKm:
-            summary.items.reduce((sum, item) => sum + Number(item.distanceM ?? 0), 0) / 1000,
         });
       })
       // Left as "—" rather than zero: zero would claim the vehicle did nothing.
@@ -192,7 +194,8 @@ export function VehiclePage({
     return () => {
       active = false;
     };
-  }, [client, device.deviceId]);
+    // Refreshed when a trip starts or ends, so the totals follow the vehicle.
+  }, [client, device.deviceId, openTrip?.startTime, tripCountKey]);
 
   async function removeVehicle() {
     if (
@@ -235,8 +238,11 @@ export function VehiclePage({
   const stats: Stat[] = [
     ...live,
     activity ? ['Distance today', kmNumber(activity.distanceKm), 'km'] : ['Distance today', '—'],
-    ['Trips · 24 h', activity ? String(activity.trips) : '—'],
-    ['Events · 24 h', activity ? String(activity.events) : '—'],
+    ['Trips today', activity ? String(activity.trips) : '—'],
+    [
+      'Events · 24 h',
+      activity ? (activity.events >= EVENT_PAGE ? `${EVENT_PAGE}+` : String(activity.events)) : '—',
+    ],
     state?.odometerM !== undefined
       ? ['Odometer', kmNumber(state.odometerM / 1000), 'km']
       : ['Odometer', '—'],

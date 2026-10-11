@@ -82,6 +82,10 @@ export interface FleetState {
     startAddress?: string;
     distanceM: number;
     maxSpeedKmh: number;
+    /** When and where the vehicle stopped; the trip ends there if it stays stopped. */
+    stoppedAt?: number;
+    stopLatitude?: number;
+    stopLongitude?: number;
   };
 }
 export interface CompletedTrip {
@@ -114,6 +118,15 @@ export function isPlausibleLiveFix(
   return distance === 0 || plausibleDistance(previous, position) > 0;
 }
 
+/** Stopped this long ends a trip, so red lights and traffic do not split one journey. */
+export const TRIP_END_STOP_MS = 5 * 60_000;
+/**
+ * Shorter than both is a shuffle (moving the car in a car park), not a trip. Its distance still
+ * counts on the odometer.
+ */
+export const MIN_TRIP_M = 200;
+export const MIN_TRIP_MS = 60_000;
+
 export interface EvaluateOptions {
   /** The fix was accepted as a genuine jump: no distance for the jump itself. */
   relocated?: boolean;
@@ -130,9 +143,12 @@ export function evaluatePosition(
   // vehicle online but adds no distance and cannot start a trip on a noisy speed reading.
   const path = position.attributes.pathDistanceM;
   const filtered = path !== undefined && position.attributes.motion !== undefined;
+  // A phone's first "stopped" report still carries the distance driven while slowing down.
   const moved =
     !previous ||
-    (filtered ? position.attributes.motion === true : movedBeyondDrift(previous, position));
+    (filtered
+      ? position.attributes.motion === true || path > 0
+      : movedBeyondDrift(previous, position));
   const motion = position.attributes.motion ?? (moved && (position.speedKmh ?? 0) >= 3);
   const speedKmh = motion ? (position.speedKmh ?? 0) : 0;
   const ignition = position.attributes.ignition;
@@ -245,32 +261,59 @@ export function evaluatePosition(
 
   let trip = previous?.trip;
   let completedTrip: CompletedTrip | undefined;
+  // Stopped long enough: the trip ends at the moment it stopped, not when that became certain.
+  if (trip?.stoppedAt !== undefined && position.fixTime - trip.stoppedAt >= TRIP_END_STOP_MS) {
+    const stoppedAt = trip.stoppedAt;
+    const shuffle = trip.distanceM < MIN_TRIP_M && stoppedAt - trip.startTime < MIN_TRIP_MS;
+    if (!shuffle) {
+      completedTrip = {
+        tripId: trip.tripId,
+        startTime: trip.startTime,
+        startLatitude: trip.startLatitude,
+        startLongitude: trip.startLongitude,
+        ...(trip.startAddress && { startAddress: trip.startAddress }),
+        endTime: stoppedAt,
+        endLatitude: trip.stopLatitude ?? previous!.latitude,
+        endLongitude: trip.stopLongitude ?? previous!.longitude,
+        distanceM: trip.distanceM,
+        maxSpeedKmh: trip.maxSpeedKmh,
+      };
+      emit('tripEnded', { eventTime: stoppedAt });
+    }
+    trip = undefined;
+  }
   if (motion && !trip) {
     trip = {
       tripId: deterministicId(position.deviceId, 'trip', position.fixTime),
       startTime: position.fixTime,
       startLatitude: position.latitude,
       startLongitude: position.longitude,
-      distanceM: 0,
+      // The stretch from where it was parked to here is part of the trip.
+      distanceM: segmentM,
       maxSpeedKmh: speedKmh,
     };
     emit('tripStarted');
   } else if (motion && trip) {
+    // Moving again within the stop limit: the same journey continues.
+    const { stoppedAt: _stoppedAt, stopLatitude: _lat, stopLongitude: _lon, ...moving } = trip;
+    void _stoppedAt;
+    void _lat;
+    void _lon;
     trip = {
-      ...trip,
+      ...moving,
       distanceM: trip.distanceM + segmentM,
       maxSpeedKmh: Math.max(trip.maxSpeedKmh, speedKmh),
     };
   } else if (!motion && trip) {
-    completedTrip = {
+    trip = {
       ...trip,
-      endTime: position.fixTime,
-      endLatitude: position.latitude,
-      endLongitude: position.longitude,
       distanceM: trip.distanceM + segmentM,
+      ...(trip.stoppedAt === undefined && {
+        stoppedAt: position.fixTime,
+        stopLatitude: position.latitude,
+        stopLongitude: position.longitude,
+      }),
     };
-    trip = undefined;
-    emit('tripEnded');
   }
   return {
     state: {

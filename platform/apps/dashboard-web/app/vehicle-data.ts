@@ -155,3 +155,27 @@ export function todayCalendarDay(now = new Date()): string {
   const pad = (value: number) => String(value).padStart(2, '0');
   return `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}`;
 }
+
+/** The most events the vehicle page loads; reaching it means there were at least this many. */
+export const EVENT_PAGE = 100;
+
+/**
+ * Today's trips and distance: completed trips from the day's total (kept in the company's time
+ * zone on the server) plus the trip still in progress, so a journey shows the moment it starts
+ * and both numbers always describe the same trips.
+ */
+export function todayTotals(
+  summary: Array<Record<string, unknown>>,
+  openTrip: { startTime: number; distanceM: number } | undefined,
+  now = Date.now(),
+) {
+  const midnight = new Date(now).setHours(0, 0, 0, 0);
+  const open = openTrip && openTrip.startTime >= midnight ? openTrip : undefined;
+  return {
+    trips: summary.reduce((sum, item) => sum + Number(item.tripCount ?? 0), 0) + (open ? 1 : 0),
+    distanceKm:
+      (summary.reduce((sum, item) => sum + Number(item.distanceM ?? 0), 0) +
+        (open?.distanceM ?? 0)) /
+      1000,
+  };
+}

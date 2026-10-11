@@ -13,6 +13,7 @@ import {
   telHref,
   todayCalendarDay,
   vehiclesByDriver,
+  todayTotals,
 } from './vehicle-data';
 
 function vehicle(extra: Partial<Device> = {}): Device {
@@ -112,5 +113,26 @@ describe('display helpers', () => {
   it('shows a purchase date as the calendar day that was entered', () => {
     expect(formatCalendarDay('2024-02-29')).toMatch(/29.*Feb.*2024/);
     expect(todayCalendarDay(new Date(2026, 8, 5))).toBe('2026-09-05');
+  });
+});
+
+describe('today on the vehicle page', () => {
+  const now = new Date(2026, 9, 11, 22, 0).getTime();
+  const summary = [{ day: '2026-10-11', distanceM: 18_700, tripCount: 2 }];
+
+  it('adds the trip in progress, so distance and trips describe the same journeys', () => {
+    expect(todayTotals(summary, { startTime: now - 600_000, distanceM: 400 }, now)).toEqual({
+      trips: 3,
+      distanceKm: 19.1,
+    });
+  });
+
+  it('leaves out a trip that began before midnight, and works with no trip at all', () => {
+    const yesterday = new Date(2026, 9, 10, 23, 50).getTime();
+    expect(todayTotals(summary, { startTime: yesterday, distanceM: 400 }, now)).toEqual({
+      trips: 2,
+      distanceKm: 18.7,
+    });
+    expect(todayTotals([], undefined, now)).toEqual({ trips: 0, distanceKm: 0 });
   });
 });

@@ -81,7 +81,10 @@ export function createHandler(deps: Dependencies) {
       await deps.queue.send(parsed.data);
       return response(202, 'accepted');
     } catch (error) {
-      if (error instanceof InputError) return response(400, error.message);
+      if (error instanceof InputError) {
+        console.warn('phone upload refused', { reason: error.message });
+        return response(400, error.message);
+      }
       console.error('phone ingest failed', error);
       return response(503, 'temporarily unavailable');
     }

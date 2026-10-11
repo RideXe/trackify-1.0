@@ -83,6 +83,29 @@ export function effectiveTrackerInterval(input: {
   const requested = input.vehicle ?? input.fleet ?? defaultTrackerIntervalSeconds;
   return Math.max(requested, fastestIntervalFor(input.plan));
 }
+/** The company time zone when none is set: daily totals and "today" follow India time. */
+export const defaultTimeZone = 'Asia/Kolkata';
+
+/**
+ * The calendar day (YYYY-MM-DD) a moment falls on in a time zone. UTC days would put trips made
+ * between midnight and 5:30 AM in India on the previous day.
+ */
+export function calendarDay(ms: number, timeZone: string = defaultTimeZone): string {
+  try {
+    return new Intl.DateTimeFormat('en-CA', {
+      timeZone,
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+    }).format(new Date(ms));
+  } catch {
+    // An unknown zone falls back to the default rather than losing the trip.
+    return timeZone === defaultTimeZone
+      ? new Date(ms).toISOString().slice(0, 10)
+      : calendarDay(ms, defaultTimeZone);
+  }
+}
+
 /** The fixed staleness limit the offline sweeper uses as its cutoff. */
 export const defaultOfflineAfterMs = 300_000;
 

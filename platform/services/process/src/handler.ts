@@ -22,6 +22,17 @@ export function createHandler(store: FleetProcessingStore, publisher?: PositionP
         const parsed = parsePositionMessage(JSON.parse(record.body));
         if (!parsed.success) throw new Error('invalid position message');
         const result = await store.process(parsed.data);
+        const { deviceId, fixTime } = parsed.data;
+        // One line per notable outcome: searchable when a vehicle's map or trips look wrong.
+        if (result.skipped && result.skipped !== 'late')
+          console.info('position skipped', { deviceId, fixTime, reason: result.skipped });
+        if (result.trip)
+          console.info('trip completed', {
+            deviceId,
+            tripId: result.trip.tripId,
+            distanceM: result.trip.distanceM,
+            minutes: Math.round((result.trip.endTime - result.trip.startTime) / 60_000),
+          });
         // Publish where the vehicle now shows, not the raw fix: GPS drift must not move the live
         // map, and readings that only went into history must not move it at all.
         if (!result.duplicate && result.live)

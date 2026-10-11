@@ -55,6 +55,8 @@ describe('offline and no-GPS, allowing for the sync interval', () => {
     expect(vehicleStatus(indoors, now)).not.toBe('offline');
     expect(noGpsSince(indoors, now)).toBe(now - 20 * 60_000);
     expect(noGpsSince(seen(0.5, { dutyStatus: 'paused' }, 20), now)).toBeUndefined();
+    // Off duty nothing is shared on purpose: no GPS is expected, not a warning.
+    expect(noGpsSince(seen(0.5, { dutyStatus: 'off' }, 20), now)).toBeUndefined();
     expect(noGpsSince(seen(0.5, { dutyStatus: 'on' }, 1), now)).toBeUndefined();
   });
 });

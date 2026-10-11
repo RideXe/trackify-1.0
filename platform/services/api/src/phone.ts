@@ -188,7 +188,16 @@ export function createPhoneHandler(deps: PhoneDependencies) {
 
       return response(404, { message: 'route not found' });
     } catch (error) {
-      if (error instanceof InputError) return response(400, { message: error.message });
+      if (error instanceof InputError) {
+        // The phone drops what is refused, so this is the only trace of it (e.g. a new warning
+        // kind sent before the server knows it).
+        console.warn('phone request refused', {
+          method: event.requestContext.http.method,
+          path: event.rawPath,
+          reason: error.message,
+        });
+        return response(400, { message: error.message });
+      }
       console.error('phone request failed', error);
       return response(503, { message: 'temporarily unavailable' });
     }

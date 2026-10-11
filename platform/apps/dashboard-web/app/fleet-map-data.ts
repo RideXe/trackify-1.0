@@ -139,7 +139,9 @@ export function headingLabel(degrees: number) {
  */
 export function noGpsSince(device: Device, now = Date.now()): number | undefined {
   const fixTime = device.state?.fixTime;
-  if (device.dutyStatus === 'paused' || fixTime === undefined) return undefined;
+  // Off duty or on a break no position is shared on purpose, so no GPS is not a problem.
+  if (device.dutyStatus === 'paused' || device.dutyStatus === 'off' || fixTime === undefined)
+    return undefined;
   if (vehicleStatus(device, now) === 'offline') return undefined;
   return now - fixTime >= offlineAfter(device) ? fixTime : undefined;
 }

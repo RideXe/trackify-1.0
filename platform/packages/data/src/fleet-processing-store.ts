@@ -7,7 +7,7 @@ import {
   type DynamoDBDocumentClient,
 } from '@aws-sdk/lib-dynamodb';
 import type { TransactWriteCommandInput } from '@aws-sdk/lib-dynamodb';
-import { staleSortKey, type PositionMessage } from '@trackify/domain';
+import { calendarDay, staleSortKey, type PositionMessage } from '@trackify/domain';
 import { noGeocoder, type Geocoder } from '@trackify/geocoder';
 import { DynamoPresenceStore } from './presence-store';
 import {
@@ -51,10 +51,19 @@ export interface ProcessResult {
   groupId?: string;
   /** The position as stored, with computed attributes applied. */
   position?: PositionMessage;
+  /**
+   * Kept in history only: "late" (arrived after a newer position) or why it failed the
+   * plausibility check.
+   */
+  skipped?: string;
+  /** A trip this position completed, for the processing log. */
+  trip?: { tripId: string; startTime: number; endTime: number; distanceM: number };
 }
 
 /** Tenant configuration that processing applies to every position. */
 interface TenantConfig {
+  /** For which day a trip counts in the daily totals. */
+  timeZone?: string;
   geofences: GeofenceRule[];
   computed: Array<ComputedAttribute & { order: number }>;
   maintenances: Array<MaintenanceRule & { deviceIds: string[]; groupIds: string[] }>;
@@ -116,7 +125,7 @@ export class DynamoFleetProcessingStore implements FleetProcessingStore {
       await this.putHistoricalPosition(position, pk);
       // A late or repeated position still proves the tracker is alive.
       await this.markSeen(position);
-      return { duplicate: previous.fixTime === position.fixTime, eventCount: 0 };
+      return { duplicate: previous.fixTime === position.fixTime, eventCount: 0, skipped: 'late' };
     }
     const verdict = assessFix(
       previous && { ...previous, suspect: toSuspect(stateResult.Item?.suspect) },
@@ -131,7 +140,7 @@ export class DynamoFleetProcessingStore implements FleetProcessingStore {
       );
       if (verdict.suspect && stateResult.Item) await this.rememberSuspect(pk, verdict.suspect);
       await this.markSeen(position);
-      return { duplicate: false, eventCount: 0 };
+      return { duplicate: false, eventCount: 0, skipped: verdict.reason ?? 'implausible' };
     }
     const linked = await this.linkedVehicles(position.tenantId, deviceResult.Item);
     const transition = evaluatePosition(
@@ -208,7 +217,7 @@ export class DynamoFleetProcessingStore implements FleetProcessingStore {
           ConditionExpression: 'attribute_not_exists(pk) AND attribute_not_exists(sk)',
         },
       });
-      const day = new Date(trip.startTime).toISOString().slice(0, 10);
+      const day = calendarDay(trip.startTime, config.timeZone);
       transaction.push({
         Update: {
           TableName: this.tables.dailyStats,
@@ -231,6 +240,14 @@ export class DynamoFleetProcessingStore implements FleetProcessingStore {
         live: { latitude, longitude, speedKmh },
         groupId,
         position,
+        ...(transition.completedTrip && {
+          trip: {
+            tripId: transition.completedTrip.tripId,
+            startTime: transition.completedTrip.startTime,
+            endTime: transition.completedTrip.endTime,
+            distanceM: Math.round(transition.completedTrip.distanceM),
+          },
+        }),
       };
     } catch (error) {
       if (isTransactionCanceled(error)) return { duplicate: true, eventCount: 0 };
@@ -263,10 +280,19 @@ export class DynamoFleetProcessingStore implements FleetProcessingStore {
   private async tenantConfig(tenantId: string): Promise<TenantConfig> {
     const cached = this.configs.get(tenantId);
     if (cached && cached.expires > this.now()) return cached.config;
-    const [geofences, computed, maintenances] = await Promise.all(
-      ['GEOFENCE#', 'COMPUTED#', 'MAINT#'].map((prefix) => this.listPrefix(tenantId, prefix)),
-    );
+    const [[geofences, computed, maintenances], meta] = await Promise.all([
+      Promise.all(
+        ['GEOFENCE#', 'COMPUTED#', 'MAINT#'].map((prefix) => this.listPrefix(tenantId, prefix)),
+      ),
+      this.client.send(
+        new GetCommand({
+          TableName: this.tables.core,
+          Key: { pk: tenantPartitionKey(tenantId), sk: 'META' },
+        }),
+      ),
+    ]);
     const config: TenantConfig = {
+      timeZone: typeof meta.Item?.timeZone === 'string' ? meta.Item.timeZone : undefined,
       geofences: geofences!.flatMap((item) => {
         const shape = toShape(item.shape);
         return shape ? [{ id: String(item.geofenceId), shape }] : [];

@@ -100,6 +100,9 @@ export async function readTrackerLogs() {
 }
 
 export async function addTrackerLog(message: string) {
+  // Also to the system log (adb logcat | grep TrackifyLog), even in release builds, so support
+  // can see what the phone did without opening the app.
+  console.info(`TrackifyLog ${message}`);
   const current = await readTrackerLogs().catch(() => []);
   const next = [`${new Date().toLocaleString()}  ${message}`, ...current].slice(0, 100);
   await SecureStore.setItemAsync(logsKey, JSON.stringify(next));

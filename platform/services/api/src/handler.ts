@@ -22,6 +22,7 @@ import {
 import {
   defaultSubscriptionPlan,
   defaultVehicleType,
+  calendarDay,
   effectiveTrackerInterval,
   fastestIntervalFor,
   isFuelType,
@@ -689,7 +690,9 @@ export function createHandler(
     }
     const summaryMatch = path.match(/^\/devices\/([^/]+)\/summary$/);
     if (method === 'GET' && summaryMatch?.[1]) {
-      const today = new Date().toISOString().slice(0, 10);
+      // "Today" in the company's time zone, matching how trips are counted into days.
+      const timeZone = (await activity?.organisation(membership.tenantId))?.timeZone;
+      const today = calendarDay(Date.now(), timeZone);
       const from = day(event.queryStringParameters?.from ?? today);
       const to = day(event.queryStringParameters?.to ?? today);
       const items = await store.dailyStats(membership.tenantId, summaryMatch[1], from, to);

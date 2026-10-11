@@ -6,6 +6,7 @@ import type {
   DutyStatus,
   IssueKind,
   PauseReason,
+  SubscriptionPlan,
   WarningKind,
 } from '@trackify/domain/activity';
 
@@ -98,6 +99,14 @@ export interface Organisation {
   tenantId: string;
   name: string;
   dispatcherPhone?: string;
+  /** IANA time zone for reports and emails; unset means Asia/Kolkata. */
+  timeZone?: string;
+  /** Default phone sync interval for vehicles without their own; unset means 30 s. */
+  trackerIntervalSeconds?: number;
+  /** Set by the platform operator; the server fills in the default plan. */
+  plan?: SubscriptionPlan;
+  /** The fastest interval the plan allows. */
+  fastestTrackerIntervalSeconds?: number;
 }
 
 export interface FleetAlert {
@@ -306,8 +315,13 @@ export class TrackifyClient {
   organisation() {
     return this.request<Organisation>('/organisation');
   }
-  /** Administrators only. A null dispatcher phone removes it. */
-  updateOrganisation(changes: { name?: string; dispatcherPhone?: string | null }) {
+  /** Administrators only. null removes the dispatcher phone, or resets the default interval. */
+  updateOrganisation(changes: {
+    name?: string;
+    dispatcherPhone?: string | null;
+    timeZone?: string;
+    trackerIntervalSeconds?: number | null;
+  }) {
     return this.request<Organisation>('/organisation', {
       method: 'PATCH',
       headers: { 'content-type': 'application/json' },

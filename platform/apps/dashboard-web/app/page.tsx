@@ -326,7 +326,7 @@ export default function FleetPage() {
           : view.page === 'alerts'
             ? ['Alerts', 'SOS, driver reports and phone problems']
             : view.page === 'settings'
-              ? ['Settings', 'What drivers see in their app']
+              ? ['Settings', 'Your company, location updates and plan']
               : view.page === 'vehicle'
                 ? ['Vehicle details', 'Live status, driver and route history']
                 : ['Overview', 'Live operations and vehicle health'];

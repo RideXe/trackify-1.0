@@ -1,5 +1,5 @@
 import { CfnOutput, Duration, RemovalPolicy, Stack, type StackProps } from 'aws-cdk-lib';
-import { CorsHttpMethod, HttpApi, HttpMethod } from 'aws-cdk-lib/aws-apigatewayv2';
+import { CorsHttpMethod, HttpApi, HttpMethod, type CfnStage } from 'aws-cdk-lib/aws-apigatewayv2';
 import { HttpJwtAuthorizer } from 'aws-cdk-lib/aws-apigatewayv2-authorizers';
 import { HttpLambdaIntegration } from 'aws-cdk-lib/aws-apigatewayv2-integrations';
 import { Architecture, Runtime } from 'aws-cdk-lib/aws-lambda';
@@ -55,6 +55,20 @@ export class ApiStack extends Stack {
       // Photos are evidence (accidents, receipts); never delete them with the stack.
       removalPolicy: RemovalPolicy.RETAIN,
     });
+    // The Android driver app, uploaded by `npm run release:android`. Private: drivers download it
+    // only through expiring links made in the dashboard. Versions are kept to roll back a bad one.
+    const driverApp = new Bucket(this, 'DriverApp', {
+      blockPublicAccess: BlockPublicAccess.BLOCK_ALL,
+      encryption: BucketEncryption.S3_MANAGED,
+      enforceSSL: true,
+      versioned: true,
+      lifecycleRules: [{ noncurrentVersionExpiration: Duration.days(90) }],
+      removalPolicy: RemovalPolicy.RETAIN,
+    });
+    new CfnOutput(this, 'DriverAppBucket', {
+      value: driverApp.bucketName,
+      description: 'Where the release script uploads the Android driver app',
+    });
     // SOS and serious issue reports are emailed here. AWS sends a confirmation email first;
     // nothing arrives until that link is clicked.
     const driverAlerts = new Topic(this, 'DriverAlerts', { displayName: 'Trackify driver alerts' });
@@ -77,6 +91,7 @@ export class ApiStack extends Stack {
         ONBOARDING_TABLE: props.data.onboarding.tableName,
         ONBOARDING_WEB_URL: dashboardUrl,
         PHOTOS_BUCKET: photos.bucketName,
+        DRIVER_APP_BUCKET: driverApp.bucketName,
         USER_POOL_ID: props.identity.userPool.userPoolId,
         ...(props.announcementsTopic
           ? { ANNOUNCEMENTS_TOPIC_ARN: props.announcementsTopic.topicArn }
@@ -94,6 +109,7 @@ export class ApiStack extends Stack {
     props.data.commands.grantReadWriteData(handler);
     props.data.onboarding.grantReadWriteData(handler);
     photos.grantRead(handler);
+    driverApp.grantRead(handler);
     allowGeocoding(handler, props.config);
     props.announcementsTopic?.grantPublish(handler);
     props.identity.userPool.grant(
@@ -211,6 +227,46 @@ export class ApiStack extends Stack {
       methods: [HttpMethod.GET],
       integration: new HttpLambdaIntegration('SharedLocationIntegration', shared),
     });
+    this.api.addRoutes({
+      path: '/driver-app',
+      methods: [HttpMethod.GET],
+      integration,
+      authorizer,
+    });
+    this.api.addRoutes({
+      path: '/driver-app/links',
+      methods: [HttpMethod.POST],
+      integration,
+      authorizer,
+    });
+    // The public end of a shared driver-app link: no sign-in, so it gets its own small function.
+    const appDownload = new NodejsFunction(this, 'DriverAppDownloadHandler', {
+      entry: `${props.platformPath}/services/api/src/driver-app-download.ts`,
+      runtime: Runtime.NODEJS_24_X,
+      architecture: Architecture.ARM_64,
+      memorySize: 256,
+      timeout: Duration.seconds(10),
+      environment: {
+        CORE_TABLE: props.data.core.tableName,
+        DRIVER_APP_BUCKET: driverApp.bucketName,
+      },
+      logGroup: new LogGroup(this, 'DriverAppDownloadLogs', {
+        retention: RetentionDays.ONE_WEEK,
+      }),
+      bundling: { minify: true, sourceMap: true },
+    });
+    props.data.core.grantReadData(appDownload);
+    driverApp.grantRead(appDownload);
+    this.api.addRoutes({
+      path: '/driver-app/{token}',
+      methods: [HttpMethod.GET],
+      integration: new HttpLambdaIntegration('DriverAppDownloadIntegration', appDownload),
+    });
+    // A slow ceiling on the public download route, so a shared link cannot be hammered.
+    (this.api.defaultStage?.node.defaultChild as CfnStage | undefined)?.addPropertyOverride(
+      'RouteSettings',
+      { 'GET /driver-app/{token}': { ThrottlingRateLimit: 2, ThrottlingBurstLimit: 5 } },
+    );
     this.api.addRoutes({
       path: '/computed-attributes/test',
       methods: [HttpMethod.POST],

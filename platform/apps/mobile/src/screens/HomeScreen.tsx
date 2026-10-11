@@ -8,6 +8,7 @@ import {
 import {
   Ambulance,
   CarFront,
+  ChevronRight,
   CircleCheck,
   ClipboardCheck,
   Clock3,
@@ -21,7 +22,6 @@ import {
   Play,
   Route,
   Square,
-  Timer,
   TriangleAlert,
   User,
   type LucideIcon,
@@ -32,12 +32,12 @@ import {
   AppState,
   Linking,
   Pressable,
-  RefreshControl,
   ScrollView,
   StyleSheet,
   Text,
   View,
 } from 'react-native';
+import { HoldButton } from '../components/HoldButton';
 import { LanguagePicker } from '../components/LanguagePicker';
 import { SosButton } from '../components/SosButton';
 import { Banner, Button, Card, IconBadge, Sheet, s as ui } from '../components/ui';
@@ -70,7 +70,7 @@ import { colors } from '../theme';
 import { CheckSheet, FuelSheet, IssueSheet } from './ReportSheets';
 import { MessagesSheet } from './MessagesSheet';
 
-type Panel = 'issue' | 'fuel' | 'check' | 'messages' | 'pause' | 'language';
+type Panel = 'issue' | 'fuel' | 'check' | 'messages' | 'pause' | 'language' | 'warnings';
 
 const SYNC_MS = 60_000;
 
@@ -105,7 +105,6 @@ export function HomeScreen({
   const [pending, setPending] = useState(0);
   const [syncStatus, setSyncStatus] = useState<SyncStatus>({});
   const [batteryOptimized, setBatteryOptimized] = useState(false);
-  const [refreshing, setRefreshing] = useState(false);
   const [, setTick] = useState(0);
   const syncing = useRef(false);
 
@@ -205,17 +204,6 @@ export function HomeScreen({
     }
   }
 
-  function confirmEndShift() {
-    Alert.alert(t('endShift'), t('endShiftConfirm'), [
-      { text: t('cancel'), style: 'cancel' },
-      {
-        text: t('endShift'),
-        style: 'destructive',
-        onPress: () => void act(() => endShift()),
-      },
-    ]);
-  }
-
   async function triggerSos() {
     const result = await sendSos(config).catch(() => 'queued' as const);
     setPending(await pendingActivityCount());
@@ -253,24 +241,66 @@ export function HomeScreen({
     lastContact > 0 &&
     Date.now() - lastContact > offlineAfterMs(config.intervalSeconds) &&
     (syncStatus.problem === undefined || syncStatus.problem === 'no-gps');
+  // Most serious first; the home screen shows the first, the rest are one tap away.
+  type Notice = Parameters<typeof Banner>[0] & { key: string };
+  const candidates: Array<Notice | false | undefined | null | '' | 0> = [
+    silent && {
+      key: 'silent',
+      tone: 'danger' as const,
+      text: t('notSending'),
+      action: t('restartTracking'),
+      onAction: () =>
+        void act(async () => {
+          await restartTracking(config);
+          await sync();
+        }),
+    },
+    ...problems
+      .filter((kind) => kind !== 'battery-low')
+      .map((kind) => ({
+        key: kind,
+        tone: 'danger' as const,
+        text: t(`warn_${kind}` as StringKey),
+        action: t('openSettings'),
+        onAction: () => void Linking.openSettings(),
+      })),
+    onShift &&
+      !silent &&
+      syncStatus.problem && {
+        key: 'sync',
+        tone: syncStatus.problem === 'no-gps' ? ('warning' as const) : ('danger' as const),
+        text: t(`sync_${syncStatus.problem}` as StringKey),
+      },
+    ...problems
+      .filter((kind) => kind === 'battery-low')
+      .map((kind) => ({
+        key: kind,
+        tone: 'warning' as const,
+        text: t(`warn_${kind}` as StringKey),
+      })),
+    duty.status !== 'off' &&
+      batteryOptimized && {
+        key: 'battery-optimized',
+        tone: 'warning' as const,
+        text: t('batteryOptimized'),
+        action: t('openBatterySettings'),
+        onAction: () => void openBatterySettings().catch(() => Linking.openSettings()),
+      },
+    pending > 0 && {
+      key: 'pending',
+      tone: 'info' as const,
+      text: t('pendingSync', { n: pending }),
+    },
+  ];
+  const notices = candidates.filter((notice): notice is Notice => Boolean(notice));
+  const top = notices[0];
   const interval =
     config.intervalSeconds >= 60
       ? t('everyMinutes', { n: Math.round(config.intervalSeconds / 60) })
       : t('everySeconds', { n: config.intervalSeconds });
 
   return (
-    <ScrollView
-      contentContainerStyle={st.page}
-      refreshControl={
-        <RefreshControl
-          refreshing={refreshing}
-          onRefresh={() => {
-            setRefreshing(true);
-            void Promise.all([sync(), loadToday()]).finally(() => setRefreshing(false));
-          }}
-        />
-      }
-    >
+    <View style={st.screen}>
       <View style={st.hero}>
         <View style={st.heroIcon}>
           <CarFront color="white" size={28} />
@@ -301,191 +331,184 @@ export function HomeScreen({
         </Pressable>
       </View>
 
-      {problems.map((kind) => (
-        <Banner
-          key={kind}
-          tone={kind === 'battery-low' ? 'warning' : 'danger'}
-          text={t(`warn_${kind}` as StringKey)}
-          action={kind === 'battery-low' ? undefined : t('openSettings')}
-          onAction={() => void Linking.openSettings()}
-        />
-      ))}
-      {silent && (
-        <Banner
-          tone="danger"
-          text={t('notSending')}
-          action={t('restartTracking')}
-          onAction={() =>
-            void act(async () => {
-              await restartTracking(config);
-              await sync();
-            })
-          }
-        />
+      {top && (
+        <View style={{ gap: 6 }}>
+          <Banner action={top.action} onAction={top.onAction} text={top.text} tone={top.tone} />
+          {notices.length > 1 && (
+            <Pressable
+              accessibilityRole="button"
+              hitSlop={6}
+              onPress={() => setPanel('warnings')}
+              style={st.more}
+            >
+              <Text style={st.moreText}>{t('moreWarnings', { n: notices.length - 1 })}</Text>
+              <ChevronRight color={colors.primary} size={16} />
+            </Pressable>
+          )}
+        </View>
       )}
-      {onShift && !silent && syncStatus.problem && (
-        <Banner
-          tone={syncStatus.problem === 'no-gps' ? 'warning' : 'danger'}
-          text={t(`sync_${syncStatus.problem}` as StringKey)}
-        />
-      )}
-      {duty.status !== 'off' && batteryOptimized && (
-        <Banner
-          tone="warning"
-          text={t('batteryOptimized')}
-          action={t('openBatterySettings')}
-          onAction={() => void openBatterySettings().catch(() => Linking.openSettings())}
-        />
-      )}
-      {pending > 0 && <Banner tone="info" text={t('pendingSync', { n: pending })} />}
 
-      <Card style={[st.duty, { backgroundColor: dutyLook[duty.status].soft }]}>
-        <View style={st.dutyHead}>
-          <IconBadge
-            icon={dutyLook[duty.status].Icon}
-            color="white"
-            background={dutyLook[duty.status].color}
-            size={52}
-          />
-          <View style={{ flex: 1 }}>
-            <Text style={[st.dutyTitle, { color: dutyLook[duty.status].color }]}>
-              {duty.status === 'off'
-                ? t('offDuty')
-                : duty.status === 'on'
-                  ? t('onShift')
-                  : t('paused')}
-            </Text>
-            {duty.status !== 'off' && duty.since ? (
-              <View style={st.inline}>
-                <Clock3 color={colors.muted} size={14} />
-                <Text style={st.since}>{t('since', { time: clock(duty.since) })}</Text>
-              </View>
-            ) : null}
+      {/* Scrolls only when the screen is too small (or text very large) to fit everything. */}
+      <ScrollView
+        bounces={false}
+        contentContainerStyle={st.middle}
+        showsVerticalScrollIndicator={false}
+        style={{ flex: 1 }}
+      >
+        <Card style={[st.duty, { backgroundColor: dutyLook[duty.status].soft }]}>
+          <View style={st.dutyHead}>
+            <IconBadge
+              icon={dutyLook[duty.status].Icon}
+              color="white"
+              background={dutyLook[duty.status].color}
+              size={52}
+            />
+            <View style={{ flex: 1 }}>
+              <Text style={[st.dutyTitle, { color: dutyLook[duty.status].color }]}>
+                {duty.status === 'off'
+                  ? t('offDuty')
+                  : duty.status === 'on'
+                    ? t('onShift')
+                    : t('paused')}
+              </Text>
+              {duty.status !== 'off' && duty.since ? (
+                <View style={st.inline}>
+                  <Clock3 color={colors.muted} size={14} />
+                  <Text style={st.since}>{t('since', { time: clock(duty.since) })}</Text>
+                </View>
+              ) : null}
+            </View>
+          </View>
+          {onShift && syncStatus.positionsAt ? (
+            <View style={st.sent}>
+              <CircleCheck color={colors.success} size={18} />
+              <Text style={st.sentText}>
+                {t('lastSent', { time: clock(syncStatus.positionsAt) })}
+              </Text>
+            </View>
+          ) : null}
+          <Text style={st.dutyBody}>
+            {duty.status === 'off'
+              ? t('offDutyBody')
+              : duty.status === 'on'
+                ? `${t('onShiftBody', { interval })}${
+                    syncStatus.positionsAt ? '' : ` ${t('notSentYet')}`
+                  }`
+                : t('pausedBody', {
+                    reason: t(`reason_${duty.reason ?? 'break'}` as StringKey),
+                    time: duty.until
+                      ? new Date(duty.until).toLocaleTimeString([], {
+                          hour: '2-digit',
+                          minute: '2-digit',
+                        })
+                      : '',
+                  })}
+          </Text>
+          {today ? (
+            <View style={st.inline}>
+              <Route color={colors.muted} size={14} />
+              <Text style={st.todayLine} numberOfLines={1}>
+                {`${t('today')}: ${today.trips} ${t('trips')} · ${(
+                  today.distanceM / 1000
+                ).toLocaleString(undefined, { maximumFractionDigits: 1 })} km · ${formatDuration(
+                  today.drivingMs,
+                )}`}
+              </Text>
+            </View>
+          ) : null}
+          {duty.status === 'off' && (
+            <Button
+              busy={busy}
+              icon={Play}
+              kind="success"
+              onPress={() => void act(() => startShift(config))}
+              title={t('startShift')}
+            />
+          )}
+          {duty.status !== 'off' && (
+            <View style={st.actions}>
+              {duty.status === 'on' ? (
+                <Button
+                  busy={busy}
+                  icon={Coffee}
+                  kind="secondary"
+                  onPress={() => setPanel('pause')}
+                  style={{ flex: 1 }}
+                  title={t('outside')}
+                />
+              ) : (
+                <Button
+                  busy={busy}
+                  icon={Play}
+                  kind="success"
+                  onPress={() => void act(() => resume())}
+                  style={{ flex: 1 }}
+                  title={t('back')}
+                />
+              )}
+              <HoldButton
+                disabled={busy}
+                holdingTitle={t('ending')}
+                icon={Square}
+                onTrigger={() => void act(() => endShift())}
+                title={t('holdToEnd')}
+              />
+            </View>
+          )}
+        </Card>
+
+        {/* Two rows of three equal tiles: always fills the width exactly, on any phone. */}
+        <View style={st.grid}>
+          <View style={st.gridRow}>
+            <Tile
+              icon={PhoneCall}
+              tone={colors.success}
+              label={t('callDispatcher')}
+              onPress={callDispatcher}
+            />
+            <Tile
+              badge={unread}
+              icon={MessageSquareText}
+              tone={colors.primary}
+              label={t('messages')}
+              onPress={() => void openMessages()}
+            />
+            <Tile
+              icon={TriangleAlert}
+              tone={colors.warning}
+              label={t('reportIssue')}
+              onPress={() => setPanel('issue')}
+            />
+          </View>
+          <View style={st.gridRow}>
+            <Tile
+              icon={Fuel}
+              tone="#7A5AF8"
+              label={t('fuelLog')}
+              onPress={() => setPanel('fuel')}
+            />
+            <Tile
+              icon={ClipboardCheck}
+              tone="#0E9384"
+              label={t('vehicleCheck')}
+              onPress={() => setPanel('check')}
+            />
+            <Tile
+              icon={Ambulance}
+              tone={colors.danger}
+              label={t('call112')}
+              onPress={() => void Linking.openURL('tel:112')}
+            />
           </View>
         </View>
-        {onShift && syncStatus.positionsAt ? (
-          <View style={st.sent}>
-            <CircleCheck color={colors.success} size={18} />
-            <Text style={st.sentText}>
-              {t('lastSent', { time: clock(syncStatus.positionsAt) })}
-            </Text>
-          </View>
-        ) : null}
-        <Text style={st.dutyBody}>
-          {duty.status === 'off'
-            ? t('offDutyBody')
-            : duty.status === 'on'
-              ? `${t('onShiftBody', { interval })}${
-                  syncStatus.positionsAt ? '' : ` ${t('notSentYet')}`
-                }`
-              : t('pausedBody', {
-                  reason: t(`reason_${duty.reason ?? 'break'}` as StringKey),
-                  time: duty.until
-                    ? new Date(duty.until).toLocaleTimeString([], {
-                        hour: '2-digit',
-                        minute: '2-digit',
-                      })
-                    : '',
-                })}
-        </Text>
-        {duty.status === 'off' && (
-          <Button
-            busy={busy}
-            icon={Play}
-            kind="success"
-            onPress={() => void act(() => startShift(config))}
-            title={t('startShift')}
-          />
-        )}
-        {duty.status === 'on' && (
-          <Button
-            busy={busy}
-            icon={Coffee}
-            kind="secondary"
-            onPress={() => setPanel('pause')}
-            title={t('outside')}
-          />
-        )}
-        {duty.status === 'paused' && (
-          <Button
-            busy={busy}
-            icon={Play}
-            kind="success"
-            onPress={() => void act(() => resume())}
-            title={t('back')}
-          />
-        )}
-        {duty.status !== 'off' && (
-          <Button
-            disabled={busy}
-            icon={Square}
-            kind="ghost"
-            onPress={confirmEndShift}
-            title={t('endShift')}
-          />
-        )}
-      </Card>
+      </ScrollView>
 
+      {/* Always in the same place, never scrolled away. */}
       <SosButton
         holdingLabel={t('sosHolding')}
         label={t('sosHold')}
         onTrigger={() => void triggerSos()}
       />
-
-      <View style={st.grid}>
-        <Tile
-          icon={PhoneCall}
-          tone={colors.success}
-          label={t('callDispatcher')}
-          onPress={callDispatcher}
-        />
-        <Tile
-          badge={unread}
-          icon={MessageSquareText}
-          tone={colors.primary}
-          label={t('messages')}
-          onPress={() => void openMessages()}
-        />
-        <Tile
-          icon={TriangleAlert}
-          tone={colors.warning}
-          label={t('reportIssue')}
-          onPress={() => setPanel('issue')}
-        />
-        <Tile icon={Fuel} tone="#7A5AF8" label={t('fuelLog')} onPress={() => setPanel('fuel')} />
-        <Tile
-          icon={ClipboardCheck}
-          tone="#0E9384"
-          label={t('vehicleCheck')}
-          onPress={() => setPanel('check')}
-        />
-        <Tile
-          icon={Ambulance}
-          tone={colors.danger}
-          label={t('call112')}
-          onPress={() => void Linking.openURL('tel:112')}
-        />
-      </View>
-
-      <Card>
-        <Text style={st.section}>{t('today')}</Text>
-        {today ? (
-          <>
-            <View style={st.identityRow}>
-              <Detail icon={Route} label={t('trips')} value={String(today.trips)} />
-              <Detail
-                icon={CarFront}
-                label={t('distance')}
-                value={`${(today.distanceM / 1000).toLocaleString(undefined, { maximumFractionDigits: 1 })} km`}
-              />
-              <Detail icon={Timer} label={t('driving')} value={formatDuration(today.drivingMs)} />
-            </View>
-            <Text style={ui.muted}>{t('todayNote')}</Text>
-          </>
-        ) : (
-          <Text style={ui.muted}>{today === null ? t('todayUnavailable') : '…'}</Text>
-        )}
-      </Card>
 
       <Sheet
         closeLabel={t('close')}
@@ -505,6 +528,16 @@ export function HomeScreen({
             }}
             title={t(`reason_${reason}` as StringKey)}
           />
+        ))}
+      </Sheet>
+      <Sheet
+        closeLabel={t('close')}
+        onClose={() => setPanel(undefined)}
+        title={t('warnings')}
+        visible={panel === 'warnings'}
+      >
+        {notices.map(({ key, ...notice }) => (
+          <Banner key={key} {...notice} />
         ))}
       </Sheet>
       <Sheet
@@ -530,20 +563,6 @@ export function HomeScreen({
         visible={panel === 'messages'}
         onClose={() => setPanel(undefined)}
       />
-    </ScrollView>
-  );
-}
-
-function Detail({ label, value, icon: Icon }: { label: string; value: string; icon: LucideIcon }) {
-  return (
-    <View style={{ flex: 1, minWidth: 90 }}>
-      <View style={st.inline}>
-        <Icon color={colors.muted} size={14} />
-        <Text style={st.detailLabel}>{label}</Text>
-      </View>
-      <Text style={st.detailValue} numberOfLines={2}>
-        {value}
-      </Text>
     </View>
   );
 }
@@ -567,7 +586,7 @@ function Tile({
       onPress={onPress}
       style={({ pressed }) => [st.tile, pressed && { opacity: 0.8 }]}
     >
-      <IconBadge icon={icon} color={tone} background={`${tone}1A`} size={44} />
+      <IconBadge icon={icon} color={tone} background={`${tone}1A`} size={40} />
       <Text style={st.tileText} numberOfLines={2}>
         {label}
       </Text>
@@ -587,13 +606,18 @@ function formatDuration(ms: number) {
 }
 
 const st = StyleSheet.create({
-  page: { padding: 16, gap: 14, paddingBottom: 32 },
+  screen: { flex: 1, padding: 12, gap: 10 },
+  middle: { flexGrow: 1, gap: 10 },
+  more: { flexDirection: 'row', alignItems: 'center', alignSelf: 'flex-end', gap: 2 },
+  moreText: { color: colors.primary, fontWeight: '700', fontSize: 13 },
+  actions: { flexDirection: 'row', gap: 8 },
+  todayLine: { flex: 1, color: colors.muted, fontSize: 13, fontWeight: '600' },
   hero: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 12,
-    padding: 16,
-    borderRadius: 20,
+    padding: 12,
+    borderRadius: 18,
     backgroundColor: colors.primary,
   },
   heroIcon: {
@@ -630,26 +654,38 @@ const st = StyleSheet.create({
   sentText: { color: colors.text, fontWeight: '700' },
   detailLabel: { color: colors.muted, fontSize: 12, fontWeight: '700' },
   detailValue: { color: colors.text, fontSize: 16, fontWeight: '800', marginTop: 2 },
-  duty: { gap: 12 },
+  // Fills the height left over, so the screen looks full on any phone.
+  duty: { gap: 12, flexGrow: 1, justifyContent: 'center' },
   dutyTitle: { fontSize: 24, fontWeight: '900' },
   dutyBody: { color: colors.muted, lineHeight: 21, fontSize: 15 },
-  grid: { flexDirection: 'row', flexWrap: 'wrap', gap: 10 },
+  grid: { gap: 10 },
+  gridRow: { flexDirection: 'row', gap: 10 },
   tile: {
-    width: '48.5%',
-    minHeight: 108,
-    borderRadius: 18,
+    flex: 1,
+    flexBasis: 0,
+    minHeight: 96,
+    borderRadius: 16,
     backgroundColor: 'white',
     borderWidth: 1,
     borderColor: colors.border,
-    padding: 14,
-    gap: 10,
+    paddingHorizontal: 6,
+    paddingVertical: 10,
+    gap: 8,
+    alignItems: 'center',
     justifyContent: 'center',
   },
-  tileText: { color: colors.text, fontWeight: '800', fontSize: 15 },
+  tileText: {
+    color: colors.text,
+    fontWeight: '700',
+    fontSize: 13,
+    lineHeight: 17,
+    textAlign: 'center',
+    alignSelf: 'stretch',
+  },
   badge: {
     position: 'absolute',
-    top: 10,
-    right: 10,
+    top: 6,
+    right: 6,
     minWidth: 22,
     height: 22,
     borderRadius: 11,

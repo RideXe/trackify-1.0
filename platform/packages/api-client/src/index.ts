@@ -145,6 +145,20 @@ export interface FleetEvent {
   attributes: Record<string, string | number | boolean>;
 }
 
+/** The Android driver app as uploaded by the release script. */
+export interface DriverAppInfo {
+  available: boolean;
+  version?: string;
+  updatedAt?: number;
+  sizeBytes?: number;
+}
+
+/** A link a driver can open on their phone to download the app; works for 24 hours. */
+export interface DriverAppLink extends Omit<DriverAppInfo, 'available'> {
+  url: string;
+  expiresAt: number;
+}
+
 /** An alert pushed to this dashboard user as it happens. */
 export interface LiveAlert {
   eventId: string;
@@ -439,6 +453,13 @@ export class TrackifyClient {
     );
   }
 
+  driverApp() {
+    return this.request<DriverAppInfo>('/driver-app');
+  }
+  /** Dispatchers and administrators; fails with a plain message before the app is published. */
+  createDriverAppLink() {
+    return this.request<DriverAppLink>('/driver-app/links', { method: 'POST' });
+  }
   alertRules() {
     return this.request<{ items: AlertRule[] }>('/alert-rules');
   }

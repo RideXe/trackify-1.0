@@ -4,6 +4,7 @@
  */
 export { default as Ambulance } from 'lucide-react-native/icons/ambulance';
 export { default as CarFront } from 'lucide-react-native/icons/car-front';
+export { default as ChevronRight } from 'lucide-react-native/icons/chevron-right';
 export { default as CircleAlert } from 'lucide-react-native/icons/circle-alert';
 export { default as CircleCheck } from 'lucide-react-native/icons/circle-check';
 export { default as CircleQuestionMark } from 'lucide-react-native/icons/circle-question-mark';

@@ -1,5 +1,5 @@
 import type { PauseReason } from '@trackify/api-client';
-import { sendActivity, type ActivityFields } from './activity-queue';
+import { queueActivity, sendActivity, type ActivityFields } from './activity-queue';
 import { addTrackerLog, updateTrackerConfig, type Duty, type TrackerConfig } from './storage';
 import {
   batteryPct,
@@ -27,6 +27,11 @@ async function record(config: TrackerConfig, activity: ActivityFields) {
   return sendActivity(config, { ...activity, at: Date.now(), batteryPct: await batteryPct() });
 }
 
+/** Shift changes: saved and the screen updated at once; the server hears in the background. */
+async function note(config: TrackerConfig, activity: ActivityFields) {
+  await queueActivity(config, { ...activity, at: Date.now(), batteryPct: await batteryPct() });
+}
+
 export async function startShift(config: TrackerConfig) {
   await startTracking(config);
   const next = await updateTrackerConfig((current) => ({
@@ -35,9 +40,9 @@ export async function startShift(config: TrackerConfig) {
     sentWarnings: {},
   }));
   await addTrackerLog('Shift started');
-  const sent = await record(next, { type: 'shift-start' });
-  await sendCurrentPosition(next).catch(() => undefined);
-  return sent;
+  await note(next, { type: 'shift-start' });
+  // The first position goes up in the background; the dashboard shows it within seconds.
+  void sendCurrentPosition(next).catch(() => undefined);
 }
 
 export async function endShift() {
@@ -47,7 +52,7 @@ export async function endShift() {
     duty: { status: 'off', since: Date.now() },
   }));
   await addTrackerLog('Shift ended');
-  return record(next, { type: 'shift-end' });
+  await note(next, { type: 'shift-end' });
 }
 
 /** Tracking keeps running underneath; fixes are simply not shared until the pause ends. */
@@ -58,7 +63,7 @@ export async function pause(reason: PauseReason) {
     duty: { status: 'paused', since: now, reason, until: now + current.pauseLimitMinutes * 60_000 },
   }));
   await addTrackerLog(`Paused: ${reason}`);
-  return record(next, { type: 'pause', reason });
+  await note(next, { type: 'pause', reason });
 }
 
 export async function resume(auto = false) {
@@ -67,7 +72,7 @@ export async function resume(auto = false) {
     duty: { status: 'on', since: Date.now() },
   }));
   await addTrackerLog(auto ? 'Pause limit reached; sharing resumed' : 'Resumed');
-  return record(next, { type: 'resume', auto });
+  await note(next, { type: 'resume', auto });
 }
 
 /** SOS with wherever the phone can find itself in a few seconds; sent even with no fix. */

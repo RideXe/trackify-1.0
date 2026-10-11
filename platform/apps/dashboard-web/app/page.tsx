@@ -86,6 +86,7 @@ import {
   type OverviewFilter,
 } from './fleet-views-data';
 import { StatTile } from './stat-tile';
+import { DriverAppDialog } from './driver-app-dialog';
 import { VehicleRow } from './vehicle-row';
 import { FleetMap as FleetMapView } from './fleet-map';
 import { noGpsSince, statusColors, vehicleStatus } from './fleet-map-data';
@@ -160,6 +161,7 @@ export default function FleetPage() {
   const [alertsError, setAlertsError] = useState('');
   // The latest alert pushed to this user (speeding and other alert rules with "dashboard pop-up").
   const [liveAlert, setLiveAlert] = useState<LiveAlert>();
+  const [driverAppOpen, setDriverAppOpen] = useState(false);
   const [membership, setMembership] = useState<Membership>();
   const [challenge, setChallenge] = useState<PasswordChallenge>();
   const [error, setError] = useState('');
@@ -399,6 +401,26 @@ export default function FleetPage() {
               {subtitle}
             </Typography>
           </Box>
+          {/* Staff hand drivers the Android app from here: a QR code and a 24-hour link. */}
+          {membership && membership.role !== 'viewer' && (
+            <>
+              <Button
+                onClick={() => setDriverAppOpen(true)}
+                startIcon={<Smartphone size={17} />}
+                variant="outlined"
+                sx={{ display: { xs: 'none', sm: 'inline-flex' }, flexShrink: 0 }}
+              >
+                Driver app
+              </Button>
+              <IconButton
+                aria-label="Get the driver app"
+                onClick={() => setDriverAppOpen(true)}
+                sx={{ display: { xs: 'inline-flex', sm: 'none' }, color: 'primary.main' }}
+              >
+                <Smartphone size={20} />
+              </IconButton>
+            </>
+          )}
         </Toolbar>
       </AppBar>
 
@@ -432,6 +454,11 @@ export default function FleetPage() {
           pb: 4,
         }}
       >
+        <DriverAppDialog
+          client={client}
+          open={driverAppOpen}
+          onClose={() => setDriverAppOpen(false)}
+        />
         <SosBanner
           alerts={alerts ?? []}
           onOpenAlerts={() => go({ page: 'alerts' })}
@@ -533,6 +560,7 @@ export default function FleetPage() {
                   admin={admin}
                   device={viewed}
                   onClose={onClose}
+                  onGetApp={() => setDriverAppOpen(true)}
                   onRefresh={loadFleet}
                 />
               )}
@@ -1066,6 +1094,7 @@ function TrackerConnection({
   admin,
   onClose,
   onRefresh,
+  onGetApp,
 }: {
   device: Device;
   admin: boolean;
@@ -1073,6 +1102,8 @@ function TrackerConnection({
   onClose?: () => void;
   /** Reloads the vehicle's live status, for "Check again". */
   onRefresh?: () => Promise<void>;
+  /** Opens the driver app download, for drivers who do not have it yet. */
+  onGetApp?: () => void;
 }) {
   const [pairing, setPairing] = useState<DeviceInvitation>();
   const [pairingQr, setPairingQr] = useState('');
@@ -1315,6 +1346,11 @@ function TrackerConnection({
             <Typography color="text.secondary" variant="body2">
               Works once, for the next 24 hours. The driver does not need a password.
             </Typography>
+            {onGetApp && (
+              <Button onClick={onGetApp} size="small" startIcon={<Smartphone size={15} />}>
+                Driver doesn&apos;t have the app yet?
+              </Button>
+            )}
             <Stack direction="row" spacing={1} sx={{ width: '100%' }}>
               <Button
                 fullWidth

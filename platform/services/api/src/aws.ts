@@ -5,7 +5,12 @@ import {
   AdminEnableUserCommand,
   CognitoIdentityProviderClient,
 } from '@aws-sdk/client-cognito-identity-provider';
-import { GetObjectCommand, PutObjectCommand, S3Client } from '@aws-sdk/client-s3';
+import {
+  GetObjectCommand,
+  HeadObjectCommand,
+  PutObjectCommand,
+  S3Client,
+} from '@aws-sdk/client-s3';
 import { PublishCommand, SNSClient } from '@aws-sdk/client-sns';
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
 
@@ -42,6 +47,61 @@ export class S3PhotoStore implements PhotoStore {
   }
 }
 
+/** Where the release script uploads the Android driver app. */
+export const DRIVER_APP_KEY = 'android/trackify-driver.apk';
+
+export interface DriverAppInfo {
+  /** e.g. "1.0.2", from the upload's metadata. */
+  version?: string;
+  updatedAt?: number;
+  sizeBytes?: number;
+}
+
+export interface DriverAppFile {
+  /** Undefined until the release script has uploaded the app. */
+  info(): Promise<DriverAppInfo | undefined>;
+  /** A five-minute direct download, made fresh for each click of a shared link. */
+  downloadUrl(): Promise<string>;
+}
+
+/** The driver app in its private bucket; nothing reaches it except through these URLs. */
+export class S3DriverAppFile implements DriverAppFile {
+  constructor(
+    private readonly client: S3Client,
+    private readonly bucket: string,
+  ) {}
+
+  async info(): Promise<DriverAppInfo | undefined> {
+    try {
+      const head = await this.client.send(
+        new HeadObjectCommand({ Bucket: this.bucket, Key: DRIVER_APP_KEY }),
+      );
+      return {
+        version: head.Metadata?.version,
+        updatedAt: head.LastModified?.getTime(),
+        sizeBytes: head.ContentLength,
+      };
+    } catch (error) {
+      if (error instanceof Error && (error.name === 'NotFound' || error.name === 'NoSuchKey'))
+        return undefined;
+      throw error;
+    }
+  }
+
+  downloadUrl() {
+    return getSignedUrl(
+      this.client,
+      new GetObjectCommand({
+        Bucket: this.bucket,
+        Key: DRIVER_APP_KEY,
+        ResponseContentDisposition: 'attachment; filename="trackify-driver.apk"',
+        ResponseContentType: 'application/vnd.android.package-archive',
+      }),
+      { expiresIn: 300 },
+    );
+  }
+}
+
 /** Emails the fleet's alert address through its SNS topic subscription. */
 export class SnsNotifier implements Notifier {
   constructor(
@@ -63,6 +123,10 @@ export class SnsNotifier implements Notifier {
 
 export function photoStoreFromEnv(bucket: string) {
   return new S3PhotoStore(new S3Client({}), bucket);
+}
+
+export function driverAppFileFromEnv(bucket: string) {
+  return new S3DriverAppFile(new S3Client({}), bucket);
 }
 
 export function notifierFromEnv(topicArn: string) {

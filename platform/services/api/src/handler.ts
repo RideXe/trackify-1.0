@@ -2,6 +2,7 @@ import { createHash, randomInt } from 'node:crypto';
 import type { APIGatewayProxyEventV2WithJWTAuthorizer } from 'aws-lambda';
 import {
   createDocumentClient,
+  DynamoDownloadLinkStore,
   DynamoActivityStore,
   DynamoAdminStore,
   DynamoAnnouncementStore,
@@ -50,10 +51,13 @@ import {
   photoStoreFromEnv,
   type IdentityDirectory,
   type PhotoStore,
+  driverAppFileFromEnv,
+  type DriverAppFile,
 } from './aws';
 import { geocoderFromEnv, type Geocoder } from '@trackify/geocoder';
 import { isTrackerProtocol } from '@trackify/protocols/ports';
 import { createConfigRoutes, type ConfigStore } from './config-routes';
+import { driverAppRoutes, type DownloadLinks } from './driver-app';
 import { createNotificationRoutes, type NotificationStore } from './notifications';
 import {
   createExtraRoutes,
@@ -236,6 +240,8 @@ export interface FleetAdministration {
   };
   announcements?: Announcements;
   announcementQueue?: AnnouncementQueue;
+  /** The Android driver app file and its expiring download links. */
+  driverApp?: { file: DriverAppFile; links: DownloadLinks };
 }
 
 export function createHandler(
@@ -254,8 +260,10 @@ export function createHandler(
     audit,
     announcements,
     announcementQueue,
+    driverApp,
   }: FleetAdministration = {},
 ) {
+  const appRoutes = driverApp && driverAppRoutes(driverApp.file, driverApp.links);
   const adminRoutes = admin && createAdminRoutes(admin, store, identity);
   const notificationRoutes =
     admin &&
@@ -321,7 +329,8 @@ export function createHandler(
       (await adminRoutes?.(event, membership)) ??
       (await notificationRoutes?.(event, membership)) ??
       (await configRoutes?.(event, membership)) ??
-      (await extraRoutes?.(event, membership));
+      (await extraRoutes?.(event, membership)) ??
+      (await appRoutes?.(event, membership));
     if (adminResponse) return adminResponse;
     // A dispatcher or viewer limited to groups sees other groups' vehicles as not existing.
     const scopedDevice = path.match(/^\/devices\/([^/]+)\/[a-z-]+(?:\/[^/]+)?$/);
@@ -1110,5 +1119,11 @@ export const handler = createHandler(
     audit: new DynamoAuditStore(client, requiredEnv('CORE_TABLE')),
     announcements: new DynamoAnnouncementStore(client, requiredEnv('CORE_TABLE')),
     announcementQueue: announcementQueueFromEnv(process.env.ANNOUNCEMENTS_TOPIC_ARN),
+    driverApp: process.env.DRIVER_APP_BUCKET
+      ? {
+          file: driverAppFileFromEnv(process.env.DRIVER_APP_BUCKET),
+          links: new DynamoDownloadLinkStore(client, requiredEnv('CORE_TABLE')),
+        }
+      : undefined,
   },
 );

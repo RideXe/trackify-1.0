@@ -8,7 +8,9 @@ import {
   View,
 } from 'react-native';
 import { BrandHeader } from './components/BrandHeader';
-import { loadLanguage, useStrings } from './i18n';
+import { LanguagePicker } from './components/LanguagePicker';
+import { Sheet } from './components/ui';
+import { languages, loadLanguage, useStrings } from './i18n';
 import { ConnectScreen } from './screens/ConnectScreen';
 import { HomeScreen } from './screens/HomeScreen';
 import { forgetConnection } from './services/connection';
@@ -20,7 +22,8 @@ import { colors } from './theme';
  * web dashboard; there is no sign-in here.
  */
 export default function App() {
-  const { t } = useStrings();
+  const { t, language } = useStrings();
+  const [languageOpen, setLanguageOpen] = useState(false);
   const [config, setConfig] = useState<TrackerConfig>();
   const [loading, setLoading] = useState(true);
   const [setupCode, setSetupCode] = useState('');
@@ -51,7 +54,22 @@ export default function App() {
   return (
     <SafeAreaView style={styles.app}>
       <StatusBar barStyle="dark-content" backgroundColor="white" />
-      <BrandHeader caption={t('appCaption')} />
+      {/* The home screen has its own vehicle header; the brand bar only shows before connecting. */}
+      {!config && (
+        <BrandHeader
+          caption={t('appCaption')}
+          language={languages.find((option) => option.code === language)?.label}
+          onLanguage={() => setLanguageOpen(true)}
+        />
+      )}
+      <Sheet
+        closeLabel={t('close')}
+        onClose={() => setLanguageOpen(false)}
+        title={t('language')}
+        visible={languageOpen}
+      >
+        <LanguagePicker />
+      </Sheet>
       {loading ? (
         <View style={styles.center}>
           <ActivityIndicator color={colors.primary} />

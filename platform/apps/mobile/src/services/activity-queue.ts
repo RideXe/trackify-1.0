@@ -75,6 +75,17 @@ export async function sendActivity(
   return (await flushActivity(config)) ? 'sent' : 'queued';
 }
 
+/**
+ * Saves a driver action on the phone and sends it in the background, without waiting for the
+ * network: the screen can change at once, and an action that cannot be sent now stays queued.
+ */
+export async function queueActivity(config: TrackerConfig, activity: ActivityInput) {
+  await flushing?.catch(() => undefined);
+  await write([...(await read()), { deviceId: config.deviceId, activity }]);
+  // A revoked phone is noticed by the next settings check, which signs it out.
+  void flushActivity(config).catch(() => undefined);
+}
+
 export async function pendingActivityCount() {
   return (await read()).length;
 }

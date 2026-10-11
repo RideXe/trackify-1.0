@@ -10,7 +10,6 @@ import {
   View,
 } from 'react-native';
 import { Camera } from 'react-native-camera-kit';
-import { LanguagePicker } from '../components/LanguagePicker';
 import { KeyRound, Link2, ScanLine, ShieldCheck, Smartphone } from '../icons';
 import { Banner, Button, Card, IconBadge, s as ui } from '../components/ui';
 import { useStrings } from '../i18n';
@@ -67,15 +66,14 @@ export function ConnectScreen({
   }
 
   return (
-    <ScrollView contentContainerStyle={st.page} keyboardShouldPersistTaps="handled">
-      <LanguagePicker />
+    // Fits one screen; scrolls only on very small phones or with very large text.
+    <ScrollView bounces={false} contentContainerStyle={st.page} keyboardShouldPersistTaps="handled">
       {notice ? <Banner tone="danger" text={notice} /> : null}
       <View style={st.hero}>
-        <IconBadge icon={Smartphone} size={72} />
+        <IconBadge icon={Smartphone} size={56} />
         <Text style={st.title}>{t('connectTitle')}</Text>
-        <Text style={[ui.muted, st.center]}>{t('connectBody')}</Text>
       </View>
-      <Card style={{ gap: 14 }}>
+      <Card style={st.steps}>
         {(['connectStep1', 'connectStep2', 'connectStep3'] as const).map((key, index) => (
           <View key={key} style={st.step}>
             <View style={st.stepNumber}>
@@ -86,14 +84,19 @@ export function ConnectScreen({
         ))}
       </Card>
       <Button busy={busy} icon={ScanLine} onPress={() => void scan()} title={t('scanQr')} />
-      <Card>
+      <View style={st.or}>
+        <View style={st.line} />
         <View style={st.labelRow}>
-          <KeyRound color={colors.muted} size={16} />
-          <Text style={[ui.label, { marginBottom: 0 }]}>{t('enterCode')}</Text>
+          <KeyRound color={colors.muted} size={14} />
+          <Text style={st.orText}>{t('enterCode')}</Text>
         </View>
+        <View style={st.line} />
+      </View>
+      <View style={st.codeRow}>
         <TextInput
           autoCapitalize="characters"
           autoCorrect={false}
+          maxLength={40}
           onChangeText={setCode}
           onSubmitEditing={() => void connect(code)}
           placeholder={t('codePlaceholder')}
@@ -101,18 +104,20 @@ export function ConnectScreen({
           style={[ui.input, st.code]}
           value={code}
         />
-        {error ? <Text style={ui.error}>{error}</Text> : null}
         <Button
           busy={busy}
+          disabled={!code.trim()}
           icon={Link2}
-          kind="secondary"
+          kind="primary"
           onPress={() => void connect(code)}
-          title={busy ? t('connecting') : t('connect')}
+          style={st.connect}
+          title={t('connect')}
         />
-      </Card>
+      </View>
+      {error ? <Text style={[ui.error, st.center]}>{error}</Text> : null}
       <View style={st.privacy}>
-        <ShieldCheck color={colors.success} size={18} />
-        <Text style={[ui.muted, { flex: 1 }]}>{t('privacyNote')}</Text>
+        <ShieldCheck color={colors.success} size={16} />
+        <Text style={st.privacyText}>{t('privacyNote')}</Text>
       </View>
       <Modal visible={scanning} onRequestClose={() => setScanning(false)}>
         <SafeAreaView style={st.scanner}>
@@ -135,23 +140,30 @@ export function ConnectScreen({
 }
 
 const st = StyleSheet.create({
-  page: { padding: 18, gap: 18 },
-  hero: { alignItems: 'center', gap: 10, paddingTop: 8 },
-  title: { fontSize: 26, fontWeight: '800', color: colors.text, textAlign: 'center' },
+  page: { flexGrow: 1, padding: 16, gap: 14, justifyContent: 'center' },
+  hero: { alignItems: 'center', gap: 8 },
+  title: { fontSize: 22, fontWeight: '800', color: colors.text, textAlign: 'center' },
+  steps: { gap: 12, padding: 16 },
   step: { flexDirection: 'row', alignItems: 'center', gap: 12 },
   stepNumber: {
-    width: 28,
-    height: 28,
-    borderRadius: 14,
+    width: 26,
+    height: 26,
+    borderRadius: 13,
     backgroundColor: colors.primary,
     alignItems: 'center',
     justifyContent: 'center',
   },
-  stepNumberText: { color: 'white', fontWeight: '800' },
-  stepText: { flex: 1, color: colors.text, fontSize: 15, lineHeight: 21 },
+  stepNumberText: { color: 'white', fontWeight: '800', fontSize: 13 },
+  stepText: { flex: 1, color: colors.text, fontSize: 14, lineHeight: 20 },
+  or: { flexDirection: 'row', alignItems: 'center', gap: 10 },
+  line: { flex: 1, height: 1, backgroundColor: colors.border },
+  orText: { color: colors.muted, fontWeight: '700', fontSize: 13 },
   labelRow: { flexDirection: 'row', alignItems: 'center', gap: 6 },
-  privacy: { flexDirection: 'row', gap: 10, alignItems: 'flex-start', paddingHorizontal: 4 },
-  code: { fontSize: 24, fontWeight: '800', letterSpacing: 4, textAlign: 'center' },
+  codeRow: { flexDirection: 'row', gap: 8, alignItems: 'stretch' },
+  code: { flex: 1, fontSize: 20, fontWeight: '800', letterSpacing: 3, textAlign: 'center' },
+  connect: { paddingHorizontal: 14 },
   center: { textAlign: 'center' },
+  privacy: { flexDirection: 'row', gap: 8, alignItems: 'flex-start', paddingHorizontal: 4 },
+  privacyText: { flex: 1, color: colors.muted, fontSize: 12, lineHeight: 17 },
   scanner: { flex: 1, backgroundColor: '#07111A' },
 });

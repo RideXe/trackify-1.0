@@ -7,6 +7,10 @@ import * as SecureStore from './services/secure-store';
  */
 const en = {
   appCaption: 'DRIVER APP',
+  holdToEnd: 'Hold to end shift',
+  ending: 'Keep holding…',
+  warnings: 'Warnings',
+  moreWarnings: '+{n} more',
   since: 'since {time}',
   connectStep1: 'Ask your administrator for the setup code.',
   connectStep2: 'Scan the QR code, or type the code below.',
@@ -146,6 +150,10 @@ type Strings = Record<StringKey, string>;
 
 const kn: Strings = {
   appCaption: 'ಚಾಲಕರ ಆ್ಯಪ್',
+  holdToEnd: 'ಶಿಫ್ಟ್ ಮುಗಿಸಲು ಒತ್ತಿ ಹಿಡಿಯಿರಿ',
+  ending: 'ಹಿಡಿದಿರಿ…',
+  warnings: 'ಎಚ್ಚರಿಕೆಗಳು',
+  moreWarnings: 'ಇನ್ನೂ {n}',
   since: '{time} ರಿಂದ',
   connectStep1: 'ನಿಮ್ಮ ನಿರ್ವಾಹಕರಿಂದ ಸೆಟಪ್ ಕೋಡ್ ಪಡೆಯಿರಿ.',
   connectStep2: 'QR ಕೋಡ್ ಸ್ಕ್ಯಾನ್ ಮಾಡಿ ಅಥವಾ ಕೆಳಗೆ ಕೋಡ್ ಟೈಪ್ ಮಾಡಿ.',
@@ -273,6 +281,10 @@ const kn: Strings = {
 
 const hi: Strings = {
   appCaption: 'ड्राइवर ऐप',
+  holdToEnd: 'शिफ़्ट खत्म करने के लिए दबाए रखें',
+  ending: 'दबाए रखें…',
+  warnings: 'चेतावनियाँ',
+  moreWarnings: '+{n} और',
   since: '{time} से',
   connectStep1: 'अपने एडमिन से सेटअप कोड लें।',
   connectStep2: 'QR कोड स्कैन करें या नीचे कोड टाइप करें।',
@@ -395,6 +407,10 @@ const hi: Strings = {
 
 const ta: Strings = {
   appCaption: 'ஓட்டுநர் செயலி',
+  holdToEnd: 'ஷிஃப்டை முடிக்க அழுத்திப் பிடிக்கவும்',
+  ending: 'பிடித்திருங்கள்…',
+  warnings: 'எச்சரிக்கைகள்',
+  moreWarnings: 'மேலும் {n}',
   since: '{time} முதல்',
   connectStep1: 'உங்கள் நிர்வாகியிடம் அமைப்புக் குறியீட்டைப் பெறுங்கள்.',
   connectStep2: 'QR குறியீட்டை ஸ்கேன் செய்யுங்கள் அல்லது கீழே குறியீட்டை உள்ளிடுங்கள்.',

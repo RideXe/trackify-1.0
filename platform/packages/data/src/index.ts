@@ -5,6 +5,7 @@ export * from './fleet-store';
 export * from './fleet-processing-store';
 export * from './offline-store';
 export * from './presence-store';
+export * from './download-link-store';
 export * from './onboarding-store';
 export * from './keys';
 export * from './position-store';

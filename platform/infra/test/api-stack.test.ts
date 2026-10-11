@@ -28,6 +28,32 @@ function synthesize() {
 }
 
 describe('ApiStack', () => {
+  it('hands out the driver app only through signed-in links, with a rate-limited public download', () => {
+    const template = synthesize();
+    template.hasResourceProperties('AWS::ApiGatewayV2::Route', {
+      RouteKey: 'POST /driver-app/links',
+      AuthorizationType: 'JWT',
+    });
+    template.hasResourceProperties('AWS::ApiGatewayV2::Route', {
+      RouteKey: 'GET /driver-app/{token}',
+      AuthorizationType: 'NONE',
+    });
+    template.hasResourceProperties('AWS::ApiGatewayV2::Stage', {
+      RouteSettings: {
+        'GET /driver-app/{token}': { ThrottlingRateLimit: 2, ThrottlingBurstLimit: 5 },
+      },
+    });
+    template.hasResourceProperties('AWS::S3::Bucket', {
+      VersioningConfiguration: { Status: 'Enabled' },
+      PublicAccessBlockConfiguration: {
+        BlockPublicAcls: true,
+        BlockPublicPolicy: true,
+        IgnorePublicAcls: true,
+        RestrictPublicBuckets: true,
+      },
+    });
+  });
+
   it('protects fleet routes with a Cognito JWT authorizer', () => {
     const template = synthesize();
     template.hasResourceProperties('AWS::ApiGatewayV2::Authorizer', {

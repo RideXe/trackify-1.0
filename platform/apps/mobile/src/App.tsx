@@ -1,12 +1,6 @@
 import { useCallback, useEffect, useState } from 'react';
-import {
-  ActivityIndicator,
-  Linking,
-  SafeAreaView,
-  StatusBar,
-  StyleSheet,
-  View,
-} from 'react-native';
+import { ActivityIndicator, Linking, StatusBar, StyleSheet, View } from 'react-native';
+import { SafeAreaProvider, SafeAreaView } from 'react-native-safe-area-context';
 import { BrandHeader } from './components/BrandHeader';
 import { LanguagePicker } from './components/LanguagePicker';
 import { Sheet } from './components/ui';
@@ -52,42 +46,46 @@ export default function App() {
   }, []);
 
   return (
-    <SafeAreaView style={styles.app}>
-      <StatusBar barStyle="dark-content" backgroundColor="white" />
-      {/* The home screen has its own vehicle header; the brand bar only shows before connecting. */}
-      {!config && (
-        <BrandHeader
-          caption={t('appCaption')}
-          language={languages.find((option) => option.code === language)?.label}
-          onLanguage={() => setLanguageOpen(true)}
-        />
-      )}
-      <Sheet
-        closeLabel={t('close')}
-        onClose={() => setLanguageOpen(false)}
-        title={t('language')}
-        visible={languageOpen}
-      >
-        <LanguagePicker />
-      </Sheet>
-      {loading ? (
-        <View style={styles.center}>
-          <ActivityIndicator color={colors.primary} />
-        </View>
-      ) : config ? (
-        <HomeScreen key={config.deviceId} initial={config} onDisconnected={onDisconnected} />
-      ) : (
-        <ConnectScreen
-          initialCode={setupCode}
-          notice={disconnected ? t('disconnectedNotice') : undefined}
-          onConnected={(connected) => {
-            setDisconnected(false);
-            setSetupCode('');
-            setConfig(connected);
-          }}
-        />
-      )}
-    </SafeAreaView>
+    // Keeps the header and the SOS button clear of the status and navigation bars on every
+    // Android version, including Android 16, which always draws apps edge to edge.
+    <SafeAreaProvider>
+      <SafeAreaView style={styles.app}>
+        <StatusBar barStyle="dark-content" backgroundColor="white" />
+        {/* The home screen has its own vehicle header; the brand bar only shows before connecting. */}
+        {!config && (
+          <BrandHeader
+            caption={t('appCaption')}
+            language={languages.find((option) => option.code === language)?.label}
+            onLanguage={() => setLanguageOpen(true)}
+          />
+        )}
+        <Sheet
+          closeLabel={t('close')}
+          onClose={() => setLanguageOpen(false)}
+          title={t('language')}
+          visible={languageOpen}
+        >
+          <LanguagePicker />
+        </Sheet>
+        {loading ? (
+          <View style={styles.center}>
+            <ActivityIndicator color={colors.primary} />
+          </View>
+        ) : config ? (
+          <HomeScreen key={config.deviceId} initial={config} onDisconnected={onDisconnected} />
+        ) : (
+          <ConnectScreen
+            initialCode={setupCode}
+            notice={disconnected ? t('disconnectedNotice') : undefined}
+            onConnected={(connected) => {
+              setDisconnected(false);
+              setSetupCode('');
+              setConfig(connected);
+            }}
+          />
+        )}
+      </SafeAreaView>
+    </SafeAreaProvider>
   );
 }
 

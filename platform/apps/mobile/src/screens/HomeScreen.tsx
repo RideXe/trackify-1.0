@@ -408,7 +408,7 @@ export function HomeScreen({
             <View style={st.inline}>
               <Route color={colors.muted} size={14} />
               <Text style={st.todayLine} numberOfLines={1}>
-                {`${t('today')}: ${today.trips} ${t('trips')} · ${(
+                {`${t('today')}: ${t('trips')} ${today.trips} · ${(
                   today.distanceM / 1000
                 ).toLocaleString(undefined, { maximumFractionDigits: 1 })} km · ${formatDuration(
                   today.drivingMs,

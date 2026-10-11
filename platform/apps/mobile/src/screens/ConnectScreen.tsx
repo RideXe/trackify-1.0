@@ -2,13 +2,13 @@ import { useEffect, useRef, useState } from 'react';
 import {
   Modal,
   PermissionsAndroid,
-  SafeAreaView,
   ScrollView,
   StyleSheet,
   Text,
   TextInput,
   View,
 } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import { Camera } from 'react-native-camera-kit';
 import { KeyRound, Link2, ScanLine, ShieldCheck, Smartphone } from '../icons';
 import { Banner, Button, Card, IconBadge, s as ui } from '../components/ui';

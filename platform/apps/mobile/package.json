@@ -6,6 +6,7 @@
   "scripts": {
     "start": "react-native start",
     "android": "react-native run-android",
+    "release:android": "bash scripts/release-android.sh",
     "typecheck": "tsc --noEmit",
     "test": "vitest run --passWithNoTests"
   },
@@ -19,6 +20,7 @@
     "react-native-camera-kit": "18.0.1",
     "react-native-keychain": "10.0.0",
     "react-native-qrcode-svg": "^6.3.24",
+    "react-native-safe-area-context": "5.10.1",
     "react-native-svg": "^15.15.4"
   },
   "devDependencies": {

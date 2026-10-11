@@ -3,7 +3,6 @@ import {
   ActivityIndicator,
   Modal,
   Pressable,
-  SafeAreaView,
   ScrollView,
   StyleSheet,
   Text,
@@ -11,6 +10,7 @@ import {
   type StyleProp,
   type ViewStyle,
 } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import { CircleAlert, Info, TriangleAlert, X, type LucideIcon } from '../icons';
 import { colors, shadow } from '../theme';
 
@@ -202,8 +202,15 @@ export const s = StyleSheet.create({
   ghost: { backgroundColor: 'transparent' },
   disabled: { opacity: 0.5 },
   pressed: { opacity: 0.85 },
-  buttonRow: { flexDirection: 'row', alignItems: 'center', gap: 10 },
-  buttonText: { color: 'white', fontWeight: '800', fontSize: 16 },
+  buttonRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8 },
+  // Long labels (Kannada, Tamil) wrap centred instead of running off to the left.
+  buttonText: {
+    color: 'white',
+    fontWeight: '800',
+    fontSize: 16,
+    textAlign: 'center',
+    flexShrink: 1,
+  },
   card: { backgroundColor: 'white', borderRadius: 20, padding: 18, gap: 12, ...shadow },
   chip: {
     flexDirection: 'row',

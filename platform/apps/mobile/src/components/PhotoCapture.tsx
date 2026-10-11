@@ -1,5 +1,6 @@
 import { useRef, useState } from 'react';
-import { Image, Modal, PermissionsAndroid, SafeAreaView, StyleSheet, View } from 'react-native';
+import { Image, Modal, PermissionsAndroid, StyleSheet, View } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import { Camera, type CameraApi } from 'react-native-camera-kit';
 import { useStrings } from '../i18n';
 import { Button, s as ui } from './ui';

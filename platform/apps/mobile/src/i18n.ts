@@ -7,6 +7,10 @@ import * as SecureStore from './services/secure-store';
  */
 const en = {
   appCaption: 'DRIVER APP',
+  since: 'since {time}',
+  connectStep1: 'Ask your administrator for the setup code.',
+  connectStep2: 'Scan the QR code, or type the code below.',
+  connectStep3: 'Tap Start shift when you begin driving.',
   language: 'Language',
   cancel: 'Cancel',
   close: 'Close',
@@ -142,6 +146,10 @@ type Strings = Record<StringKey, string>;
 
 const kn: Strings = {
   appCaption: 'ಚಾಲಕರ ಆ್ಯಪ್',
+  since: '{time} ರಿಂದ',
+  connectStep1: 'ನಿಮ್ಮ ನಿರ್ವಾಹಕರಿಂದ ಸೆಟಪ್ ಕೋಡ್ ಪಡೆಯಿರಿ.',
+  connectStep2: 'QR ಕೋಡ್ ಸ್ಕ್ಯಾನ್ ಮಾಡಿ ಅಥವಾ ಕೆಳಗೆ ಕೋಡ್ ಟೈಪ್ ಮಾಡಿ.',
+  connectStep3: 'ಚಾಲನೆ ಆರಂಭಿಸುವಾಗ ಶಿಫ್ಟ್ ಆರಂಭಿಸಿ ಒತ್ತಿ.',
   language: 'ಭಾಷೆ',
   cancel: 'ರದ್ದುಮಾಡಿ',
   close: 'ಮುಚ್ಚಿ',
@@ -265,6 +273,10 @@ const kn: Strings = {
 
 const hi: Strings = {
   appCaption: 'ड्राइवर ऐप',
+  since: '{time} से',
+  connectStep1: 'अपने एडमिन से सेटअप कोड लें।',
+  connectStep2: 'QR कोड स्कैन करें या नीचे कोड टाइप करें।',
+  connectStep3: 'गाड़ी चलाना शुरू करते समय शिफ़्ट शुरू करें दबाएँ।',
   language: 'भाषा',
   cancel: 'रद्द करें',
   close: 'बंद करें',
@@ -383,6 +395,10 @@ const hi: Strings = {
 
 const ta: Strings = {
   appCaption: 'ஓட்டுநர் செயலி',
+  since: '{time} முதல்',
+  connectStep1: 'உங்கள் நிர்வாகியிடம் அமைப்புக் குறியீட்டைப் பெறுங்கள்.',
+  connectStep2: 'QR குறியீட்டை ஸ்கேன் செய்யுங்கள் அல்லது கீழே குறியீட்டை உள்ளிடுங்கள்.',
+  connectStep3: 'ஓட்டத் தொடங்கும்போது ஷிஃப்டைத் தொடங்கு என்பதைத் தட்டவும்.',
   language: 'மொழி',
   cancel: 'ரத்து',
   close: 'மூடு',

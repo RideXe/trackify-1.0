@@ -6,15 +6,52 @@ import {
   type IssueKind,
 } from '@trackify/api-client';
 import { useEffect, useState } from 'react';
-import { Alert, Text, TextInput, View } from 'react-native';
+import {
+  CarFront,
+  CircleCheck,
+  CircleX,
+  Disc3,
+  FileText,
+  Fuel,
+  Gauge,
+  CircleQuestionMark,
+  IndianRupee,
+  Lightbulb,
+  OctagonAlert,
+  Send,
+  Siren,
+  TrafficCone,
+  Volume2,
+  Wrench,
+  type LucideIcon,
+} from '../icons';
+import { Alert, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
 import { PhotoField } from '../components/PhotoCapture';
-import { Button, Card, Chip, Sheet, s as ui } from '../components/ui';
+import { Button, Card, Chip, IconBadge, Sheet, s as ui } from '../components/ui';
 import { useStrings, type StringKey } from '../i18n';
 import { sendActivity, type ActivityFields } from '../services/activity-queue';
 import { parseDecimal } from '../services/format';
 import { uploadPhoto } from '../services/phone-api';
 import type { TrackerConfig } from '../services/storage';
 import { batteryPct, quickPosition } from '../services/tracking';
+import { colors } from '../theme';
+
+const issueIcons: Record<IssueKind, LucideIcon> = {
+  breakdown: Wrench,
+  'flat-tyre': Disc3,
+  accident: Siren,
+  traffic: TrafficCone,
+  other: CircleQuestionMark,
+};
+
+const checkIcons: Record<CheckItem, LucideIcon> = {
+  tyres: Disc3,
+  lights: Lightbulb,
+  brakes: OctagonAlert,
+  horn: Volume2,
+  mirrors: CarFront,
+  documents: FileText,
+};
 
 type Props = { config: TrackerConfig; visible: boolean; onClose: () => void };
 
@@ -96,15 +133,25 @@ export function IssueSheet({ config, visible, onClose }: Props) {
     <Sheet closeLabel={t('close')} onClose={onClose} title={t('issueTitle')} visible={visible}>
       <Card>
         <Text style={ui.muted}>{t('chooseKind')}</Text>
-        <View style={ui.row}>
-          {issueKinds.map((option) => (
-            <Chip
-              key={option}
-              label={t(`issue_${option}` as StringKey)}
-              selected={kind === option}
-              onPress={() => setKind(option)}
-            />
-          ))}
+        <View style={st.choices}>
+          {issueKinds.map((option) => {
+            const Icon = issueIcons[option];
+            const selected = kind === option;
+            return (
+              <Pressable
+                key={option}
+                accessibilityRole="radio"
+                accessibilityState={{ selected }}
+                onPress={() => setKind(option)}
+                style={[st.choice, selected && st.choiceSelected]}
+              >
+                <Icon color={selected ? colors.danger : colors.muted} size={26} />
+                <Text style={[st.choiceText, selected && { color: colors.danger }]}>
+                  {t(`issue_${option}` as StringKey)}
+                </Text>
+              </Pressable>
+            );
+          })}
         </View>
         <NoteField value={note} onChange={setNote} />
         <PhotoField disabled={busy} label={t('issueTitle')} uri={photo} onChange={setPhoto} />
@@ -112,6 +159,7 @@ export function IssueSheet({ config, visible, onClose }: Props) {
       <Button
         busy={busy}
         disabled={!kind}
+        icon={Send}
         kind="danger"
         onPress={() =>
           kind && void send({ type: 'issue', kind, note: note.trim() || undefined }, photo)
@@ -157,13 +205,13 @@ export function FuelSheet({ config, visible, onClose }: Props) {
   return (
     <Sheet closeLabel={t('close')} onClose={onClose} title={t('fuelTitle')} visible={visible}>
       <Card>
-        <NumberField label={t('litres')} value={litres} onChange={setLitres} />
-        <NumberField label={t('amount')} value={amount} onChange={setAmount} />
-        <NumberField label={t('odometer')} value={odometer} onChange={setOdometer} />
+        <NumberField icon={Fuel} label={t('litres')} value={litres} onChange={setLitres} />
+        <NumberField icon={IndianRupee} label={t('amount')} value={amount} onChange={setAmount} />
+        <NumberField icon={Gauge} label={t('odometer')} value={odometer} onChange={setOdometer} />
         <PhotoField disabled={busy} label={t('receipt')} uri={photo} onChange={setPhoto} />
         {error ? <Text style={ui.error}>{error}</Text> : null}
       </Card>
-      <Button busy={busy} onPress={submit} title={t('send')} />
+      <Button busy={busy} icon={Send} onPress={submit} title={t('send')} />
     </Sheet>
   );
 }
@@ -191,27 +239,43 @@ export function CheckSheet({ config, visible, onClose }: Props) {
     <Sheet closeLabel={t('close')} onClose={onClose} title={t('checkTitle')} visible={visible}>
       <Text style={ui.muted}>{t('checkBody')}</Text>
       <Card>
-        {checkItems.map((item) => (
-          <View key={item} style={{ gap: 8 }}>
-            <Text style={{ fontWeight: '700', fontSize: 16 }}>
-              {t(`check_${item}` as StringKey)}
-            </Text>
-            <View style={ui.row}>
-              {(['ok', 'issue'] as const).map((result) => (
-                <Chip
-                  key={result}
-                  label={result === 'ok' ? t('ok') : t('problem')}
-                  selected={results[item] === result}
-                  onPress={() => setResults((current) => ({ ...current, [item]: result }))}
-                />
-              ))}
+        {checkItems.map((item) => {
+          const result = results[item];
+          return (
+            <View key={item} style={st.checkRow}>
+              <IconBadge
+                icon={checkIcons[item]}
+                size={40}
+                color={
+                  result === 'issue'
+                    ? colors.danger
+                    : result === 'ok'
+                      ? colors.success
+                      : colors.primary
+                }
+                background={
+                  result === 'issue' ? '#FEF3F2' : result === 'ok' ? '#ECFDF3' : colors.primarySoft
+                }
+              />
+              <Text style={st.checkLabel}>{t(`check_${item}` as StringKey)}</Text>
+              <View style={{ flexDirection: 'row', gap: 6 }}>
+                {(['ok', 'issue'] as const).map((option) => (
+                  <Chip
+                    key={option}
+                    icon={option === 'ok' ? CircleCheck : CircleX}
+                    label={option === 'ok' ? t('ok') : t('problem')}
+                    selected={result === option}
+                    onPress={() => setResults((current) => ({ ...current, [item]: option }))}
+                  />
+                ))}
+              </View>
             </View>
-          </View>
-        ))}
+          );
+        })}
         <NoteField value={note} onChange={setNote} />
         {error ? <Text style={ui.error}>{error}</Text> : null}
       </Card>
-      <Button busy={busy} onPress={submit} title={t('send')} />
+      <Button busy={busy} icon={Send} onPress={submit} title={t('send')} />
     </Sheet>
   );
 }
@@ -219,15 +283,20 @@ export function CheckSheet({ config, visible, onClose }: Props) {
 function NumberField({
   label,
   value,
+  icon: Icon,
   onChange,
 }: {
   label: string;
   value: string;
+  icon: LucideIcon;
   onChange: (value: string) => void;
 }) {
   return (
     <View>
-      <Text style={ui.label}>{label}</Text>
+      <View style={st.labelRow}>
+        <Icon color={colors.muted} size={16} />
+        <Text style={[ui.label, { marginBottom: 0 }]}>{label}</Text>
+      </View>
       <TextInput
         keyboardType="decimal-pad"
         onChangeText={onChange}
@@ -237,3 +306,24 @@ function NumberField({
     </View>
   );
 }
+
+const st = StyleSheet.create({
+  choices: { flexDirection: 'row', flexWrap: 'wrap', gap: 10 },
+  choice: {
+    width: '47.5%',
+    minHeight: 84,
+    borderRadius: 14,
+    borderWidth: 1.5,
+    borderColor: colors.border,
+    backgroundColor: 'white',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 6,
+    padding: 10,
+  },
+  choiceSelected: { borderColor: colors.danger, backgroundColor: '#FEF3F2' },
+  choiceText: { fontWeight: '700', color: colors.text, textAlign: 'center' },
+  checkRow: { flexDirection: 'row', alignItems: 'center', gap: 10, flexWrap: 'wrap' },
+  checkLabel: { flex: 1, minWidth: 90, fontWeight: '700', fontSize: 16, color: colors.text },
+  labelRow: { flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 6 },
+});

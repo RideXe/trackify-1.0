@@ -33,7 +33,14 @@ import type {
   TrackifyClient,
 } from '@trackify/api-client';
 import { BellRing, CheckCircle2, Gauge, MapPin, Siren } from 'lucide-react';
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useState,
+  type KeyboardEvent,
+  type MouseEvent,
+} from 'react';
 import { SPEED_RULE_NAME, parseSpeedLimit, speedingEpisodes, speedingNow } from './alerts-data';
 import { alertTitle, mapLink } from './driver-activity-data';
 import { clockTime, timeAgo } from './fleet-map-data';
@@ -85,6 +92,31 @@ export function SosBanner({
 }
 
 type AlertsTab = 'live' | 'history' | 'limits';
+
+/** Makes a whole row open its vehicle: click, Enter or Space. Buttons inside keep their own job. */
+function rowLink(open: () => void) {
+  return {
+    role: 'button',
+    tabIndex: 0,
+    onClick: open,
+    onKeyDown: (event: KeyboardEvent<HTMLElement>) => {
+      if (event.target !== event.currentTarget) return;
+      if (event.key !== 'Enter' && event.key !== ' ') return;
+      event.preventDefault();
+      open();
+    },
+  };
+}
+
+const rowHover = {
+  cursor: 'pointer',
+  transition: 'background-color .15s',
+  '&:hover': { bgcolor: '#F8FAFC' },
+  '&:focus-visible': { outline: '2px solid #155EEF', outlineOffset: '-2px' },
+} as const;
+
+/** For buttons inside a clickable row, so they do not also open the vehicle. */
+const keepInside = (event: MouseEvent) => event.stopPropagation();
 
 /**
  * Everything that needs attention, in three tabs: what is happening now (vehicles speeding, SOS
@@ -231,6 +263,7 @@ function LiveTab({
           {speeding.map((item) => (
             <Stack
               key={item.device.deviceId}
+              {...rowLink(() => onOpenVehicle(item.device.deviceId))}
               direction={{ xs: 'column', sm: 'row' }}
               spacing={1.5}
               sx={{
@@ -239,6 +272,7 @@ function LiveTab({
                 alignItems: { sm: 'center' },
                 borderTop: `1px solid ${rowDivider}`,
                 borderLeft: '4px solid #D92D20',
+                ...rowHover,
               }}
             >
               <Box sx={{ flex: 1, minWidth: 0 }}>
@@ -258,11 +292,8 @@ function LiveTab({
                     ` · for ${durationLabel(Math.max(60_000, Date.now() - item.since))}`}
                 </Typography>
               </Box>
-              <Button
-                onClick={() => onOpenVehicle(item.device.deviceId)}
-                variant="contained"
-                color="error"
-              >
+              {/* No handler of its own: the click reaches the row, which opens the vehicle. */}
+              <Button tabIndex={-1} variant="contained" color="error">
                 View vehicle
               </Button>
             </Stack>
@@ -315,6 +346,7 @@ function LiveTab({
             return (
               <Stack
                 key={alert.alertId}
+                {...rowLink(() => onOpenVehicle(alert.deviceId))}
                 direction={{ xs: 'column', md: 'row' }}
                 spacing={1.5}
                 sx={{
@@ -325,6 +357,7 @@ function LiveTab({
                   borderLeft: 4,
                   borderLeftColor: severityColors[alert.severity],
                   opacity: alert.status === 'open' ? 1 : 0.65,
+                  ...rowHover,
                 }}
               >
                 <Box sx={{ flex: 1, minWidth: 0 }}>
@@ -334,12 +367,7 @@ function LiveTab({
                     sx={{ alignItems: 'center', flexWrap: 'wrap' }}
                   >
                     <Typography sx={{ fontWeight: 700 }}>{alertTitle(alert)}</Typography>
-                    <Chip
-                      label={alert.deviceName}
-                      onClick={() => onOpenVehicle(alert.deviceId)}
-                      size="small"
-                      variant="outlined"
-                    />
+                    <Chip label={alert.deviceName} size="small" variant="outlined" />
                   </Stack>
                   <Typography color="text.secondary" variant="body2" sx={{ mt: 0.5 }}>
                     {clockTime(alert.createdAt)} · {timeAgo(alert.createdAt)}
@@ -353,6 +381,7 @@ function LiveTab({
                   {map && (
                     <Button
                       href={map}
+                      onClick={keepInside}
                       rel="noreferrer"
                       size="small"
                       startIcon={<MapPin size={16} />}
@@ -364,7 +393,10 @@ function LiveTab({
                   {alert.status === 'open' && canAcknowledge && (
                     <Button
                       disabled={busy === alert.alertId}
-                      onClick={() => void acknowledge(alert)}
+                      onClick={(event) => {
+                        event.stopPropagation();
+                        void acknowledge(alert);
+                      }}
                       size="small"
                       variant="contained"
                     >
@@ -530,15 +562,16 @@ function HistoryTab({
                     ? Math.round(episode.maxSpeedKmh - episode.speedLimitKmh)
                     : undefined;
                 return (
-                  <TableRow key={episode.id} hover sx={{ '& td': { fontSize: 13 } }}>
+                  <TableRow
+                    key={episode.id}
+                    {...rowLink(() => onOpenVehicle(episode.deviceId))}
+                    hover
+                    sx={{ '& td': { fontSize: 13 }, ...rowHover }}
+                  >
                     <TableCell>
-                      <Button
-                        onClick={() => onOpenVehicle(episode.deviceId)}
-                        size="small"
-                        sx={{ fontWeight: 700, minWidth: 0, p: 0 }}
-                      >
+                      <Typography sx={{ fontWeight: 700, fontSize: 13, color: 'primary.main' }}>
                         {episode.deviceName}
-                      </Button>
+                      </Typography>
                     </TableCell>
                     <TableCell>{driverName(episode.driverId)}</TableCell>
                     <TableCell align="right">
@@ -571,6 +604,7 @@ function HistoryTab({
                       {map && (
                         <Button
                           href={map}
+                          onClick={keepInside}
                           rel="noreferrer"
                           size="small"
                           startIcon={<MapPin size={15} />}

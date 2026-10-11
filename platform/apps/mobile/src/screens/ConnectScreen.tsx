@@ -11,7 +11,8 @@ import {
 } from 'react-native';
 import { Camera } from 'react-native-camera-kit';
 import { LanguagePicker } from '../components/LanguagePicker';
-import { Banner, Button, Card, s as ui } from '../components/ui';
+import { KeyRound, Link2, ScanLine, ShieldCheck, Smartphone } from '../icons';
+import { Banner, Button, Card, IconBadge, s as ui } from '../components/ui';
 import { useStrings } from '../i18n';
 import { connectWithCode, extractCode } from '../services/connection';
 import type { TrackerConfig } from '../services/storage';
@@ -69,13 +70,27 @@ export function ConnectScreen({
     <ScrollView contentContainerStyle={st.page} keyboardShouldPersistTaps="handled">
       <LanguagePicker />
       {notice ? <Banner tone="danger" text={notice} /> : null}
-      <View>
+      <View style={st.hero}>
+        <IconBadge icon={Smartphone} size={72} />
         <Text style={st.title}>{t('connectTitle')}</Text>
-        <Text style={[ui.muted, { marginTop: 6 }]}>{t('connectBody')}</Text>
+        <Text style={[ui.muted, st.center]}>{t('connectBody')}</Text>
       </View>
-      <Button busy={busy} onPress={() => void scan()} title={t('scanQr')} />
+      <Card style={{ gap: 14 }}>
+        {(['connectStep1', 'connectStep2', 'connectStep3'] as const).map((key, index) => (
+          <View key={key} style={st.step}>
+            <View style={st.stepNumber}>
+              <Text style={st.stepNumberText}>{index + 1}</Text>
+            </View>
+            <Text style={st.stepText}>{t(key)}</Text>
+          </View>
+        ))}
+      </Card>
+      <Button busy={busy} icon={ScanLine} onPress={() => void scan()} title={t('scanQr')} />
       <Card>
-        <Text style={ui.label}>{t('enterCode')}</Text>
+        <View style={st.labelRow}>
+          <KeyRound color={colors.muted} size={16} />
+          <Text style={[ui.label, { marginBottom: 0 }]}>{t('enterCode')}</Text>
+        </View>
         <TextInput
           autoCapitalize="characters"
           autoCorrect={false}
@@ -89,12 +104,16 @@ export function ConnectScreen({
         {error ? <Text style={ui.error}>{error}</Text> : null}
         <Button
           busy={busy}
+          icon={Link2}
           kind="secondary"
           onPress={() => void connect(code)}
           title={busy ? t('connecting') : t('connect')}
         />
       </Card>
-      <Text style={[ui.muted, st.center]}>{t('privacyNote')}</Text>
+      <View style={st.privacy}>
+        <ShieldCheck color={colors.success} size={18} />
+        <Text style={[ui.muted, { flex: 1 }]}>{t('privacyNote')}</Text>
+      </View>
       <Modal visible={scanning} onRequestClose={() => setScanning(false)}>
         <SafeAreaView style={st.scanner}>
           <Camera
@@ -117,7 +136,21 @@ export function ConnectScreen({
 
 const st = StyleSheet.create({
   page: { padding: 18, gap: 18 },
-  title: { fontSize: 28, fontWeight: '800', color: colors.text },
+  hero: { alignItems: 'center', gap: 10, paddingTop: 8 },
+  title: { fontSize: 26, fontWeight: '800', color: colors.text, textAlign: 'center' },
+  step: { flexDirection: 'row', alignItems: 'center', gap: 12 },
+  stepNumber: {
+    width: 28,
+    height: 28,
+    borderRadius: 14,
+    backgroundColor: colors.primary,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  stepNumberText: { color: 'white', fontWeight: '800' },
+  stepText: { flex: 1, color: colors.text, fontSize: 15, lineHeight: 21 },
+  labelRow: { flexDirection: 'row', alignItems: 'center', gap: 6 },
+  privacy: { flexDirection: 'row', gap: 10, alignItems: 'flex-start', paddingHorizontal: 4 },
   code: { fontSize: 24, fontWeight: '800', letterSpacing: 4, textAlign: 'center' },
   center: { textAlign: 'center' },
   scanner: { flex: 1, backgroundColor: '#07111A' },

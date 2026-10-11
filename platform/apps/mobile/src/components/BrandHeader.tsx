@@ -1,4 +1,5 @@
 import { Pressable, StyleSheet, Text, View } from 'react-native';
+import { Navigation } from '../icons';
 import { colors } from '../theme';
 
 export function BrandHeader({
@@ -14,7 +15,7 @@ export function BrandHeader({
     <View style={s.header}>
       <View style={s.brandRow}>
         <View style={s.logo}>
-          <Text style={s.logoText}>T</Text>
+          <Navigation color="white" fill="white" size={20} />
         </View>
         <View>
           <Text style={s.brand}>Trackify</Text>
@@ -49,7 +50,6 @@ const s = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
-  logoText: { color: 'white', fontSize: 21, fontWeight: '900' },
   brand: { color: colors.text, fontWeight: '800', fontSize: 18 },
   caption: { color: colors.muted, fontWeight: '700', fontSize: 9, letterSpacing: 1.2 },
   action: { color: colors.primary, fontWeight: '800' },

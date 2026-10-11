@@ -5,6 +5,27 @@ import {
   type PauseReason,
   type WarningKind,
 } from '@trackify/api-client';
+import {
+  Ambulance,
+  CarFront,
+  CircleCheck,
+  ClipboardCheck,
+  Clock3,
+  Coffee,
+  Fuel,
+  Globe,
+  MessageSquareText,
+  MoonStar,
+  Package,
+  PhoneCall,
+  Play,
+  Route,
+  Square,
+  Timer,
+  TriangleAlert,
+  User,
+  type LucideIcon,
+} from '../icons';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import {
   Alert,
@@ -19,7 +40,7 @@ import {
 } from 'react-native';
 import { LanguagePicker } from '../components/LanguagePicker';
 import { SosButton } from '../components/SosButton';
-import { Banner, Button, Card, Sheet, s as ui } from '../components/ui';
+import { Banner, Button, Card, IconBadge, Sheet, s as ui } from '../components/ui';
 import { useStrings, type StringKey } from '../i18n';
 import { flushActivity, pendingActivityCount } from '../services/activity-queue';
 import { applySettings } from '../services/connection';
@@ -52,6 +73,20 @@ import { MessagesSheet } from './MessagesSheet';
 type Panel = 'issue' | 'fuel' | 'check' | 'messages' | 'pause' | 'language';
 
 const SYNC_MS = 60_000;
+
+const pauseIcons: Record<PauseReason, LucideIcon> = {
+  break: Coffee,
+  fuel: Fuel,
+  loading: Package,
+  personal: User,
+};
+
+/** Colour and icon of the shift card, by duty. */
+const dutyLook = {
+  on: { color: colors.success, soft: '#ECFDF3', Icon: Play },
+  paused: { color: colors.warning, soft: '#FFFAEB', Icon: Coffee },
+  off: { color: colors.muted, soft: '#F2F4F7', Icon: MoonStar },
+};
 
 export function HomeScreen({
   initial,
@@ -236,20 +271,35 @@ export function HomeScreen({
         />
       }
     >
-      <Card style={st.identity}>
-        <Text style={st.organisation}>
-          {config.organisation
-            ? t('connectedTo', { organisation: config.organisation })
-            : t('connected')}
-        </Text>
-        <View style={st.identityRow}>
-          <Detail label={t('vehicle')} value={config.name} />
-          {config.driverName && <Detail label={t('driver')} value={config.driverName} />}
+      <View style={st.hero}>
+        <View style={st.heroIcon}>
+          <CarFront color="white" size={28} />
         </View>
-        <Pressable onPress={() => setPanel('language')} hitSlop={8}>
-          <Text style={st.link}>{t('language')}</Text>
+        <View style={{ flex: 1 }}>
+          <Text style={st.heroVehicle} numberOfLines={1}>
+            {config.name}
+          </Text>
+          <Text style={st.heroLine} numberOfLines={1}>
+            {[
+              config.driverName,
+              config.organisation
+                ? t('connectedTo', { organisation: config.organisation })
+                : t('connected'),
+            ]
+              .filter(Boolean)
+              .join(' · ')}
+          </Text>
+        </View>
+        <Pressable
+          accessibilityLabel={t('language')}
+          accessibilityRole="button"
+          hitSlop={8}
+          onPress={() => setPanel('language')}
+          style={st.heroButton}
+        >
+          <Globe color="white" size={20} />
         </Pressable>
-      </Card>
+      </View>
 
       {problems.map((kind) => (
         <Banner
@@ -289,18 +339,44 @@ export function HomeScreen({
       )}
       {pending > 0 && <Banner tone="info" text={t('pendingSync', { n: pending })} />}
 
-      <Card style={[st.duty, st[`duty_${duty.status}`]]}>
-        <Text style={st.dutyTitle}>
-          {duty.status === 'off' ? t('offDuty') : duty.status === 'on' ? t('onShift') : t('paused')}
-        </Text>
+      <Card style={[st.duty, { backgroundColor: dutyLook[duty.status].soft }]}>
+        <View style={st.dutyHead}>
+          <IconBadge
+            icon={dutyLook[duty.status].Icon}
+            color="white"
+            background={dutyLook[duty.status].color}
+            size={52}
+          />
+          <View style={{ flex: 1 }}>
+            <Text style={[st.dutyTitle, { color: dutyLook[duty.status].color }]}>
+              {duty.status === 'off'
+                ? t('offDuty')
+                : duty.status === 'on'
+                  ? t('onShift')
+                  : t('paused')}
+            </Text>
+            {duty.status !== 'off' && duty.since ? (
+              <View style={st.inline}>
+                <Clock3 color={colors.muted} size={14} />
+                <Text style={st.since}>{t('since', { time: clock(duty.since) })}</Text>
+              </View>
+            ) : null}
+          </View>
+        </View>
+        {onShift && syncStatus.positionsAt ? (
+          <View style={st.sent}>
+            <CircleCheck color={colors.success} size={18} />
+            <Text style={st.sentText}>
+              {t('lastSent', { time: clock(syncStatus.positionsAt) })}
+            </Text>
+          </View>
+        ) : null}
         <Text style={st.dutyBody}>
           {duty.status === 'off'
             ? t('offDutyBody')
             : duty.status === 'on'
-              ? `${t('onShiftBody', { interval })} ${
-                  syncStatus.positionsAt
-                    ? t('lastSent', { time: clock(syncStatus.positionsAt) })
-                    : t('notSentYet')
+              ? `${t('onShiftBody', { interval })}${
+                  syncStatus.positionsAt ? '' : ` ${t('notSentYet')}`
                 }`
               : t('pausedBody', {
                   reason: t(`reason_${duty.reason ?? 'break'}` as StringKey),
@@ -315,6 +391,7 @@ export function HomeScreen({
         {duty.status === 'off' && (
           <Button
             busy={busy}
+            icon={Play}
             kind="success"
             onPress={() => void act(() => startShift(config))}
             title={t('startShift')}
@@ -323,6 +400,7 @@ export function HomeScreen({
         {duty.status === 'on' && (
           <Button
             busy={busy}
+            icon={Coffee}
             kind="secondary"
             onPress={() => setPanel('pause')}
             title={t('outside')}
@@ -331,13 +409,20 @@ export function HomeScreen({
         {duty.status === 'paused' && (
           <Button
             busy={busy}
+            icon={Play}
             kind="success"
             onPress={() => void act(() => resume())}
             title={t('back')}
           />
         )}
         {duty.status !== 'off' && (
-          <Button disabled={busy} kind="ghost" onPress={confirmEndShift} title={t('endShift')} />
+          <Button
+            disabled={busy}
+            icon={Square}
+            kind="ghost"
+            onPress={confirmEndShift}
+            title={t('endShift')}
+          />
         )}
       </Card>
 
@@ -348,12 +433,38 @@ export function HomeScreen({
       />
 
       <View style={st.grid}>
-        <Tile label={t('callDispatcher')} onPress={callDispatcher} />
-        <Tile badge={unread} label={t('messages')} onPress={() => void openMessages()} />
-        <Tile label={t('reportIssue')} onPress={() => setPanel('issue')} />
-        <Tile label={t('fuelLog')} onPress={() => setPanel('fuel')} />
-        <Tile label={t('vehicleCheck')} onPress={() => setPanel('check')} />
-        <Tile label={t('call112')} onPress={() => void Linking.openURL('tel:112')} />
+        <Tile
+          icon={PhoneCall}
+          tone={colors.success}
+          label={t('callDispatcher')}
+          onPress={callDispatcher}
+        />
+        <Tile
+          badge={unread}
+          icon={MessageSquareText}
+          tone={colors.primary}
+          label={t('messages')}
+          onPress={() => void openMessages()}
+        />
+        <Tile
+          icon={TriangleAlert}
+          tone={colors.warning}
+          label={t('reportIssue')}
+          onPress={() => setPanel('issue')}
+        />
+        <Tile icon={Fuel} tone="#7A5AF8" label={t('fuelLog')} onPress={() => setPanel('fuel')} />
+        <Tile
+          icon={ClipboardCheck}
+          tone="#0E9384"
+          label={t('vehicleCheck')}
+          onPress={() => setPanel('check')}
+        />
+        <Tile
+          icon={Ambulance}
+          tone={colors.danger}
+          label={t('call112')}
+          onPress={() => void Linking.openURL('tel:112')}
+        />
       </View>
 
       <Card>
@@ -361,12 +472,13 @@ export function HomeScreen({
         {today ? (
           <>
             <View style={st.identityRow}>
-              <Detail label={t('trips')} value={String(today.trips)} />
+              <Detail icon={Route} label={t('trips')} value={String(today.trips)} />
               <Detail
+                icon={CarFront}
                 label={t('distance')}
                 value={`${(today.distanceM / 1000).toLocaleString(undefined, { maximumFractionDigits: 1 })} km`}
               />
-              <Detail label={t('driving')} value={formatDuration(today.drivingMs)} />
+              <Detail icon={Timer} label={t('driving')} value={formatDuration(today.drivingMs)} />
             </View>
             <Text style={ui.muted}>{t('todayNote')}</Text>
           </>
@@ -385,6 +497,7 @@ export function HomeScreen({
         {pauseReasons.map((reason: PauseReason) => (
           <Button
             key={reason}
+            icon={pauseIcons[reason]}
             kind="secondary"
             onPress={() => {
               setPanel(undefined);
@@ -421,10 +534,13 @@ export function HomeScreen({
   );
 }
 
-function Detail({ label, value }: { label: string; value: string }) {
+function Detail({ label, value, icon: Icon }: { label: string; value: string; icon: LucideIcon }) {
   return (
     <View style={{ flex: 1, minWidth: 90 }}>
-      <Text style={st.detailLabel}>{label}</Text>
+      <View style={st.inline}>
+        <Icon color={colors.muted} size={14} />
+        <Text style={st.detailLabel}>{label}</Text>
+      </View>
       <Text style={st.detailValue} numberOfLines={2}>
         {value}
       </Text>
@@ -432,14 +548,29 @@ function Detail({ label, value }: { label: string; value: string }) {
   );
 }
 
-function Tile({ label, badge, onPress }: { label: string; badge?: number; onPress: () => void }) {
+function Tile({
+  label,
+  badge,
+  icon,
+  tone,
+  onPress,
+}: {
+  label: string;
+  badge?: number;
+  icon: LucideIcon;
+  tone: string;
+  onPress: () => void;
+}) {
   return (
     <Pressable
       accessibilityRole="button"
       onPress={onPress}
       style={({ pressed }) => [st.tile, pressed && { opacity: 0.8 }]}
     >
-      <Text style={st.tileText}>{label}</Text>
+      <IconBadge icon={icon} color={tone} background={`${tone}1A`} size={44} />
+      <Text style={st.tileText} numberOfLines={2}>
+        {label}
+      </Text>
       {badge ? (
         <View style={st.badge}>
           <Text style={st.badgeText}>{badge}</Text>
@@ -457,27 +588,61 @@ function formatDuration(ms: number) {
 
 const st = StyleSheet.create({
   page: { padding: 16, gap: 14, paddingBottom: 32 },
-  identity: { gap: 10 },
-  organisation: { fontSize: 18, fontWeight: '800', color: colors.text },
+  hero: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    padding: 16,
+    borderRadius: 20,
+    backgroundColor: colors.primary,
+  },
+  heroIcon: {
+    width: 52,
+    height: 52,
+    borderRadius: 16,
+    backgroundColor: 'rgba(15,42,120,0.4)',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  heroVehicle: { color: 'white', fontSize: 20, fontWeight: '900' },
+  heroLine: { color: 'rgba(255,255,255,0.85)', fontSize: 13, marginTop: 2 },
+  heroButton: {
+    width: 40,
+    height: 40,
+    borderRadius: 12,
+    backgroundColor: 'rgba(255,255,255,0.2)',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
   identityRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 12 },
-  link: { color: colors.primary, fontWeight: '700' },
+  inline: { flexDirection: 'row', alignItems: 'center', gap: 5 },
+  dutyHead: { flexDirection: 'row', alignItems: 'center', gap: 14 },
+  since: { color: colors.muted, fontSize: 14, fontWeight: '600' },
+  sent: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    backgroundColor: 'white',
+    borderRadius: 12,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+  },
+  sentText: { color: colors.text, fontWeight: '700' },
   detailLabel: { color: colors.muted, fontSize: 12, fontWeight: '700' },
   detailValue: { color: colors.text, fontSize: 16, fontWeight: '800', marginTop: 2 },
-  duty: { gap: 10 },
-  duty_off: { backgroundColor: 'white' },
-  duty_on: { backgroundColor: '#ECFDF3' },
-  duty_paused: { backgroundColor: '#FFFAEB' },
-  dutyTitle: { fontSize: 24, fontWeight: '900', color: colors.text },
+  duty: { gap: 12 },
+  dutyTitle: { fontSize: 24, fontWeight: '900' },
   dutyBody: { color: colors.muted, lineHeight: 21, fontSize: 15 },
   grid: { flexDirection: 'row', flexWrap: 'wrap', gap: 10 },
   tile: {
     width: '48.5%',
-    minHeight: 76,
-    borderRadius: 16,
+    minHeight: 108,
+    borderRadius: 18,
     backgroundColor: 'white',
     borderWidth: 1,
     borderColor: colors.border,
     padding: 14,
+    gap: 10,
     justifyContent: 'center',
   },
   tileText: { color: colors.text, fontWeight: '800', fontSize: 15 },

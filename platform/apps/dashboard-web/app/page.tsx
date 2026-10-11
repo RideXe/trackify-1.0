@@ -39,6 +39,7 @@ import {
   Bell,
   CarFront,
   CheckCircle2,
+  CircleAlert,
   ChevronRight,
   CircleDot,
   Clock3,
@@ -53,6 +54,7 @@ import {
   Navigation,
   Plus,
   Radio,
+  RefreshCw,
   QrCode,
   Route,
   Search,
@@ -80,7 +82,6 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import QRCode from 'qrcode';
 import { FleetMap as FleetMapView } from './fleet-map';
 import {
-  clockTime,
   noGpsSince,
   statusColors,
   statusCounts,
@@ -89,7 +90,7 @@ import {
   type VehicleStatus,
 } from './fleet-map-data';
 import { AlertsPage, SosBanner } from './alerts';
-import { dutyLabel, notReporting } from './driver-activity-data';
+import { presence } from './driver-activity-data';
 import { DriversPage } from './drivers';
 import { LiveMap } from './live-map';
 import { Panel, PanelHead } from './panel';
@@ -183,7 +184,7 @@ export default function FleetPage() {
       const result = await client.devices();
       setDevices(result.items);
     } catch (reason) {
-      setError(reason instanceof Error ? reason.message : 'Fleet unavailable');
+      setError(reason instanceof Error ? reason.message : 'Vehicles unavailable');
     } finally {
       setLoadingFleet(false);
     }
@@ -323,14 +324,14 @@ export default function FleetPage() {
       : view.page === 'live-map'
         ? ['Live map', 'Where every vehicle is right now']
         : view.page === 'trips'
-          ? ['Trips', 'Completed journeys across the fleet']
+          ? ['Trips', 'Completed journeys across all vehicles']
           : view.page === 'alerts'
             ? ['Alerts', 'SOS, driver reports and phone problems']
             : view.page === 'settings'
               ? ['Settings', 'What drivers see in their app']
               : view.page === 'vehicle'
-                ? [viewed?.name ?? 'Vehicle', 'Live status, driver and route history']
-                : ['Fleet overview', 'Live operations and vehicle health'];
+                ? ['Vehicle details', 'Live status, driver and route history']
+                : ['Overview', 'Live operations and vehicle health'];
   const go = (next: View) => {
     setMobileNav(false);
     navigate(next);
@@ -372,30 +373,31 @@ export default function FleetPage() {
               <Menu size={21} />
             </IconButton>
           )}
-          <Box sx={{ flex: 1 }}>
+          <Box sx={{ flex: 1, minWidth: 0 }}>
             <Typography noWrap variant="h6" sx={{ fontWeight: 700 }}>
               {title}
             </Typography>
-            <Typography color="text.secondary" variant="caption">
+            {/* On phones the title alone fits on one line. */}
+            <Typography
+              color="text.secondary"
+              noWrap
+              variant="caption"
+              sx={{ display: { xs: 'none', sm: 'block' } }}
+            >
               {subtitle}
             </Typography>
           </Box>
+          {/* Vehicles are added from the side menu (or the first-vehicle screen). */}
           <Chip
             icon={<CircleDot size={14} />}
             color={online ? 'success' : 'default'}
-            label={`${online} online`}
+            label={
+              desktop ? `${online} of ${devices.length} online` : `${online}/${devices.length}`
+            }
             size="small"
             variant="outlined"
+            sx={{ flexShrink: 0 }}
           />
-          {membership?.role === 'admin' && (
-            <Button
-              onClick={() => setOnboardingOpen(true)}
-              startIcon={<Plus size={18} />}
-              variant="contained"
-            >
-              Add vehicle
-            </Button>
-          )}
         </Toolbar>
       </AppBar>
 
@@ -440,7 +442,7 @@ export default function FleetPage() {
             sx={{ alignItems: 'center', justifyContent: 'center', minHeight: '60vh' }}
           >
             <CircularProgress size={32} />
-            <Typography color="text.secondary">Loading your fleet…</Typography>
+            <Typography color="text.secondary">Loading your vehicles…</Typography>
           </Stack>
         ) : view.page === 'live-map' ? (
           <LiveMap
@@ -483,18 +485,22 @@ export default function FleetPage() {
             <VehiclePage
               key={viewed.deviceId}
               admin={admin}
-              alerts={alerts}
               client={client}
               canDispatch={membership?.role !== 'viewer'}
-              connection={<TrackerConnection admin={admin} device={viewed} />}
+              connection={(onClose) => (
+                <TrackerConnection
+                  admin={admin}
+                  device={viewed}
+                  onClose={onClose}
+                  onRefresh={loadFleet}
+                />
+              )}
               device={viewed}
               devices={devices}
               drivers={drivers}
               driversError={driversError}
-              onBack={() => go({ page: 'overview' })}
               onChanged={loadFleet}
               onDriversChanged={loadDrivers}
-              onAlertsChanged={loadAlerts}
               onRemoved={async () => {
                 go({ page: 'overview' });
                 await loadFleet();
@@ -563,7 +569,7 @@ function NavigationDrawer({
         <Box>
           <Typography sx={{ fontWeight: 750, lineHeight: 1.1 }}>Trackify</Typography>
           <Typography color="text.secondary" variant="caption">
-            Fleet operations
+            Vehicle tracking
           </Typography>
         </Box>
       </Stack>
@@ -619,7 +625,7 @@ function NavigationDrawer({
         </Avatar>
         <Box sx={{ minWidth: 0, flex: 1 }}>
           <Typography noWrap variant="body2" sx={{ fontWeight: 650 }}>
-            Fleet administrator
+            Administrator
           </Typography>
           <Typography color="text.secondary" noWrap variant="caption">
             {email ?? 'Signed in'}
@@ -658,7 +664,7 @@ function Dashboard({
       <Box>
         <Typography variant="h4">Good to see you</Typography>
         <Typography color="text.secondary" sx={{ mt: 0.5 }}>
-          Here is what is happening across your fleet right now.
+          Here is what is happening across your vehicles right now.
         </Typography>
       </Box>
       <Box
@@ -732,11 +738,11 @@ function EmptyFleet({ admin, onAdd }: { admin: boolean; onAdd: () => void }) {
           <CarFront size={34} />
         </Avatar>
         <Box>
-          <Typography variant="h4">Build your live fleet</Typography>
+          <Typography variant="h4">Start tracking your vehicles</Typography>
           <Typography color="text.secondary" sx={{ mt: 1, lineHeight: 1.7 }}>
             {admin
               ? 'Add your first vehicle, connect its GPS identifier, and Trackify will bring every location update into one operational view.'
-              : 'Your workspace is ready. Ask a fleet administrator to add the first vehicle.'}
+              : 'Your workspace is ready. Ask an administrator to add the first vehicle.'}
           </Typography>
         </Box>
         {admin && (
@@ -748,7 +754,7 @@ function EmptyFleet({ admin, onAdd }: { admin: boolean; onAdd: () => void }) {
           {[
             [ShieldCheck, 'Secure tenant setup'],
             [Radio, 'Realtime GPS updates'],
-            [Bell, 'Fleet event alerts'],
+            [Bell, 'Vehicle event alerts'],
           ].map(([Icon, label]) => {
             const FeatureIcon = Icon as typeof ShieldCheck;
             return (
@@ -777,7 +783,7 @@ function FleetMap({ devices, onOpen }: { devices: Device[]; onOpen: (deviceId: s
         sx={{ alignItems: { sm: 'center' }, justifyContent: 'space-between', p: 2 }}
       >
         <Box>
-          <Typography sx={{ fontWeight: 700 }}>Fleet map</Typography>
+          <Typography sx={{ fontWeight: 700 }}>Live map</Typography>
           <Typography color="text.secondary" variant="caption">
             {onMap
               ? `${onMap} of ${devices.length} vehicles on the map · point at a vehicle for details, click to open it`
@@ -860,10 +866,9 @@ function VehicleList({
                 primary={device.name}
                 secondary={[
                   vehicleIcons[toVehicleType(device.vehicleType)].label,
-                  statusLabels[vehicleStatus(device)],
+                  presence(device).label,
                   vehicleStatus(device) === 'moving' &&
                     `${Math.round(device.state?.speedKmh ?? 0)} km/h`,
-                  notReporting(device) ? 'On shift · not reporting' : dutyLabel(device),
                 ]
                   .filter(Boolean)
                   .join(' · ')}
@@ -888,13 +893,120 @@ function VehicleList({
 }
 
 /** Whether the vehicle's tracker (usually the driver's phone) is connected, and pairing it. */
-function TrackerConnection({ device, admin }: { device: Device; admin: boolean }) {
+type StatusTone = 'good' | 'attention' | 'problem' | 'idle';
+
+const statusStyle: Record<
+  StatusTone,
+  { color: string; background: string; Icon: typeof CheckCircle2 }
+> = {
+  good: { color: '#079455', background: '#ECFDF3', Icon: CheckCircle2 },
+  attention: { color: '#B54708', background: '#FFFAEB', Icon: Clock3 },
+  problem: { color: '#D92D20', background: '#FEF3F2', Icon: CircleAlert },
+  idle: { color: '#475467', background: '#F2F4F7', Icon: Smartphone },
+};
+
+/** One plain-language line on whether tracking works, and what to do if it does not. */
+function ConnectionStatus({
+  tone,
+  title,
+  detail,
+}: {
+  tone: StatusTone;
+  title: string;
+  detail: string;
+}) {
+  const { color, background, Icon } = statusStyle[tone];
+  return (
+    <Stack
+      direction="row"
+      spacing={1.5}
+      sx={{ p: 1.5, borderRadius: '12px', bgcolor: background, alignItems: 'flex-start' }}
+    >
+      <Box sx={{ color, display: 'flex', pt: 0.2 }}>
+        <Icon size={20} />
+      </Box>
+      <Box>
+        <Typography sx={{ fontWeight: 800, fontSize: 14, color }}>{title}</Typography>
+        <Typography sx={{ fontSize: 12, color: 'text.secondary', mt: 0.25 }}>{detail}</Typography>
+      </Box>
+    </Stack>
+  );
+}
+
+/** The driver's phone: connected or not, sharing or not, and what the admin can do about it. */
+function phoneStatus(
+  device: Device,
+  connection?: DeviceInvitation['status'],
+): { tone: StatusTone; title: string; detail: string } {
+  if (isOnline(device) && noGpsSince(device) !== undefined)
+    return {
+      tone: 'attention',
+      title: 'Connected, but no GPS signal',
+      detail:
+        "The phone is working but can't find its location (often indoors). It updates once the vehicle is outside.",
+    };
+  if (isOnline(device))
+    return {
+      tone: 'good',
+      title: 'Working',
+      detail: "The driver's phone is sharing this vehicle's location.",
+    };
+  if (connection === 'activated') {
+    if (device.dutyStatus === 'on')
+      return {
+        tone: 'problem',
+        title: 'Phone not sending',
+        detail:
+          'The driver is on shift, but the phone stopped sending. Ask the driver to open the Trackify app.',
+      };
+    if (device.dutyStatus === 'paused')
+      return {
+        tone: 'idle',
+        title: 'Driver on a break',
+        detail: 'Location sharing is paused and resumes by itself after the break.',
+      };
+    return {
+      tone: 'idle',
+      title: 'Phone connected',
+      detail: 'The location appears when the driver taps Start shift in the Trackify app.',
+    };
+  }
+  if (connection === 'waiting')
+    return {
+      tone: 'attention',
+      title: 'Waiting for the driver',
+      detail:
+        "A setup code was made but hasn't been used yet. Show a new code if the driver lost it.",
+    };
+  return {
+    tone: 'idle',
+    title: 'No phone connected',
+    detail: "Connect the driver's phone to start tracking this vehicle.",
+  };
+}
+
+function TrackerConnection({
+  device,
+  admin,
+  onClose,
+  onRefresh,
+}: {
+  device: Device;
+  admin: boolean;
+  /** Shown as a popup from the vehicle page: adds a close button. */
+  onClose?: () => void;
+  /** Reloads the vehicle's live status, for "Check again". */
+  onRefresh?: () => Promise<void>;
+}) {
   const [pairing, setPairing] = useState<DeviceInvitation>();
   const [pairingQr, setPairingQr] = useState('');
   const [pairingBusy, setPairingBusy] = useState(false);
   const [pairingError, setPairingError] = useState('');
   const [connectionStatus, setConnectionStatus] = useState<DeviceInvitation['status']>();
   const [justConnected, setJustConnected] = useState(false);
+  const [statusLoaded, setStatusLoaded] = useState(false);
+  // "Check again" reloads the connection status at once instead of waiting for the next poll.
+  const [checkKey, setCheckKey] = useState(0);
   // While the setup code is on screen, watch for the phone to redeem it and then close the code.
   useEffect(() => {
     if (!pairing) return;
@@ -919,6 +1031,7 @@ function TrackerConnection({ device, admin }: { device: Device; admin: boolean }
   useEffect(() => {
     let active = true;
     setConnectionStatus(undefined);
+    setStatusLoaded(false);
     setPairing(undefined);
     setPairingError('');
     const refresh = async () => {
@@ -930,6 +1043,7 @@ function TrackerConnection({ device, admin }: { device: Device; admin: boolean }
       const latest = value.items?.find((item) => item.status === 'activated') ?? value.items?.[0];
       if (active) {
         setConnectionStatus(latest?.status);
+        setStatusLoaded(true);
         setPairingError('');
       }
     };
@@ -945,7 +1059,7 @@ function TrackerConnection({ device, admin }: { device: Device; admin: boolean }
       active = false;
       window.clearInterval(timer);
     };
-  }, [device.deviceId]);
+  }, [device.deviceId, checkKey]);
   async function createPairing() {
     setPairingBusy(true);
     setPairingError('');
@@ -1014,71 +1128,84 @@ function TrackerConnection({ device, admin }: { device: Device; admin: boolean }
   }
   return (
     <Panel>
-      <PanelHead title="Tracker" />
+      <PanelHead
+        icon={<Radio size={18} />}
+        title="Connection"
+        action={
+          onClose && (
+            <IconButton aria-label="Close tracker connection" onClick={onClose} size="small">
+              <X size={18} />
+            </IconButton>
+          )
+        }
+      />
       <Box sx={{ px: { xs: 1.75, sm: 2 }, pb: { xs: 1.75, sm: 2 }, mt: -0.5 }}>
-        <Typography color="text.secondary" sx={{ fontSize: 12, mb: 1.5 }}>
-          {device.protocol === 'osmand'
-            ? "The Trackify app on the driver's phone reports this vehicle's position."
-            : `A ${device.protocol.toUpperCase()} GPS unit reports this vehicle's position.`}
-        </Typography>
-        <Stack spacing={1.5} sx={{ alignItems: 'flex-start' }}>
-          {isOnline(device) && noGpsSince(device) !== undefined ? (
-            <Chip
-              color="warning"
-              icon={<Clock3 size={15} />}
-              label={`Phone online · no GPS signal since ${clockTime(noGpsSince(device)!)}`}
-            />
-          ) : isOnline(device) ? (
-            <Chip color="success" icon={<CheckCircle2 size={15} />} label="Tracking online" />
-          ) : connectionStatus === 'activated' ? (
-            <Chip
-              color={device.dutyStatus === 'on' ? 'warning' : 'default'}
-              icon={<Clock3 size={15} />}
-              label={
-                device.dutyStatus === 'on'
-                  ? hasPosition(device)
-                    ? 'On shift · last known location'
-                    : 'On shift · waiting for GPS'
-                  : device.dutyStatus === 'paused'
-                    ? 'Phone connected · driver on a pause'
-                    : "Phone connected · driver hasn't started a shift"
-              }
-            />
-          ) : (
-            <Button
-              disabled={pairingBusy}
-              onClick={() => void createPairing()}
-              startIcon={<Smartphone size={17} />}
-              variant="outlined"
-            >
-              {pairingBusy
-                ? 'Creating…'
-                : connectionStatus === 'waiting'
-                  ? 'Generate replacement code'
-                  : 'Connect driver phone'}
-            </Button>
-          )}
-          {connectionStatus === 'activated' && (
-            <Stack direction="row" spacing={1}>
-              <Button disabled={pairingBusy} size="small" onClick={() => void createPairing()}>
-                Replace connected phone
-              </Button>
-              {admin && (
+        {!statusLoaded && !isOnline(device) ? (
+          <CircularProgress size={22} />
+        ) : (
+          <>
+            <ConnectionStatus {...phoneStatus(device, connectionStatus)} />
+            {!isOnline(device) && connectionStatus !== 'activated' && (
+              <Box component="ol" sx={{ pl: 2.5, my: 1.5, fontSize: 13, color: 'text.secondary' }}>
+                <li>Install the Trackify app on the driver&apos;s phone.</li>
+                <li>Open it and scan the code we show you (or type it in).</li>
+                <li>The driver taps Start shift. The vehicle appears on the map.</li>
+              </Box>
+            )}
+            <Stack spacing={1} sx={{ mt: 2 }}>
+              {!isOnline(device) && connectionStatus !== 'activated' && (
                 <Button
-                  color="error"
                   disabled={pairingBusy}
-                  size="small"
-                  onClick={() => void disconnectPhone()}
+                  onClick={() => void createPairing()}
+                  startIcon={<Smartphone size={17} />}
+                  variant="contained"
+                  sx={{ minHeight: 42 }}
                 >
-                  Disconnect phone
+                  {pairingBusy
+                    ? 'Preparing…'
+                    : connectionStatus === 'waiting'
+                      ? 'Show a new setup code'
+                      : 'Connect a phone'}
                 </Button>
               )}
+              {(connectionStatus === 'activated' || isOnline(device)) && admin && (
+                <Stack direction="row" spacing={1}>
+                  <Button
+                    disabled={pairingBusy}
+                    fullWidth
+                    onClick={() => void createPairing()}
+                    variant="outlined"
+                  >
+                    Use a different phone
+                  </Button>
+                  <Button
+                    color="error"
+                    disabled={pairingBusy}
+                    fullWidth
+                    onClick={() => void disconnectPhone()}
+                  >
+                    Disconnect
+                  </Button>
+                </Stack>
+              )}
+              <Button
+                color="inherit"
+                disabled={pairingBusy}
+                onClick={() => {
+                  setCheckKey((value) => value + 1);
+                  void onRefresh?.();
+                }}
+                startIcon={<RefreshCw size={16} />}
+                sx={{ alignSelf: 'center', color: 'text.secondary' }}
+              >
+                Check again
+              </Button>
             </Stack>
-          )}
-        </Stack>
+          </>
+        )}
         {justConnected && (
           <Alert severity="success" sx={{ mt: 2 }} onClose={() => setJustConnected(false)}>
-            Phone connected ✓. Location appears once the driver taps Start shift.
+            Phone connected. The location appears once the driver taps Start shift.
           </Alert>
         )}
         {pairingError && (
@@ -1093,7 +1220,7 @@ function TrackerConnection({ device, admin }: { device: Device; admin: boolean }
             Connect {device.name}
           </Typography>
           <Typography color="text.secondary" variant="body2">
-            Share this one-time code with the driver.
+            On the driver&apos;s phone, open Trackify and scan this code, or type it in.
           </Typography>
         </DialogTitle>
         <DialogContent>
@@ -1110,7 +1237,7 @@ function TrackerConnection({ device, admin }: { device: Device; admin: boolean }
               {pairing?.code}
             </Typography>
             <Typography color="text.secondary" variant="body2">
-              Single use · expires in 24 hours · no driver login required
+              Works once, for the next 24 hours. The driver does not need a password.
             </Typography>
             <Stack direction="row" spacing={1} sx={{ width: '100%' }}>
               <Button
@@ -1204,7 +1331,7 @@ function Login({
         </Stack>
         <Box sx={{ maxWidth: 650 }}>
           <Chip
-            label="Realtime fleet operations"
+            label="Realtime vehicle tracking"
             sx={{ mb: 3, bgcolor: '#FFFFFF18', color: 'white' }}
           />
           <Typography
@@ -1216,7 +1343,7 @@ function Login({
           <Typography
             sx={{ mt: 3, maxWidth: 520, color: '#D0D5DD', fontSize: 18, lineHeight: 1.7 }}
           >
-            Monitor locations, trips, and fleet events from a secure operations workspace built to
+            Monitor locations, trips, and vehicle events from a secure operations workspace built to
             scale.
           </Typography>
         </Box>
@@ -1256,7 +1383,7 @@ function Login({
           <Typography color="text.secondary" sx={{ mt: 1, mb: 4, lineHeight: 1.6 }}>
             {challenge
               ? 'Your temporary password worked. Create the password you will use from now on.'
-              : 'Sign in with the account provided by your fleet administrator.'}
+              : 'Sign in with the account provided by your administrator.'}
           </Typography>
           <Stack spacing={2.25}>
             {!challenge && (
@@ -1433,7 +1560,7 @@ function DeviceOnboarding({
     <Dialog fullWidth maxWidth="sm" onClose={close} open={open}>
       <DialogTitle component="div" sx={{ pr: 7 }}>
         <Typography color="primary.main" variant="overline" sx={{ fontWeight: 700 }}>
-          {firstVehicle ? 'Fleet setup' : 'Vehicle setup'}
+          {firstVehicle ? 'Getting started' : 'Vehicle setup'}
         </Typography>
         <Typography component="h2" variant="h4">
           {created
@@ -1586,7 +1713,7 @@ function DeviceOnboarding({
           </>
         ) : (
           <Button onClick={close} variant="contained">
-            Go to fleet overview
+            Go to overview
           </Button>
         )}
       </DialogActions>

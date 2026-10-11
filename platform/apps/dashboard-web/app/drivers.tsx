@@ -134,7 +134,7 @@ export function DriversPage({
               <Typography color="text.secondary" sx={{ mt: 1, maxWidth: 460 }}>
                 {admin
                   ? 'Add the people who drive your vehicles with their phone and licence number, then assign each one to a vehicle.'
-                  : 'A fleet administrator has not added any drivers yet.'}
+                  : 'An administrator has not added any drivers yet.'}
               </Typography>
             </Box>
             {admin && (

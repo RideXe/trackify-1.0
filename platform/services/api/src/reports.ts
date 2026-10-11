@@ -189,7 +189,7 @@ export function createReportRoutes(
         const input = parseScheduled(event.body) as Omit<ScheduledReportInput, 'nextRunAt'>;
         if ((await scheduled.list(tenantId)).length >= MAX_SCHEDULED)
           return response(409, {
-            message: `a fleet can have at most ${MAX_SCHEDULED} scheduled reports`,
+            message: `an account can have at most ${MAX_SCHEDULED} scheduled reports`,
           });
         await checkReferences(data, tenantId, input);
         return response(

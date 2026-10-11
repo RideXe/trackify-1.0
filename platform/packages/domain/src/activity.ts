@@ -37,7 +37,8 @@ export const driverActivityTypes = [
   'warning',
 ] as const;
 export type DriverActivityType = (typeof driverActivityTypes)[number];
-export type ActivityType = DriverActivityType | 'message';
+/** Messages and driver changes are also entries, but only the dashboard creates them. */
+export type ActivityType = DriverActivityType | 'message' | 'driver-change';
 
 export type DutyStatus = 'off' | 'on' | 'paused';
 
@@ -135,6 +136,8 @@ export interface ActivityEntry {
   /** message */
   text?: string;
   sentBy?: string;
+  /** driver-change: who drove before; driverName is who drives now (absent: no driver). */
+  previousDriverName?: string;
   /** The driver assigned to the vehicle when the entry arrived; for a message, its recipient. */
   driverId?: string;
   driverName?: string;

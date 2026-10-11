@@ -63,7 +63,7 @@ export async function startTracking(config: TrackerConfig) {
     intervalMs: syncIntervalMs(config.intervalSeconds),
     accuracy: config.accuracy,
     notificationTitle: 'On shift · Trackify',
-    notificationBody: 'Your location is shared with your fleet until you end the shift.',
+    notificationBody: 'Your location is shared with the office until you end the shift.',
   });
   await addTrackerLog(
     motion

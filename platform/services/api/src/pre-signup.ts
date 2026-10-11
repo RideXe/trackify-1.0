@@ -27,8 +27,7 @@ export function createPreSignUpHandler(accounts: AccountDirectory) {
     const email = event.request.userAttributes.email?.trim().toLowerCase();
     if (!email) throw new Error('Your sign-in provider did not share an email address.');
     const username = await accounts.invitedAccount(event.userPoolId, email);
-    if (!username)
-      throw new Error('Ask your fleet administrator to invite this email address first.');
+    if (!username) throw new Error('Ask your administrator to invite this email address first.');
     // Federated usernames look like "Provider_subject"; the provider name may itself contain "_".
     const separator = event.userName.indexOf('_');
     const provider = event.userName.slice(0, separator);

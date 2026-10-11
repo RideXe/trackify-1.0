@@ -17,7 +17,7 @@ const en = {
   queued: 'Saved on the phone. It will be sent as soon as there is signal.',
 
   connectTitle: 'Connect this phone',
-  connectBody: 'Scan the QR code or type the 6-character code from your fleet administrator.',
+  connectBody: 'Scan the QR code or type the 6-character code from your administrator.',
   scanQr: 'Scan QR code',
   enterCode: 'Setup code',
   codePlaceholder: 'e.g. AB7MK9',
@@ -26,7 +26,7 @@ const en = {
   invalidCode: 'Enter the 6-character code, or paste the full setup link.',
   cameraNeeded: 'Camera access is needed to scan. You can type the code instead.',
   disconnectedNotice:
-    'This phone was disconnected by your fleet administrator. Ask them for a new code to connect again.',
+    'This phone was disconnected by your administrator. Ask them for a new code to connect again.',
   privacyNote: 'Your location is shared only while you are on shift.',
 
   connectedTo: 'Connected to {organisation}',
@@ -83,11 +83,11 @@ const en = {
     'The phone is moving on foot. Keep it in the vehicle during the shift.',
   lastSent: 'Last sent at {time}.',
   notSentYet: 'Nothing sent yet.',
-  'sync_no-gps': 'No GPS signal here. Your fleet sees the phone is working, but not where you are.',
+  'sync_no-gps': 'No GPS signal here. The office sees the phone is working, but not where you are.',
   sync_offline:
     'No internet. Locations are saved on the phone and sent when the connection is back.',
   sync_access:
-    'Your fleet is not accepting locations from this phone. Ask your administrator to check it.',
+    'Locations from this phone are not being accepted. Ask your administrator to check it.',
   sync_server: 'The server is not responding. Locations are saved and sent again automatically.',
   notSending: 'Tracking has stopped sending your location. Tap Restart tracking.',
   restartTracking: 'Restart tracking',
@@ -133,7 +133,7 @@ const en = {
   problem: 'Problem',
   checkIncomplete: 'Mark every item OK or Problem.',
 
-  messagesTitle: 'Messages from your fleet',
+  messagesTitle: 'Messages from the office',
   noMessages: 'No messages in the last 7 days.',
 };
 
@@ -151,7 +151,7 @@ const kn: Strings = {
   sent: 'ಕಳುಹಿಸಲಾಗಿದೆ.',
   queued: 'ಫೋನ್‌ನಲ್ಲಿ ಉಳಿಸಲಾಗಿದೆ. ಸಿಗ್ನಲ್ ಬಂದ ತಕ್ಷಣ ಕಳುಹಿಸಲಾಗುತ್ತದೆ.',
   connectTitle: 'ಈ ಫೋನ್ ಸಂಪರ್ಕಿಸಿ',
-  connectBody: 'ನಿಮ್ಮ ಫ್ಲೀಟ್ ನಿರ್ವಾಹಕರು ನೀಡಿದ QR ಕೋಡ್ ಸ್ಕ್ಯಾನ್ ಮಾಡಿ ಅಥವಾ 6 ಅಕ್ಷರಗಳ ಕೋಡ್ ನಮೂದಿಸಿ.',
+  connectBody: 'ನಿಮ್ಮ ನಿರ್ವಾಹಕರು ನೀಡಿದ QR ಕೋಡ್ ಸ್ಕ್ಯಾನ್ ಮಾಡಿ ಅಥವಾ 6 ಅಕ್ಷರಗಳ ಕೋಡ್ ನಮೂದಿಸಿ.',
   scanQr: 'QR ಕೋಡ್ ಸ್ಕ್ಯಾನ್ ಮಾಡಿ',
   enterCode: 'ಸೆಟಪ್ ಕೋಡ್',
   codePlaceholder: 'ಉದಾ. AB7MK9',
@@ -160,7 +160,7 @@ const kn: Strings = {
   invalidCode: '6 ಅಕ್ಷರಗಳ ಕೋಡ್ ಅಥವಾ ಪೂರ್ಣ ಸೆಟಪ್ ಲಿಂಕ್ ನಮೂದಿಸಿ.',
   cameraNeeded: 'ಸ್ಕ್ಯಾನ್ ಮಾಡಲು ಕ್ಯಾಮೆರಾ ಅನುಮತಿ ಬೇಕು. ಬದಲಿಗೆ ಕೋಡ್ ಟೈಪ್ ಮಾಡಬಹುದು.',
   disconnectedNotice:
-    'ನಿಮ್ಮ ಫ್ಲೀಟ್ ನಿರ್ವಾಹಕರು ಈ ಫೋನ್ ಸಂಪರ್ಕ ತೆಗೆದಿದ್ದಾರೆ. ಮತ್ತೆ ಸಂಪರ್ಕಿಸಲು ಹೊಸ ಕೋಡ್ ಕೇಳಿ.',
+    'ನಿಮ್ಮ ನಿರ್ವಾಹಕರು ಈ ಫೋನ್ ಸಂಪರ್ಕ ತೆಗೆದಿದ್ದಾರೆ. ಮತ್ತೆ ಸಂಪರ್ಕಿಸಲು ಹೊಸ ಕೋಡ್ ಕೇಳಿ.',
   privacyNote: 'ನೀವು ಶಿಫ್ಟ್‌ನಲ್ಲಿರುವಾಗ ಮಾತ್ರ ನಿಮ್ಮ ಸ್ಥಳ ಹಂಚಿಕೊಳ್ಳಲಾಗುತ್ತದೆ.',
   connectedTo: '{organisation} ಗೆ ಸಂಪರ್ಕಿಸಲಾಗಿದೆ',
   connected: 'ಸಂಪರ್ಕಿಸಲಾಗಿದೆ',
@@ -213,10 +213,9 @@ const kn: Strings = {
   lastSent: 'ಕೊನೆಯದಾಗಿ {time} ಕ್ಕೆ ಕಳುಹಿಸಲಾಗಿದೆ.',
   notSentYet: 'ಇನ್ನೂ ಏನೂ ಕಳುಹಿಸಲಾಗಿಲ್ಲ.',
   'sync_no-gps':
-    'ಇಲ್ಲಿ GPS ಸಿಗ್ನಲ್ ಇಲ್ಲ. ಫೋನ್ ಕೆಲಸ ಮಾಡುತ್ತಿದೆ ಎಂದು ಫ್ಲೀಟ್‌ಗೆ ತಿಳಿದಿದೆ, ಆದರೆ ನೀವು ಎಲ್ಲಿದ್ದೀರಿ ಎಂದು ಅಲ್ಲ.',
+    'ಇಲ್ಲಿ GPS ಸಿಗ್ನಲ್ ಇಲ್ಲ. ಫೋನ್ ಕೆಲಸ ಮಾಡುತ್ತಿದೆ ಎಂದು ಕಚೇರಿಗೆ ತಿಳಿದಿದೆ, ಆದರೆ ನೀವು ಎಲ್ಲಿದ್ದೀರಿ ಎಂದು ಅಲ್ಲ.',
   sync_offline: 'ಇಂಟರ್ನೆಟ್ ಇಲ್ಲ. ಸ್ಥಳಗಳನ್ನು ಫೋನ್‌ನಲ್ಲಿ ಉಳಿಸಲಾಗಿದೆ, ಸಂಪರ್ಕ ಬಂದಾಗ ಕಳುಹಿಸಲಾಗುತ್ತದೆ.',
-  sync_access:
-    'ಈ ಫೋನ್‌ನಿಂದ ಸ್ಥಳಗಳನ್ನು ಫ್ಲೀಟ್ ಸ್ವೀಕರಿಸುತ್ತಿಲ್ಲ. ನಿಮ್ಮ ಆಡಳಿತಗಾರರನ್ನು ಪರಿಶೀಲಿಸಲು ಕೇಳಿ.',
+  sync_access: 'ಈ ಫೋನ್‌ನಿಂದ ಸ್ಥಳಗಳನ್ನು ಸ್ವೀಕರಿಸಲಾಗುತ್ತಿಲ್ಲ. ನಿಮ್ಮ ಆಡಳಿತಗಾರರನ್ನು ಪರಿಶೀಲಿಸಲು ಕೇಳಿ.',
   sync_server:
     'ಸರ್ವರ್ ಪ್ರತಿಕ್ರಿಯಿಸುತ್ತಿಲ್ಲ. ಸ್ಥಳಗಳನ್ನು ಉಳಿಸಲಾಗಿದೆ, ತಾನಾಗಿಯೇ ಮತ್ತೆ ಕಳುಹಿಸಲಾಗುತ್ತದೆ.',
   notSending:
@@ -260,7 +259,7 @@ const kn: Strings = {
   ok: 'ಸರಿ',
   problem: 'ಸಮಸ್ಯೆ',
   checkIncomplete: 'ಪ್ರತಿಯೊಂದನ್ನೂ ಸರಿ ಅಥವಾ ಸಮಸ್ಯೆ ಎಂದು ಗುರುತಿಸಿ.',
-  messagesTitle: 'ನಿಮ್ಮ ಫ್ಲೀಟ್‌ನಿಂದ ಸಂದೇಶಗಳು',
+  messagesTitle: 'ಕಚೇರಿಯಿಂದ ಸಂದೇಶಗಳು',
   noMessages: 'ಕಳೆದ 7 ದಿನಗಳಲ್ಲಿ ಸಂದೇಶಗಳಿಲ್ಲ.',
 };
 
@@ -275,7 +274,7 @@ const hi: Strings = {
   sent: 'भेज दिया गया।',
   queued: 'फ़ोन में सेव हो गया। सिग्नल आते ही भेज दिया जाएगा।',
   connectTitle: 'इस फ़ोन को जोड़ें',
-  connectBody: 'अपने फ़्लीट एडमिन से मिला QR कोड स्कैन करें या 6 अक्षरों का कोड डालें।',
+  connectBody: 'अपने एडमिन से मिला QR कोड स्कैन करें या 6 अक्षरों का कोड डालें।',
   scanQr: 'QR कोड स्कैन करें',
   enterCode: 'सेटअप कोड',
   codePlaceholder: 'जैसे AB7MK9',
@@ -283,8 +282,7 @@ const hi: Strings = {
   connecting: 'जोड़ा जा रहा है…',
   invalidCode: '6 अक्षरों का कोड या पूरा सेटअप लिंक डालें।',
   cameraNeeded: 'स्कैन करने के लिए कैमरा अनुमति चाहिए। आप कोड टाइप भी कर सकते हैं।',
-  disconnectedNotice:
-    'आपके फ़्लीट एडमिन ने इस फ़ोन को हटा दिया है। फिर से जोड़ने के लिए नया कोड माँगें।',
+  disconnectedNotice: 'आपके एडमिन ने इस फ़ोन को हटा दिया है। फिर से जोड़ने के लिए नया कोड माँगें।',
   privacyNote: 'आपकी लोकेशन सिर्फ़ शिफ़्ट के दौरान साझा होती है।',
   connectedTo: '{organisation} से जुड़ा है',
   connected: 'जुड़ा है',
@@ -335,9 +333,9 @@ const hi: Strings = {
   lastSent: 'आख़िरी बार {time} पर भेजा गया।',
   notSentYet: 'अभी तक कुछ नहीं भेजा गया।',
   'sync_no-gps':
-    'यहाँ GPS सिग्नल नहीं है। फ़्लीट को पता है कि फ़ोन चल रहा है, पर आप कहाँ हैं यह नहीं।',
+    'यहाँ GPS सिग्नल नहीं है। ऑफ़िस को पता है कि फ़ोन चल रहा है, पर आप कहाँ हैं यह नहीं।',
   sync_offline: 'इंटरनेट नहीं है। लोकेशन फ़ोन में सेव हैं और कनेक्शन आने पर भेजी जाएँगी।',
-  sync_access: 'फ़्लीट इस फ़ोन से लोकेशन स्वीकार नहीं कर रहा। अपने एडमिन से जाँच करने को कहें।',
+  sync_access: 'इस फ़ोन से लोकेशन स्वीकार नहीं की जा रही। अपने एडमिन से जाँच करने को कहें।',
   sync_server: 'सर्वर जवाब नहीं दे रहा। लोकेशन सेव हैं और अपने आप फिर से भेजी जाएँगी।',
   notSending: 'ट्रैकिंग ने आपकी लोकेशन भेजना बंद कर दिया है। ट्रैकिंग फिर शुरू करें दबाएँ।',
   restartTracking: 'ट्रैकिंग फिर शुरू करें',
@@ -379,7 +377,7 @@ const hi: Strings = {
   ok: 'ठीक',
   problem: 'समस्या',
   checkIncomplete: 'हर चीज़ को ठीक या समस्या चिह्नित करें।',
-  messagesTitle: 'आपके फ़्लीट से संदेश',
+  messagesTitle: 'ऑफ़िस से संदेश',
   noMessages: 'पिछले 7 दिनों में कोई संदेश नहीं।',
 };
 
@@ -395,7 +393,7 @@ const ta: Strings = {
   queued: 'போனில் சேமிக்கப்பட்டது. சிக்னல் வந்ததும் அனுப்பப்படும்.',
   connectTitle: 'இந்த போனை இணைக்கவும்',
   connectBody:
-    'உங்கள் ஃப்ளீட் நிர்வாகி தந்த QR குறியீட்டை ஸ்கேன் செய்யவும் அல்லது 6 எழுத்து குறியீட்டை உள்ளிடவும்.',
+    'உங்கள் நிர்வாகி தந்த QR குறியீட்டை ஸ்கேன் செய்யவும் அல்லது 6 எழுத்து குறியீட்டை உள்ளிடவும்.',
   scanQr: 'QR குறியீட்டை ஸ்கேன் செய்',
   enterCode: 'அமைவுக் குறியீடு',
   codePlaceholder: 'எ.கா. AB7MK9',
@@ -404,7 +402,7 @@ const ta: Strings = {
   invalidCode: '6 எழுத்து குறியீடு அல்லது முழு அமைவு இணைப்பை உள்ளிடவும்.',
   cameraNeeded: 'ஸ்கேன் செய்ய கேமரா அனுமதி தேவை. குறியீட்டை தட்டச்சும் செய்யலாம்.',
   disconnectedNotice:
-    'உங்கள் ஃப்ளீட் நிர்வாகி இந்த போனின் இணைப்பை நீக்கியுள்ளார். மீண்டும் இணைக்க புதிய குறியீடு கேளுங்கள்.',
+    'உங்கள் நிர்வாகி இந்த போனின் இணைப்பை நீக்கியுள்ளார். மீண்டும் இணைக்க புதிய குறியீடு கேளுங்கள்.',
   privacyNote: 'நீங்கள் ஷிஃப்டில் இருக்கும்போது மட்டுமே உங்கள் இருப்பிடம் பகிரப்படும்.',
   connectedTo: '{organisation} உடன் இணைக்கப்பட்டது',
   connected: 'இணைக்கப்பட்டது',
@@ -458,11 +456,11 @@ const ta: Strings = {
   lastSent: 'கடைசியாக {time} மணிக்கு அனுப்பப்பட்டது.',
   notSentYet: 'இன்னும் எதுவும் அனுப்பப்படவில்லை.',
   'sync_no-gps':
-    'இங்கே GPS சிக்னல் இல்லை. போன் வேலை செய்வது ஃப்ளீட்டுக்குத் தெரியும், நீங்கள் எங்கே என்பது தெரியாது.',
+    'இங்கே GPS சிக்னல் இல்லை. போன் வேலை செய்வது அலுவலகத்துக்குத் தெரியும், நீங்கள் எங்கே என்பது தெரியாது.',
   sync_offline:
     'இணையம் இல்லை. இருப்பிடங்கள் போனில் சேமிக்கப்பட்டு, இணைப்பு வந்ததும் அனுப்பப்படும்.',
   sync_access:
-    'இந்த போனிலிருந்து ஃப்ளீட் இருப்பிடங்களை ஏற்கவில்லை. உங்கள் நிர்வாகியிடம் சரிபார்க்கச் சொல்லுங்கள்.',
+    'இந்த போனிலிருந்து இருப்பிடங்கள் ஏற்கப்படவில்லை. உங்கள் நிர்வாகியிடம் சரிபார்க்கச் சொல்லுங்கள்.',
   sync_server: 'சர்வர் பதிலளிக்கவில்லை. இருப்பிடங்கள் சேமிக்கப்பட்டு தானாக மீண்டும் அனுப்பப்படும்.',
   notSending:
     'கண்காணிப்பு உங்கள் இருப்பிடத்தை அனுப்புவதை நிறுத்தியுள்ளது. கண்காணிப்பை மீண்டும் தொடங்கு என்பதைத் தட்டவும்.',
@@ -505,7 +503,7 @@ const ta: Strings = {
   ok: 'சரி',
   problem: 'சிக்கல்',
   checkIncomplete: 'ஒவ்வொன்றையும் சரி அல்லது சிக்கல் என குறிக்கவும்.',
-  messagesTitle: 'உங்கள் ஃப்ளீட்டிலிருந்து செய்திகள்',
+  messagesTitle: 'அலுவலகத்திலிருந்து செய்திகள்',
   noMessages: 'கடந்த 7 நாட்களில் செய்திகள் இல்லை.',
 };
 

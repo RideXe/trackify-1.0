@@ -21,34 +21,45 @@ import {
   TextField,
   Tooltip,
   Typography,
+  useMediaQuery,
+  type Theme,
 } from '@mui/material';
 import {
   fuelTypes,
   toVehicleType,
   type Device,
   type Driver,
-  type FleetAlert,
   type TrackifyClient,
 } from '@trackify/api-client';
 import {
   ArrowLeft,
   ArrowLeftRight,
-  BellRing,
+  Bus,
+  CalendarClock,
+  CalendarDays,
+  ChevronRight,
+  Clock3,
+  Compass,
+  Gauge,
+  Milestone,
+  Navigation,
+  Link2,
+  Route,
+  Settings,
+  type LucideIcon,
   Ellipsis,
-  LocateFixed,
   MapPin,
   MessageSquareText,
   Pencil,
   PhoneCall,
   Trash2,
-  TriangleAlert,
   UserPlus,
   UserMinus,
   UserRound,
 } from 'lucide-react';
 import { useEffect, useMemo, useState, type ReactNode } from 'react';
-import { DriverActivityCard, PhoneSettingsCard } from './driver-activity';
-import { alertTitle, dutyLabel, mapLink, notReporting } from './driver-activity-data';
+import { ActivityCard, PhoneSettingsDialog, SendAlertDialog, useActivity } from './driver-activity';
+import { presence, type PresenceTone } from './driver-activity-data';
 import { DriverAvatar, DriverFields } from './drivers';
 import { FleetMap } from './fleet-map';
 import {
@@ -56,11 +67,10 @@ import {
   headingLabel,
   noGpsSince,
   statusColors,
-  statusLabels,
   timeAgo,
   vehicleStatus,
 } from './fleet-map-data';
-import { Panel, PanelHead, Pill, panelBorder, rowDivider, textButtonSx } from './panel';
+import { Panel, PanelHead, panelBorder, rowDivider, textButtonSx } from './panel';
 import { RouteHistory } from './route-history';
 import {
   assignedDriver,
@@ -84,6 +94,27 @@ interface Activity {
   distanceKm: number;
 }
 
+/** The status dot on the blue header: the colour says what the words say. */
+const dotColors: Record<PresenceTone, string> = {
+  moving: '#4ADE80',
+  parked: '#4ADE80',
+  critical: '#F87171',
+  warning: '#FBBF24',
+  muted: '#CBD5E1',
+};
+
+const statIcons: Record<string, LucideIcon> = {
+  'Last heard': CalendarClock,
+  'Last position': Clock3,
+  'Speed now': Gauge,
+  Heading: Compass,
+  'Distance today': MapPin,
+  'This trip': Navigation,
+  'Trips · 24 h': Route,
+  'Events · 24 h': CalendarDays,
+  Odometer: Milestone,
+};
+
 const kmNumber = (value: number) => value.toLocaleString('en-IN', { maximumFractionDigits: 1 });
 const km = (value: number) => `${kmNumber(value)} km`;
 
@@ -99,15 +130,12 @@ export function VehiclePage({
   devices,
   drivers,
   driversError,
-  alerts,
   admin,
   canDispatch,
   client,
   connection,
-  onBack,
   onChanged,
   onDriversChanged,
-  onAlertsChanged,
   onRemoved,
 }: {
   device: Device;
@@ -115,18 +143,14 @@ export function VehiclePage({
   /** Undefined while loading. */
   drivers?: Driver[];
   driversError: string;
-  /** The whole fleet's recent alerts; undefined while loading. */
-  alerts?: FleetAlert[];
   admin: boolean;
   /** Dispatchers and administrators can message the driver and handle alerts. */
   canDispatch: boolean;
   client: TrackifyClient;
-  /** The tracker pairing controls, which live with the rest of the setup-code flow. */
-  connection: ReactNode;
-  onBack: () => void;
+  /** The tracker pairing controls (they live with the setup-code flow), shown as a popup. */
+  connection: (onClose: () => void) => ReactNode;
   onChanged: () => Promise<void>;
   onDriversChanged: () => Promise<void>;
-  onAlertsChanged: () => Promise<void>;
   onRemoved: () => Promise<void>;
 }) {
   const vehicleType = toVehicleType(device.vehicleType);
@@ -134,10 +158,16 @@ export function VehiclePage({
   const state = device.state;
   const mapDevices = useMemo(() => [device], [device]);
   const [editOpen, setEditOpen] = useState(false);
+  const [alertOpen, setAlertOpen] = useState(false);
+  const [routeOpen, setRouteOpen] = useState(false);
+  const [connectionOpen, setConnectionOpen] = useState(false);
+  const [settingsOpen, setSettingsOpen] = useState(false);
+  // Route history fills the screen on phones; elsewhere it is a large popup.
+  const phone = useMediaQuery((theme: Theme) => theme.breakpoints.down('sm'));
+  const activityLog = useActivity(client, device.deviceId);
   const [removeBusy, setRemoveBusy] = useState(false);
   const [removeError, setRemoveError] = useState('');
   const [activity, setActivity] = useState<Activity>();
-  const [focusRequest, setFocusRequest] = useState(0);
 
   useEffect(() => {
     let active = true;
@@ -182,16 +212,28 @@ export function VehiclePage({
     }
   }
 
+  const now = presence(device);
+  const gpsLost = noGpsSince(device);
+  // Offline, speed and heading say nothing: show when it was last heard from and last located.
+  const live: Stat[] =
+    status === 'offline'
+      ? [
+          ['Last heard', state?.lastSeenAt ? timeAgo(state.lastSeenAt) : 'Never'],
+          ['Last position', state?.fixTime ? clockTime(state.fixTime) : 'None yet'],
+        ]
+      : [
+          status === 'moving'
+            ? ['Speed now', String(Math.round(state?.speedKmh ?? 0)), 'km/h']
+            : ['Speed now', '0', 'km/h'],
+          [
+            'Heading',
+            status === 'moving' && state?.courseDeg !== undefined
+              ? headingLabel(state.courseDeg)
+              : '—',
+          ],
+        ];
   const stats: Stat[] = [
-    status === 'moving'
-      ? ['Speed now', String(Math.round(state?.speedKmh ?? 0)), 'km/h']
-      : status === 'parked'
-        ? ['Speed now', '0', 'km/h']
-        : ['Speed now', '—'],
-    [
-      'Heading',
-      status === 'moving' && state?.courseDeg !== undefined ? headingLabel(state.courseDeg) : '—',
-    ],
+    ...live,
     activity ? ['Distance today', kmNumber(activity.distanceKm), 'km'] : ['Distance today', '—'],
     ['Trips · 24 h', activity ? String(activity.trips) : '—'],
     ['Events · 24 h', activity ? String(activity.events) : '—'],
@@ -211,141 +253,167 @@ export function VehiclePage({
 
   return (
     <Stack spacing={2}>
-      <Box>
-        <Button onClick={onBack} startIcon={<ArrowLeft size={18} />} sx={{ ml: -1 }}>
-          All vehicles
-        </Button>
-      </Box>
-
-      <Panel sx={{ p: { xs: 1.75, sm: 2.75 }, pb: { sm: 2.25 } }}>
-        <Stack
-          direction="row"
-          spacing={{ xs: 1.25, sm: 1.75 }}
-          sx={{ alignItems: { xs: 'flex-start', sm: 'center' }, flexWrap: 'wrap', rowGap: 1.5 }}
-        >
-          <VehicleAvatar
-            type={vehicleType}
-            size={52}
-            color="#FFFFFF"
-            background={statusColors[status]}
-          />
-          <Box sx={{ minWidth: 0, flex: 1 }}>
-            <Stack
-              direction="row"
-              spacing={1.1}
-              sx={{ alignItems: 'center', flexWrap: 'wrap', rowGap: 0.5 }}
-            >
-              <Typography
-                component="h1"
-                noWrap
-                sx={{
-                  fontSize: { xs: 20, sm: 24 },
-                  fontWeight: 800,
-                  letterSpacing: '-0.8px',
-                  lineHeight: 1.2,
-                }}
-              >
-                {device.name}
-              </Typography>
-              <Pill color={statusColors[status]} background={`${statusColors[status]}1A`}>
-                {statusLabels[status]}
-              </Pill>
-              {notReporting(device) ? (
-                <Pill color="#D83A36" background="#FFF0EF">
-                  ● On shift · phone not reachable
-                  {state?.lastSeenAt ? ` since ${clockTime(state.lastSeenAt)}` : ''}
-                </Pill>
-              ) : noGpsSince(device) !== undefined ? (
-                <Pill color="#B54708" background="#FFFAEB">
-                  ● Phone online · no GPS signal since {clockTime(noGpsSince(device)!)}
-                </Pill>
-              ) : (
-                dutyLabel(device) && (
-                  <Pill color="#4B5568" background="#F0F2F6">
-                    {dutyLabel(device)}
-                  </Pill>
-                )
-              )}
-            </Stack>
-            <Typography color="text.secondary" sx={{ mt: 0.6, fontSize: { xs: 11, sm: 12 } }}>
-              {[vehicleIcons[vehicleType].label, device.model].filter(Boolean).join(' · ')} ·{' '}
-              {state?.lastSeenAt
-                ? `last update ${timeAgo(state.lastSeenAt)}`
-                : 'no GPS update received yet'}
-            </Typography>
-          </Box>
-          {admin && (
-            <Stack
-              direction="row"
-              spacing={1}
-              sx={{ alignItems: 'center', width: { xs: '100%', sm: 'auto' } }}
-            >
-              <Button
-                onClick={() => setEditOpen(true)}
-                startIcon={<Pencil size={16} />}
-                variant="outlined"
-                sx={{ flex: { xs: 1, sm: 'none' }, minHeight: 38, borderColor: '#BFD0FF' }}
-              >
-                Edit details
-              </Button>
-              <Tooltip title="Remove vehicle">
-                <IconButton
-                  aria-label={`Remove ${device.name}`}
-                  color="error"
-                  disabled={removeBusy}
-                  onClick={() => void removeVehicle()}
-                  sx={{ border: '1px solid #F3D1CF', borderRadius: '10px', width: 39, height: 39 }}
-                >
-                  <Trash2 size={18} />
-                </IconButton>
-              </Tooltip>
-            </Stack>
-          )}
-        </Stack>
-        {removeError && (
-          <Alert severity="error" sx={{ mt: 2 }}>
-            {removeError}
-          </Alert>
-        )}
+      <Panel>
         <Box
           sx={{
-            display: 'grid',
-            gridTemplateColumns: {
-              xs: 'repeat(2, minmax(0, 1fr))',
-              sm: 'repeat(3, minmax(0, 1fr))',
-              lg: `repeat(${stats.length}, minmax(0, 1fr))`,
-            },
-            gap: { xs: 1, sm: 1.25 },
-            mt: { xs: 1.75, sm: 2.25 },
-            pt: { xs: 1.6, sm: 2 },
-            borderTop: `1px solid ${panelBorder}`,
+            position: 'relative',
+            px: { xs: 1.75, sm: 2.25 },
+            py: { xs: 1.4, sm: 1.6 },
+            color: '#FFFFFF',
+            background: 'linear-gradient(120deg, #2563EB 0%, #3B82F6 60%, #60A5FA 100%)',
           }}
         >
-          {stats.map(([label, value, unit]) => (
-            <Panel key={label} sx={{ px: { xs: 1.5, sm: 1.75 }, py: { xs: 1.4, sm: 1.6 } }}>
-              <Typography color="text.secondary" sx={{ fontSize: 11, mb: 0.75 }}>
-                {label}
-              </Typography>
-              <Typography
-                sx={{
-                  fontSize: { xs: 17, sm: 18 },
-                  fontWeight: 800,
-                  letterSpacing: '-0.4px',
-                  lineHeight: 1.25,
-                }}
+          <Stack direction="row" spacing={{ xs: 1.5, sm: 2 }} sx={{ alignItems: 'center' }}>
+            <VehicleAvatar
+              type={vehicleType}
+              size={44}
+              color="#FFFFFF"
+              background="rgba(15, 42, 120, 0.45)"
+            />
+            <Box sx={{ minWidth: 0, flex: 1 }}>
+              {/* Name and status on one line keep the header short. */}
+              <Stack
+                direction="row"
+                spacing={1.25}
+                sx={{ alignItems: 'center', flexWrap: 'wrap', rowGap: 0.5 }}
               >
-                {value}
-                {unit && (
+                <Typography
+                  component="h1"
+                  noWrap
+                  sx={{
+                    fontSize: { xs: 18, sm: 20 },
+                    fontWeight: 800,
+                    letterSpacing: '-0.5px',
+                    lineHeight: 1.2,
+                    minWidth: 0,
+                  }}
+                >
+                  {device.name}
+                </Typography>
+                <Box
+                  component="span"
+                  sx={{
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    gap: 0.75,
+                    px: 1.1,
+                    py: 0.4,
+                    borderRadius: '20px',
+                    bgcolor: 'rgba(255, 255, 255, 0.18)',
+                    fontSize: { xs: 11, sm: 12 },
+                    fontWeight: 700,
+                    whiteSpace: 'nowrap',
+                  }}
+                >
                   <Box
-                    component="span"
-                    sx={{ fontSize: 11, fontWeight: 600, color: 'text.secondary', ml: 0.5 }}
-                  >
-                    {unit}
+                    sx={{
+                      width: 8,
+                      height: 8,
+                      borderRadius: '50%',
+                      bgcolor: dotColors[now.tone],
+                      boxShadow: '0 0 0 2px rgba(255,255,255,0.5)',
+                    }}
+                  />
+                  {now.label}
+                </Box>
+              </Stack>
+              <Typography sx={{ mt: 0.4, fontSize: { xs: 11, sm: 12 }, opacity: 0.9 }}>
+                {vehicleIcons[vehicleType].label}
+                {device.model && (
+                  <Box component="span" sx={{ display: { xs: 'none', sm: 'inline' } }}>
+                    {` · ${device.model}`}
                   </Box>
                 )}
+                {' · '}
+                {state?.lastSeenAt
+                  ? `last heard ${timeAgo(state.lastSeenAt)}`
+                  : 'no update received yet'}
+                {gpsLost !== undefined && ` · no GPS since ${clockTime(gpsLost)}`}
               </Typography>
-            </Panel>
-          ))}
+            </Box>
+            {admin && (
+              <Tooltip title="Edit details">
+                <IconButton
+                  aria-label="Edit details"
+                  onClick={() => setEditOpen(true)}
+                  sx={{
+                    alignSelf: 'center',
+                    width: 34,
+                    height: 34,
+                    borderRadius: '12px',
+                    color: '#FFFFFF',
+                    bgcolor: 'rgba(255, 255, 255, 0.2)',
+                    '&:hover': { bgcolor: 'rgba(255, 255, 255, 0.3)' },
+                  }}
+                >
+                  <Pencil size={18} />
+                </IconButton>
+              </Tooltip>
+            )}
+          </Stack>
+        </Box>
+        <Box sx={{ px: { xs: 1.75, sm: 2.25 }, pb: { xs: 1.25, sm: 1.5 } }}>
+          {removeError && (
+            <Alert severity="error" sx={{ mt: 2 }}>
+              {removeError}
+            </Alert>
+          )}
+          <Box
+            sx={{
+              display: 'grid',
+              gridTemplateColumns: {
+                xs: 'repeat(2, minmax(0, 1fr))',
+                sm: 'repeat(3, minmax(0, 1fr))',
+                lg: `repeat(${stats.length}, minmax(0, 1fr))`,
+              },
+              gap: { xs: 1, sm: 1.25 },
+              pt: { xs: 1.25, sm: 1.5 },
+            }}
+          >
+            {stats.map(([label, value, unit]) => {
+              const Icon = statIcons[label] ?? Gauge;
+              return (
+                <Panel
+                  key={label}
+                  sx={{
+                    display: 'flex',
+                    gap: 1.25,
+                    alignItems: 'flex-start',
+                    px: { xs: 1.5, sm: 1.75 },
+                    py: { xs: 0.9, sm: 1 },
+                    bgcolor: '#FBFCFE',
+                  }}
+                >
+                  <Box sx={{ color: 'primary.main', display: 'flex', pt: 0.2, flexShrink: 0 }}>
+                    <Icon size={18} />
+                  </Box>
+                  <Box sx={{ minWidth: 0 }}>
+                    <Typography color="text.secondary" sx={{ fontSize: 11, mb: 0.15 }}>
+                      {label}
+                    </Typography>
+                    <Typography
+                      sx={{
+                        fontSize: { xs: 15, sm: 16 },
+                        fontWeight: 800,
+                        letterSpacing: '-0.4px',
+                        lineHeight: 1.25,
+                      }}
+                    >
+                      {value}
+                      {unit && (
+                        <Box
+                          component="span"
+                          sx={{ fontSize: 11, fontWeight: 600, color: 'text.secondary', ml: 0.5 }}
+                        >
+                          {unit}
+                        </Box>
+                      )}
+                    </Typography>
+                  </Box>
+                </Panel>
+              );
+            })}
+          </Box>
         </Box>
       </Panel>
 
@@ -354,127 +422,162 @@ export function VehiclePage({
           display: 'grid',
           gap: 2,
           alignItems: 'start',
+          // A main area (map and activity) and a column of vehicle cards on the right. Each
+          // stacks on its own, so a tall column never leaves gaps in the other.
           gridTemplateColumns: {
             xs: '1fr',
-            lg: '360px minmax(0, 1fr)',
-            xl: '380px minmax(0, 1fr) 300px',
-          },
-          gridTemplateAreas: {
-            xs: '"map" "activity" "side"',
-            lg: '"map activity" "side side"',
-            xl: '"map activity side"',
+            lg: 'minmax(0, 1fr) 300px',
+            xl: 'minmax(0, 1fr) 340px',
           },
         }}
       >
-        <Panel sx={{ gridArea: 'map' }}>
-          <PanelHead
-            title="Live position"
-            caption={
-              hasPosition
-                ? 'Last known location · updates as it moves'
-                : 'Waiting for the first GPS signal'
-            }
-            action={
-              <Button
-                disabled={!hasPosition}
-                onClick={() => setFocusRequest((value) => value + 1)}
-                startIcon={<LocateFixed size={16} />}
-                variant="outlined"
-                color="inherit"
-                sx={{ minHeight: 36, borderColor: '#DCE2EB', color: '#39445A' }}
-              >
-                Center map
-              </Button>
-            }
-          />
+        {/* On phones this wrapper dissolves, so its parts interleave with the vehicle cards. */}
+        <Box
+          sx={{
+            display: { xs: 'contents', lg: 'flex' },
+            flexDirection: 'column',
+            gap: 2,
+            minWidth: 0,
+          }}
+        >
           <Box
             sx={{
-              position: 'relative',
-              borderTop: { xs: `1px solid ${panelBorder}`, lg: 0 },
-              // On desktop the map looks like the driver's phone screen rather than a wide panel.
-              mx: { lg: 2 },
-              p: { lg: '9px' },
-              bgcolor: { lg: '#172033' },
-              borderRadius: { lg: '30px' },
-              boxShadow: { lg: '0 10px 30px rgba(23,32,51,.18)' },
-              '& > div:first-of-type': { borderRadius: { lg: '22px' }, overflow: 'hidden' },
+              order: 1,
+              display: 'grid',
+              gap: 2,
+              // The map takes the spare width; the activity log stays a narrow column.
+              gridTemplateColumns: {
+                xs: '1fr',
+                md: 'minmax(0, 1fr) 360px',
+                xl: 'minmax(0, 1fr) 400px',
+              },
+              minWidth: 0,
             }}
           >
-            <FleetMap
-              devices={mapDevices}
-              focusRequest={focusRequest}
-              height={{ xs: 340, sm: 420, lg: 600 }}
-              selectedId={device.deviceId}
-              onSelect={() => undefined}
-            />
-            {hasPosition && (
-              <Stack
-                direction="row"
-                spacing={1}
+            <Panel>
+              <PanelHead
+                icon={<MapPin size={18} />}
+                title="Live position"
+                caption={
+                  hasPosition
+                    ? 'Last known location · updates as it moves'
+                    : 'Waiting for the first GPS signal'
+                }
+                action={
+                  <Stack direction="row" spacing={1}>
+                    {/* Connect, replace or disconnect the phone or GPS unit. */}
+                    <Button
+                      onClick={() => setConnectionOpen(true)}
+                      startIcon={<Link2 size={16} />}
+                      variant="outlined"
+                      sx={{ minHeight: 36, borderColor: '#BFD0FF' }}
+                    >
+                      {state?.lastSeenAt ? 'Connection' : 'Connect now'}
+                    </Button>
+                    <Button
+                      onClick={() => setRouteOpen(true)}
+                      startIcon={<Route size={16} />}
+                      variant="contained"
+                      sx={{ minHeight: 36 }}
+                    >
+                      Route history
+                    </Button>
+                  </Stack>
+                }
+              />
+              <Box
                 sx={{
-                  position: 'absolute',
-                  top: { xs: 9, sm: 12, lg: 21 },
-                  left: { xs: 9, sm: 12, lg: 21 },
-                  zIndex: 2,
-                  alignItems: 'center',
-                  bgcolor: '#FFFFFF',
-                  border: `1px solid ${panelBorder}`,
-                  borderRadius: '10px',
-                  boxShadow: '0 2px 8px rgba(23,32,51,.06)',
-                  px: { xs: 1.1, sm: 1.4 },
-                  py: { xs: 0.9, sm: 1.1 },
-                  fontSize: 11,
-                  pointerEvents: 'none',
+                  position: 'relative',
+                  borderTop: { xs: `1px solid ${panelBorder}`, lg: 0 },
+                  // On desktop the map looks like the driver's phone screen rather than a wide panel.
+                  mx: { lg: 2 },
+                  p: { lg: '9px' },
+                  bgcolor: { lg: '#172033' },
+                  borderRadius: { lg: '30px' },
+                  boxShadow: { lg: '0 10px 30px rgba(23,32,51,.18)' },
+                  '& > div:first-of-type': { borderRadius: { lg: '22px' }, overflow: 'hidden' },
                 }}
               >
-                <Box
-                  sx={{
-                    width: 7,
-                    height: 7,
-                    borderRadius: '50%',
-                    bgcolor: statusColors[status],
-                  }}
+                <FleetMap
+                  devices={mapDevices}
+                  height={{ xs: 340, sm: 420, lg: 600 }}
+                  selectedId={device.deviceId}
+                  onSelect={() => undefined}
                 />
-                <span>{status === 'moving' ? 'Live position' : 'Last known position'}</span>
+                {hasPosition && (
+                  <Stack
+                    direction="row"
+                    spacing={1}
+                    sx={{
+                      position: 'absolute',
+                      top: { xs: 9, sm: 12, lg: 21 },
+                      left: { xs: 9, sm: 12, lg: 21 },
+                      zIndex: 2,
+                      alignItems: 'center',
+                      bgcolor: '#FFFFFF',
+                      border: `1px solid ${panelBorder}`,
+                      borderRadius: '10px',
+                      boxShadow: '0 2px 8px rgba(23,32,51,.06)',
+                      px: { xs: 1.1, sm: 1.4 },
+                      py: { xs: 0.9, sm: 1.1 },
+                      fontSize: 11,
+                      pointerEvents: 'none',
+                    }}
+                  >
+                    <Box
+                      sx={{
+                        width: 7,
+                        height: 7,
+                        borderRadius: '50%',
+                        bgcolor: statusColors[status],
+                      }}
+                    />
+                    <span>{status === 'moving' ? 'Live position' : 'Last known position'}</span>
+                  </Stack>
+                )}
+              </Box>
+              <Stack
+                direction="row"
+                spacing={1.25}
+                sx={{
+                  justifyContent: 'space-between',
+                  alignItems: 'center',
+                  flexWrap: 'wrap',
+                  rowGap: 0.5,
+                  px: { xs: 1.5, sm: 2 },
+                  py: 1.4,
+                  color: 'text.secondary',
+                  fontSize: { xs: 10, sm: 11 },
+                }}
+              >
+                <span>
+                  <Box component="strong" sx={{ color: 'text.primary', fontWeight: 700 }}>
+                    GPS coordinates
+                  </Box>{' '}
+                  · {coordinates ?? 'not received yet'}
+                </span>
+                {state?.lastSeenAt && <span>Updated {timeAgo(state.lastSeenAt)}</span>}
               </Stack>
-            )}
+            </Panel>
+            {/* Beside the map the log is exactly as tall as the map and scrolls inside. */}
+            <Box sx={{ position: 'relative', minWidth: 0, minHeight: { md: 420 } }}>
+              <Box sx={{ position: { md: 'absolute' }, inset: 0, display: 'flex' }}>
+                <ActivityCard
+                  canMessage={canDispatch}
+                  error={activityLog.error}
+                  fill
+                  items={activityLog.items}
+                  onSendAlert={() => setAlertOpen(true)}
+                />
+              </Box>
+            </Box>
           </Box>
-          <Stack
-            direction="row"
-            spacing={1.25}
-            sx={{
-              justifyContent: 'space-between',
-              alignItems: 'center',
-              flexWrap: 'wrap',
-              rowGap: 0.5,
-              px: { xs: 1.5, sm: 2 },
-              py: 1.4,
-              color: 'text.secondary',
-              fontSize: { xs: 10, sm: 11 },
-            }}
-          >
-            <span>
-              <Box component="strong" sx={{ color: 'text.primary', fontWeight: 700 }}>
-                GPS coordinates
-              </Box>{' '}
-              · {coordinates ?? 'not received yet'}
-            </span>
-            {state?.lastSeenAt && <span>Updated {timeAgo(state.lastSeenAt)}</span>}
-          </Stack>
-        </Panel>
-        <Box sx={{ gridArea: 'activity', minWidth: 0 }}>
-          <DriverActivityCard
-            canMessage={canDispatch}
-            client={client}
-            device={device}
-            driverName={assignedDriver(device, drivers)?.name}
-          />
         </Box>
         <Box
           sx={{
-            gridArea: 'side',
+            order: 2,
             display: 'grid',
-            gridTemplateColumns: { xs: '1fr', sm: 'repeat(2, minmax(0, 1fr))', xl: '1fr' },
+            gridTemplateColumns: { xs: '1fr', sm: 'repeat(2, minmax(0, 1fr))', lg: '1fr' },
             gap: 2,
             alignItems: 'start',
             minWidth: 0,
@@ -483,6 +586,7 @@ export function VehiclePage({
           <DriverCard
             admin={admin}
             canMessage={canDispatch}
+            onMessage={() => setAlertOpen(true)}
             client={client}
             device={device}
             devices={devices}
@@ -491,37 +595,62 @@ export function VehiclePage({
             onChanged={onChanged}
             onDriversChanged={onDriversChanged}
           />
-          <DetailsCard admin={admin} device={device} onEdit={() => setEditOpen(true)} />
-          {connection}
-          <PhoneSettingsCard admin={admin} client={client} device={device} onChanged={onChanged} />
+          <DetailsCard
+            admin={admin}
+            device={device}
+            onEdit={() => setEditOpen(true)}
+            onPhoneSettings={() => setSettingsOpen(true)}
+          />
         </Box>
       </Box>
 
-      <Box
-        sx={{
-          display: 'grid',
-          gridTemplateColumns: { xs: '1fr', xl: 'minmax(0, 1.6fr) minmax(0, 1fr)' },
-          gap: 2,
-          alignItems: 'start',
-        }}
+      <Dialog
+        open={routeOpen}
+        onClose={() => setRouteOpen(false)}
+        fullScreen={phone}
+        fullWidth
+        maxWidth="lg"
       >
-        <RouteHistory client={client} device={device} />
-        <VehicleAlertsCard
-          alerts={alerts}
-          canAcknowledge={canDispatch}
-          client={client}
-          coordinates={coordinates}
-          device={device}
-          driver={assignedDriver(device, drivers)}
-          onChanged={onAlertsChanged}
-        />
-      </Box>
+        <RouteHistory client={client} device={device} onClose={() => setRouteOpen(false)} />
+      </Dialog>
+
+      {/* The card itself is the popup, so the dialog's own surface is hidden. */}
+      <Dialog
+        open={connectionOpen}
+        onClose={() => setConnectionOpen(false)}
+        fullWidth
+        maxWidth="xs"
+        slotProps={{ paper: { sx: { bgcolor: 'transparent', boxShadow: 'none', m: 2 } } }}
+      >
+        {connection(() => setConnectionOpen(false))}
+      </Dialog>
+
+      <PhoneSettingsDialog
+        admin={admin}
+        client={client}
+        device={device}
+        open={settingsOpen}
+        onChanged={onChanged}
+        onClose={() => setSettingsOpen(false)}
+      />
+
+      <SendAlertDialog
+        client={client}
+        device={device}
+        driverName={assignedDriver(device, drivers)?.name}
+        messages={(activityLog.items ?? []).filter((item) => item.type === 'message')}
+        open={alertOpen}
+        onClose={() => setAlertOpen(false)}
+        onSent={activityLog.reload}
+      />
 
       <EditDetailsDialog
         client={client}
         device={device}
         open={editOpen}
         onClose={() => setEditOpen(false)}
+        onRemove={admin ? () => void removeVehicle() : undefined}
+        removeBusy={removeBusy}
         onSaved={async () => {
           await onChanged();
           setEditOpen(false);
@@ -535,7 +664,7 @@ export function VehicleNotFound({ onBack }: { onBack: () => void }) {
   return (
     <Paper sx={{ p: { xs: 3, sm: 6 } }}>
       <Stack spacing={2} sx={{ alignItems: 'center', textAlign: 'center' }}>
-        <Typography variant="h5">This vehicle is not in your fleet</Typography>
+        <Typography variant="h5">This vehicle is not in your account</Typography>
         <Typography color="text.secondary">
           It may have been removed, or the link belongs to another workspace.
         </Typography>
@@ -588,22 +717,44 @@ function DetailsCard({
   device,
   admin,
   onEdit,
+  onPhoneSettings,
 }: {
   device: Device;
   admin: boolean;
   onEdit: () => void;
+  /** Opens the driver phone settings (update interval, longest pause). */
+  onPhoneSettings: () => void;
 }) {
   const odometerM = device.state?.odometerM;
   return (
     <Panel>
       <PanelHead
+        icon={<Bus size={18} />}
         title="Vehicle details"
         action={
-          admin && (
-            <Button onClick={onEdit} size="small" sx={textButtonSx}>
-              Edit
-            </Button>
-          )
+          <Stack direction="row" spacing={0.5} sx={{ alignItems: 'center' }}>
+            {device.protocol === 'osmand' && (
+              <Tooltip title="Driver phone settings">
+                <IconButton
+                  aria-label="Driver phone settings"
+                  onClick={onPhoneSettings}
+                  size="small"
+                >
+                  <Settings size={17} />
+                </IconButton>
+              </Tooltip>
+            )}
+            {admin && (
+              <Button
+                onClick={onEdit}
+                size="small"
+                startIcon={<Pencil size={14} />}
+                sx={textButtonSx}
+              >
+                Edit
+              </Button>
+            )}
+          </Stack>
         }
       />
       <Box sx={{ px: { xs: 1.75, sm: 2 }, pb: 1.5, mt: -1 }}>
@@ -637,6 +788,7 @@ function DriverCard({
   client,
   onChanged,
   onDriversChanged,
+  onMessage,
 }: {
   device: Device;
   devices: Device[];
@@ -644,6 +796,8 @@ function DriverCard({
   driversError: string;
   admin: boolean;
   canMessage: boolean;
+  /** Opens Send alert. */
+  onMessage: () => void;
   client: TrackifyClient;
   onChanged: () => Promise<void>;
   onDriversChanged: () => Promise<void>;
@@ -674,6 +828,7 @@ function DriverCard({
   return (
     <Panel>
       <PanelHead
+        icon={<UserRound size={18} />}
         title="Assigned driver"
         action={
           admin &&
@@ -751,11 +906,7 @@ function DriverCard({
               {canMessage && (
                 <Button
                   fullWidth
-                  onClick={() => {
-                    const box = document.getElementById('driver-message');
-                    box?.scrollIntoView({ behavior: 'smooth', block: 'center' });
-                    box?.focus({ preventScroll: true });
-                  }}
+                  onClick={onMessage}
                   startIcon={<MessageSquareText size={16} />}
                   variant="outlined"
                   sx={{ minHeight: 38, fontSize: 12, borderColor: '#BFD0FF' }}
@@ -768,10 +919,22 @@ function DriverCard({
               <Button
                 color="inherit"
                 disabled={busy}
+                endIcon={<ChevronRight size={17} />}
+                fullWidth
                 onClick={() => setAssignOpen(true)}
-                startIcon={<ArrowLeftRight size={15} />}
-                size="small"
-                sx={{ ...textButtonSx, alignSelf: 'flex-start', color: '#39445A' }}
+                startIcon={<ArrowLeftRight size={16} />}
+                sx={{
+                  justifyContent: 'flex-start',
+                  minHeight: 42,
+                  px: 1,
+                  mx: -1,
+                  width: 'calc(100% + 16px)',
+                  color: '#39445A',
+                  fontWeight: 650,
+                  borderTop: `1px solid ${rowDivider}`,
+                  borderRadius: 0,
+                  '& .MuiButton-endIcon': { ml: 'auto' },
+                }}
               >
                 Switch driver
               </Button>
@@ -794,7 +957,7 @@ function DriverCard({
                 <Typography color="text.secondary" variant="body2">
                   {admin
                     ? 'Pick one of your drivers, or add a new one.'
-                    : 'A fleet administrator can assign a driver.'}
+                    : 'An administrator can assign a driver.'}
                 </Typography>
               </Box>
             </Stack>
@@ -834,204 +997,6 @@ function DriverCard({
         />
       </Box>
     </Panel>
-  );
-}
-
-const alertColors: Record<FleetAlert['severity'], [string, string]> = {
-  critical: ['#D83A36', '#FFF0EF'],
-  high: ['#B54708', '#FFF6DF'],
-  warning: ['#A66A08', '#FFF6DF'],
-};
-
-/** Open alerts and recent ones for this vehicle, plus whether it has gone quiet. */
-function VehicleAlertsCard({
-  device,
-  alerts,
-  coordinates,
-  canAcknowledge,
-  client,
-  driver,
-  onChanged,
-}: {
-  device: Device;
-  driver?: Driver;
-  alerts?: FleetAlert[];
-  coordinates?: string;
-  canAcknowledge: boolean;
-  client: TrackifyClient;
-  onChanged: () => Promise<void>;
-}) {
-  const [busy, setBusy] = useState('');
-  const [error, setError] = useState('');
-  const own = (alerts ?? [])
-    .filter((alert) => alert.deviceId === device.deviceId)
-    .sort((a, b) => Number(b.status === 'open') - Number(a.status === 'open'))
-    .slice(0, 5);
-  const open = own.filter((alert) => alert.status === 'open').length;
-  const quiet = notReporting(device);
-  const attention = open + (quiet ? 1 : 0);
-
-  async function acknowledge(alert: FleetAlert) {
-    setBusy(alert.alertId);
-    setError('');
-    try {
-      await client.acknowledgeAlert(alert.alertId);
-      await onChanged();
-    } catch (reason) {
-      setError(reason instanceof Error ? reason.message : 'Alert could not be updated');
-    } finally {
-      setBusy('');
-    }
-  }
-
-  return (
-    <Panel>
-      <PanelHead
-        section
-        title="Alerts & status"
-        caption="Items that may need your attention"
-        action={
-          !alerts ? undefined : attention ? (
-            <Pill color="#D83A36" background="#FFF0EF">
-              {attention} need{attention === 1 ? 's' : ''} attention
-            </Pill>
-          ) : (
-            <Pill color="#16865B" background="#E8F8F0">
-              All clear
-            </Pill>
-          )
-        }
-      />
-      <Box sx={{ px: { xs: 1.75, sm: 2 }, pb: 1 }}>
-        {error && (
-          <Alert severity="error" sx={{ mb: 1 }} onClose={() => setError('')}>
-            {error}
-          </Alert>
-        )}
-        {quiet && (
-          <StatusItem
-            icon={<TriangleAlert size={16} />}
-            colors={alertColors.critical}
-            title="Phone not reachable"
-            detail={`Last heard from ${
-              device.state?.lastSeenAt ? timeAgo(device.state.lastSeenAt) : 'never'
-            }. The driver is on shift, but the phone has stopped checking in: Android may have stopped the app, or the phone is off or has no internet. ${
-              driver?.phone
-                ? `Call ${driver.name} on ${driver.phone} and ask them to open the Trackify app.`
-                : 'Ask the driver to open the Trackify app.'
-            }`}
-          />
-        )}
-        {!alerts ? (
-          <CircularProgress size={22} sx={{ my: 1.5 }} />
-        ) : (
-          own.map((alert) => {
-            const map = mapLink(alert.latitude, alert.longitude);
-            return (
-              <StatusItem
-                key={alert.alertId}
-                icon={<BellRing size={16} />}
-                colors={
-                  alert.status === 'open' ? alertColors[alert.severity] : ['#6F7A90', '#F0F2F6']
-                }
-                title={alertTitle(alert)}
-                detail={[
-                  `${new Date(alert.createdAt).toLocaleString('en-IN')} · ${timeAgo(alert.createdAt)}`,
-                  alert.note && `“${alert.note}”`,
-                  alert.status === 'acknowledged' &&
-                    (alert.acknowledgedBy ? `handled by ${alert.acknowledgedBy}` : 'handled'),
-                ]
-                  .filter(Boolean)
-                  .join(' · ')}
-                actions={
-                  <>
-                    {map && (
-                      <Button
-                        href={map}
-                        rel="noreferrer"
-                        size="small"
-                        startIcon={<MapPin size={14} />}
-                        sx={textButtonSx}
-                        target="_blank"
-                      >
-                        Map
-                      </Button>
-                    )}
-                    {alert.status === 'open' && canAcknowledge && (
-                      <Button
-                        disabled={busy === alert.alertId}
-                        onClick={() => void acknowledge(alert)}
-                        size="small"
-                        sx={textButtonSx}
-                      >
-                        Mark handled
-                      </Button>
-                    )}
-                  </>
-                }
-              />
-            );
-          })
-        )}
-        {coordinates && (
-          <StatusItem
-            icon={<LocateFixed size={16} />}
-            colors={['#285CF6', '#EDF3FF']}
-            title="Last known location available"
-            detail={`${coordinates} · GPS protocol ${device.protocol.toUpperCase()}`}
-          />
-        )}
-        {alerts && !own.length && !quiet && !coordinates && (
-          <Typography color="text.secondary" sx={{ fontSize: 12, py: 2, textAlign: 'center' }}>
-            Nothing needs your attention.
-          </Typography>
-        )}
-      </Box>
-    </Panel>
-  );
-}
-
-function StatusItem({
-  icon,
-  colors: [color, background],
-  title,
-  detail,
-  actions,
-}: {
-  icon: ReactNode;
-  colors: [string, string];
-  title: string;
-  detail: string;
-  actions?: ReactNode;
-}) {
-  return (
-    <Stack direction="row" spacing={1.4} sx={{ py: 1.4, borderTop: `1px solid ${rowDivider}` }}>
-      <Box
-        sx={{
-          width: 30,
-          height: 30,
-          flexShrink: 0,
-          borderRadius: '10px',
-          display: 'grid',
-          placeItems: 'center',
-          color,
-          bgcolor: background,
-        }}
-      >
-        {icon}
-      </Box>
-      <Box sx={{ minWidth: 0 }}>
-        <Typography sx={{ fontSize: 12, fontWeight: 700 }}>{title}</Typography>
-        <Typography color="text.secondary" sx={{ fontSize: 11, mt: 0.4, wordBreak: 'break-word' }}>
-          {detail}
-        </Typography>
-        {actions && (
-          <Stack direction="row" spacing={0.5} sx={{ ml: -0.75, mt: 0.25 }}>
-            {actions}
-          </Stack>
-        )}
-      </Box>
-    </Stack>
   );
 }
 
@@ -1193,12 +1158,17 @@ function EditDetailsDialog({
   device,
   client,
   onClose,
+  onRemove,
+  removeBusy = false,
   onSaved,
 }: {
   open: boolean;
   device: Device;
   client: TrackifyClient;
   onClose: () => void;
+  /** Administrators only; kept here, away from Edit, so it is not clicked by accident. */
+  onRemove?: () => void;
+  removeBusy?: boolean;
   onSaved: () => Promise<void>;
 }) {
   const [form, setForm] = useState<DetailsForm>(() => detailsForm(device));
@@ -1311,6 +1281,17 @@ function EditDetailsDialog({
         </Stack>
       </DialogContent>
       <DialogActions sx={{ px: 3, pb: 2.5 }}>
+        {onRemove && (
+          <Button
+            color="error"
+            disabled={busy || removeBusy}
+            onClick={onRemove}
+            startIcon={<Trash2 size={16} />}
+            sx={{ mr: 'auto' }}
+          >
+            {removeBusy ? 'Removing…' : 'Remove vehicle'}
+          </Button>
+        )}
         <Button color="inherit" onClick={onClose}>
           Cancel
         </Button>

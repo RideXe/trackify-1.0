@@ -5,9 +5,20 @@ import {
   Box,
   Button,
   CircularProgress,
+  Dialog,
+  DialogActions,
+  DialogContent,
+  DialogTitle,
   Link,
   MenuItem,
   Stack,
+  Tab,
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableRow,
+  Tabs,
   TextField,
   Typography,
 } from '@mui/material';
@@ -16,39 +27,71 @@ import {
   defaultTrackerIntervalSeconds,
   pauseLimits,
   trackerIntervals,
+  type ActivityEntry,
   type ActivityItem,
   type Device,
   type TrackifyClient,
 } from '@trackify/api-client';
-import { Clock3, Gauge, Hand, House, PhoneCall, Send, UserRound } from 'lucide-react';
 import {
-  Fragment,
-  useCallback,
-  useEffect,
-  useMemo,
-  useRef,
-  useState,
-  type ComponentType,
-} from 'react';
-import { describeActivity, intervalLabel, mapLink, type Tone } from './driver-activity-data';
-import { timeAgo } from './fleet-map-data';
-import { Panel, PanelHead, rowDivider } from './panel';
+  ArrowLeftRight,
+  BellRing,
+  CirclePause,
+  CirclePlay,
+  ClipboardCheck,
+  Fuel,
+  History,
+  LogIn,
+  LogOut,
+  MapPin,
+  Send,
+  Siren,
+  Smartphone,
+  TriangleAlert,
+  UserRound,
+  type LucideIcon,
+} from 'lucide-react';
+import { Fragment, useCallback, useEffect, useMemo, useState } from 'react';
+import {
+  describeActivity,
+  driverOf,
+  inTab,
+  intervalLabel,
+  mapLink,
+  type ActivityTab,
+  type Tone,
+} from './driver-activity-data';
+import { Panel, PanelHead, panelBorder, rowDivider } from './panel';
 
-const toneColors: Record<Tone, string> = {
-  critical: '#D92D20',
-  warning: '#DC6803',
-  info: '#155EEF',
-  success: '#079455',
+/** Icon colour and its soft background, by how loudly an entry should read. */
+const toneColors: Record<Tone, [string, string]> = {
+  critical: ['#D92D20', '#FEF3F2'],
+  warning: ['#DC6803', '#FFFAEB'],
+  info: ['#155EEF', '#EFF4FF'],
+  success: ['#079455', '#ECFDF3'],
 };
 
-/** One tap sends these; the wording is what the driver reads in the app. */
-const quickMessages: Array<{ text: string; Icon: ComponentType<{ size?: number }> }> = [
-  { text: 'Please slow down', Icon: Gauge },
-  { text: 'Stop the vehicle now', Icon: Hand },
-  { text: 'Customer is waiting', Icon: UserRound },
-  { text: 'Return to base', Icon: House },
-  { text: 'Call the office', Icon: PhoneCall },
-  { text: 'Are you running late?', Icon: Clock3 },
+const typeIcons: Record<ActivityEntry['type'], LucideIcon> = {
+  'shift-start': LogIn,
+  'shift-end': LogOut,
+  pause: CirclePause,
+  resume: CirclePlay,
+  'driver-change': ArrowLeftRight,
+  sos: Siren,
+  issue: TriangleAlert,
+  fuel: Fuel,
+  check: ClipboardCheck,
+  warning: Smartphone,
+  message: Send,
+};
+
+/** Ready-made alerts; the wording is what the driver reads in the app. */
+const templates = [
+  'Please slow down',
+  'Stop the vehicle now',
+  'Customer is waiting',
+  'Return to base',
+  'Call the office',
+  'Are you running late?',
 ];
 
 const clock = (ms: number) =>
@@ -66,327 +109,473 @@ function dayLabel(ms: number, now = Date.now()) {
   });
 }
 
-/**
- * Everything the driver did in the app over the last week, as a conversation: driver events
- * on the left, messages from the office on the right, newest at the bottom next to the reply box.
- */
-export function DriverActivityCard({
-  device,
-  client,
-  canMessage,
-  driverName,
-}: {
-  device: Device;
-  client: TrackifyClient;
-  canMessage: boolean;
-  /** The driver assigned now; older entries carry the name of whoever drove then. */
-  driverName?: string;
-}) {
+/** The vehicle's last week of activity, refreshed every 30 s; shared by the log and Send alert. */
+export function useActivity(client: TrackifyClient, deviceId: string) {
   const [items, setItems] = useState<ActivityItem[]>();
   const [error, setError] = useState('');
-  const [text, setText] = useState('');
-  const [sending, setSending] = useState(false);
-  const [sendError, setSendError] = useState('');
-  const [sent, setSent] = useState('');
-  const scroller = useRef<HTMLDivElement>(null);
-
-  const load = useCallback(async () => {
+  const reload = useCallback(async () => {
     try {
-      setItems((await client.activity(device.deviceId)).items);
+      setItems((await client.activity(deviceId)).items);
       setError('');
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : 'Activity unavailable');
     }
-  }, [client, device.deviceId]);
-
+  }, [client, deviceId]);
   useEffect(() => {
-    void load();
+    void reload();
     const timer = window.setInterval(() => {
-      if (!document.hidden) void load();
+      if (!document.hidden) void reload();
     }, 30_000);
     return () => window.clearInterval(timer);
-  }, [load]);
+  }, [reload]);
+  return { items, error, reload };
+}
 
-  // Newest is at the bottom, so keep the view there as entries arrive.
-  const newest = items?.[0]?.entryId;
-  useEffect(() => {
-    const element = scroller.current;
-    if (element) element.scrollTop = element.scrollHeight;
-  }, [newest]);
+const tabs: Array<{ value: ActivityTab; label: string; empty: string }> = [
+  {
+    value: 'driver',
+    label: 'Driver activity',
+    empty: 'No shifts, pauses or driver changes in the last 7 days.',
+  },
+  {
+    value: 'vehicle',
+    label: 'Vehicle activity',
+    empty: 'No reports, fuel, checks or warnings in the last 7 days.',
+  },
+];
 
-  useEffect(() => {
-    if (!sent) return;
-    const timer = window.setTimeout(() => setSent(''), 3000);
-    return () => window.clearTimeout(timer);
-  }, [sent]);
-
-  async function send(value: string, fromBox: boolean) {
-    const message = value.trim();
-    if (!message || sending) return;
-    setSending(true);
-    setSendError('');
-    try {
-      await client.sendMessage(device.deviceId, message);
-      if (fromBox) setText('');
-      setSent(message);
-      await load();
-    } catch (reason) {
-      setSendError(reason instanceof Error ? reason.message : 'Message not sent');
-    } finally {
-      setSending(false);
-    }
-  }
-
-  const timeline = useMemo(() => [...(items ?? [])].reverse(), [items]);
+/**
+ * The vehicle's activity log in two tabs: what the driver did with their shift, and what happened
+ * to the vehicle. Newest first, grouped by day, each entry naming the driver at the time.
+ */
+export function ActivityCard({
+  items,
+  error,
+  canMessage,
+  fill = false,
+  onSendAlert,
+}: {
+  /** Undefined while loading. */
+  items?: ActivityItem[];
+  error: string;
+  canMessage: boolean;
+  /** Fill the parent's height (beside the map) and scroll inside, instead of a fixed maximum. */
+  fill?: boolean;
+  onSendAlert: () => void;
+}) {
+  const [tab, setTab] = useState<ActivityTab>('driver');
+  const shown = useMemo(() => (items ?? []).filter((item) => inTab(item, tab)), [items, tab]);
+  const count = (value: ActivityTab) => (items ?? []).filter((item) => inTab(item, value)).length;
   const pad = { px: { xs: 1.75, sm: 2 } };
 
   return (
-    <Panel sx={{ display: 'flex', flexDirection: 'column' }}>
+    <Panel
+      sx={{ display: 'flex', flexDirection: 'column', flex: 1, ...(fill && { height: '100%' }) }}
+    >
       <PanelHead
         section
-        title="Driver activity"
-        caption={
-          driverName
-            ? `${driverName} · shifts, pauses, SOS, reports and messages · last 7 days`
-            : 'Shifts, pauses, SOS, reports and messages · last 7 days'
+        icon={<History size={19} />}
+        title="Activity"
+        caption="Last 7 days"
+        action={
+          canMessage && (
+            <Button
+              onClick={onSendAlert}
+              startIcon={<BellRing size={16} />}
+              variant="contained"
+              sx={{ minHeight: 36 }}
+            >
+              Send alert
+            </Button>
+          )
         }
       />
+      <Tabs
+        value={tab}
+        onChange={(_, value: ActivityTab) => setTab(value)}
+        variant="fullWidth"
+        sx={{ borderBottom: `1px solid ${panelBorder}`, minHeight: 42 }}
+      >
+        {tabs.map(({ value, label }) => (
+          <Tab
+            key={value}
+            value={value}
+            label={items ? `${label} · ${count(value)}` : label}
+            sx={{ minHeight: 42, fontSize: 13, fontWeight: 700, textTransform: 'none' }}
+          />
+        ))}
+      </Tabs>
       {error && (
-        <Box sx={{ ...pad, pb: 1.5 }}>
-          <Alert severity="warning">Driver activity could not be loaded: {error}</Alert>
+        <Box sx={{ ...pad, pt: 1.5 }}>
+          <Alert severity="warning">Activity could not be loaded: {error}</Alert>
         </Box>
       )}
       <Box
-        ref={scroller}
         sx={{
-          ...pad,
-          py: 1.5,
-          flex: 1,
           minHeight: 220,
-          maxHeight: { xs: 460, xl: 470 },
           overflowY: 'auto',
-          bgcolor: '#FAFBFD',
-          borderTop: `1px solid ${rowDivider}`,
-          borderBottom: `1px solid ${rowDivider}`,
+          ...(fill
+            ? { flex: 1, maxHeight: { xs: 480, md: 'none' } }
+            : { maxHeight: { xs: 480, xl: 520 } }),
         }}
       >
         {!items && !error ? (
-          <CircularProgress size={22} />
-        ) : items && !items.length ? (
-          <Typography color="text.secondary" sx={{ fontSize: 12, py: 4, textAlign: 'center' }}>
-            Nothing yet. Activity appears once the driver uses the Trackify app on shift.
+          <Box sx={{ ...pad, py: 3 }}>
+            <CircularProgress size={22} />
+          </Box>
+        ) : !shown.length ? (
+          <Typography
+            color="text.secondary"
+            sx={{ fontSize: 12, py: 5, px: 2, textAlign: 'center' }}
+          >
+            {tabs.find((item) => item.value === tab)!.empty}
           </Typography>
         ) : (
-          timeline.map((item, position) => {
-            const previous = timeline[position - 1];
+          shown.map((item, position) => {
+            const previous = shown[position - 1];
             const newDay = !previous || dayLabel(previous.at) !== dayLabel(item.at);
             return (
               <Fragment key={item.entryId}>
                 {newDay && (
                   <Typography
                     sx={{
-                      textAlign: 'center',
+                      ...pad,
+                      py: 0.75,
+                      position: 'sticky',
+                      top: 0,
+                      zIndex: 1,
+                      bgcolor: '#F8FAFC',
+                      borderBottom: `1px solid ${rowDivider}`,
                       fontSize: 11,
                       fontWeight: 700,
+                      letterSpacing: '0.4px',
+                      textTransform: 'uppercase',
                       color: 'text.secondary',
-                      my: 1.25,
                     }}
                   >
                     {dayLabel(item.at)}
                   </Typography>
                 )}
-                {item.type === 'message' ? (
-                  <OfficeMessage item={item} />
-                ) : (
-                  <DriverEvent item={item} />
-                )}
+                <ActivityRow item={item} />
               </Fragment>
             );
           })
         )}
       </Box>
-      {canMessage && (
-        <Box sx={{ ...pad, py: 1.75 }}>
-          <Stack direction="row" sx={{ flexWrap: 'wrap', gap: 0.75, mb: 1.25 }}>
-            {quickMessages.map(({ text: quick, Icon }) => (
-              <Button
-                key={quick}
-                disabled={sending}
-                onClick={() => void send(quick, false)}
-                size="small"
-                startIcon={<Icon size={14} />}
-                variant="outlined"
-                sx={{
-                  minHeight: 30,
-                  px: 1.25,
-                  borderRadius: '20px',
-                  fontSize: 12,
-                  fontWeight: 650,
-                  borderColor: '#DCE2EB',
-                  color: '#39445A',
-                  '&:hover': {
-                    borderColor: 'primary.main',
-                    color: 'primary.main',
-                    bgcolor: '#EDF3FF',
-                  },
-                }}
-              >
-                {quick}
-              </Button>
-            ))}
-          </Stack>
-          <Stack direction="row" spacing={1} sx={{ alignItems: 'flex-start' }}>
-            <TextField
-              fullWidth
-              id="driver-message"
-              placeholder={driverName ? `Message ${driverName}…` : 'Message the driver…'}
-              value={text}
-              onChange={(event) => setText(event.target.value)}
-              onKeyDown={(event) => {
-                if (event.key === 'Enter' && !event.shiftKey) {
-                  event.preventDefault();
-                  void send(text, true);
-                }
-              }}
-              slotProps={{ htmlInput: { maxLength: 500, 'aria-label': 'Message the driver' } }}
-            />
-            <Button
-              disabled={sending || !text.trim()}
-              onClick={() => void send(text, true)}
-              startIcon={<Send size={15} />}
-              variant="contained"
-              sx={{ minHeight: 40 }}
-            >
-              Send
-            </Button>
-          </Stack>
-          <Typography
-            color={sent ? 'success.main' : 'text.secondary'}
-            sx={{ fontSize: 11, mt: 0.75, fontWeight: sent ? 650 : 400 }}
-          >
-            {sent
-              ? `Sent: “${sent}”`
-              : 'The driver sees it within about a minute while the Trackify app is open.'}
-          </Typography>
-          {sendError && (
-            <Alert severity="error" sx={{ mt: 1 }}>
-              {sendError}
-            </Alert>
-          )}
-        </Box>
-      )}
     </Panel>
   );
 }
 
-function DriverEvent({ item }: { item: ActivityItem }) {
+function ActivityRow({ item }: { item: ActivityItem }) {
   const { title, detail, tone } = describeActivity(item);
+  const [color, background] = toneColors[tone];
+  const Icon = typeIcons[item.type];
   const map = mapLink(item.latitude, item.longitude);
   return (
-    <Stack direction="row" sx={{ mb: 1.5, maxWidth: '85%' }}>
-      <Box
+    <Stack
+      direction="row"
+      spacing={1.5}
+      sx={{
+        px: { xs: 1.75, sm: 2 },
+        py: 1.4,
+        alignItems: 'flex-start',
+        '& + &': { borderTop: `1px solid ${rowDivider}` },
+      }}
+    >
+      <Typography
         sx={{
-          minWidth: 0,
-          px: 1.75,
-          py: 1.25,
-          bgcolor: '#FFFFFF',
-          border: `1px solid ${tone === 'critical' ? '#F3D1CF' : rowDivider}`,
-          borderLeft: `4px solid ${toneColors[tone]}`,
-          borderRadius: '16px 16px 16px 4px',
-          boxShadow: '0 1px 2px rgba(0,0,0,0.05)',
+          width: 58,
+          flexShrink: 0,
+          pt: 0.6,
+          fontSize: 12,
+          color: 'text.secondary',
+          fontVariantNumeric: 'tabular-nums',
         }}
       >
-        <Typography sx={{ fontSize: 11, fontWeight: 700, color: 'text.secondary', mb: 0.25 }}>
-          {item.driverName ?? 'Driver'}
-        </Typography>
+        {clock(item.at)}
+      </Typography>
+      <Box
+        sx={{
+          width: 32,
+          height: 32,
+          flexShrink: 0,
+          borderRadius: '10px',
+          display: 'grid',
+          placeItems: 'center',
+          color,
+          bgcolor: background,
+        }}
+      >
+        <Icon size={16} />
+      </Box>
+      <Box sx={{ minWidth: 0, flex: 1 }}>
         <Typography
           sx={{
-            fontSize: 14,
-            fontWeight: 600,
-            color: tone === 'critical' ? toneColors.critical : 'text.primary',
-            lineHeight: 1.3,
+            fontSize: 13,
+            fontWeight: 700,
+            lineHeight: 1.35,
+            color: tone === 'critical' ? color : 'text.primary',
           }}
         >
           {title}
         </Typography>
         {detail && (
-          <Typography sx={{ fontSize: 13, wordBreak: 'break-word', mt: 0.5, lineHeight: 1.4, color: 'text.secondary' }}>
+          <Typography
+            color="text.secondary"
+            sx={{ fontSize: 12, mt: 0.25, lineHeight: 1.45, wordBreak: 'break-word' }}
+          >
             {detail}
           </Typography>
         )}
+        <Stack
+          direction="row"
+          sx={{
+            mt: 0.6,
+            gap: 1.25,
+            flexWrap: 'wrap',
+            alignItems: 'center',
+            fontSize: 11,
+            color: 'text.secondary',
+          }}
+        >
+          <Box component="span" sx={{ display: 'inline-flex', alignItems: 'center', gap: 0.5 }}>
+            <UserRound size={12} />
+            {driverOf(item)}
+          </Box>
+          {item.receivedAt - item.at > 120_000 && (
+            <span title="Recorded offline on the phone and sent when it reconnected">
+              Arrived late
+            </span>
+          )}
+          {map && (
+            <Link
+              href={map}
+              rel="noreferrer"
+              target="_blank"
+              underline="hover"
+              sx={{ display: 'inline-flex', alignItems: 'center', gap: 0.4, fontSize: 11 }}
+            >
+              <MapPin size={12} />
+              View on map
+            </Link>
+          )}
+        </Stack>
         {item.photoUrl && (
           <Box
             component="a"
             href={item.photoUrl}
             rel="noreferrer"
             target="_blank"
-            sx={{ display: 'block', mt: 1.5 }}
+            sx={{ display: 'inline-block', mt: 1 }}
           >
             <Box
               component="img"
               alt={title}
               src={item.photoUrl}
-              sx={{ width: 180, height: 135, objectFit: 'cover', borderRadius: 2 }}
+              sx={{
+                width: 120,
+                height: 90,
+                objectFit: 'cover',
+                borderRadius: '8px',
+                border: `1px solid ${panelBorder}`,
+              }}
             />
           </Box>
         )}
-        <Typography color="text.secondary" sx={{ fontSize: 10, mt: 0.75, textAlign: 'right' }}>
-          {clock(item.at)}
-          {item.receivedAt - item.at > 120_000 ? ' · late' : ''}
-          {map && (
-            <>
-              {' · '}
-              <Link href={map} rel="noreferrer" target="_blank" color="inherit" underline="hover">
-                map
-              </Link>
-            </>
-          )}
-        </Typography>
       </Box>
     </Stack>
   );
 }
 
-function OfficeMessage({ item }: { item: ActivityItem }) {
+/**
+ * Sends a short alert to the driver's Trackify app, and lists the alerts already sent this week.
+ * A form and a log, not a chat: the driver cannot reply in the app.
+ */
+export function SendAlertDialog({
+  open,
+  device,
+  client,
+  driverName,
+  messages,
+  onClose,
+  onSent,
+}: {
+  open: boolean;
+  device: Device;
+  client: TrackifyClient;
+  driverName?: string;
+  /** Alerts already sent, newest first. */
+  messages: ActivityItem[];
+  onClose: () => void;
+  onSent: () => Promise<void>;
+}) {
+  const [text, setText] = useState('');
+  const [sending, setSending] = useState(false);
+  const [error, setError] = useState('');
+  const [sent, setSent] = useState('');
+  useEffect(() => {
+    if (!open) return;
+    setText('');
+    setError('');
+    setSent('');
+  }, [open]);
+
+  async function send() {
+    const message = text.trim();
+    if (!message || sending) return;
+    setSending(true);
+    setError('');
+    try {
+      await client.sendMessage(device.deviceId, message);
+      setSent(message);
+      setText('');
+      await onSent();
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : 'Alert not sent');
+    } finally {
+      setSending(false);
+    }
+  }
+
+  const recipient = driverName ?? `the driver of ${device.name}`;
   return (
-    <Stack sx={{ alignItems: 'flex-end', mb: 1.5 }}>
-      <Box
-        sx={{
-          maxWidth: '85%',
-          px: 1.75,
-          py: 1.25,
-          bgcolor: '#155EEF',
-          color: '#FFFFFF',
-          borderRadius: '16px 16px 4px 16px',
-          boxShadow: '0 1px 2px rgba(0,0,0,0.05)',
-        }}
-      >
-        <Typography sx={{ fontSize: 14, wordBreak: 'break-word', lineHeight: 1.4 }}>
-          {item.text}
+    <Dialog open={open} onClose={onClose} fullWidth maxWidth="sm">
+      <DialogTitle component="div" sx={{ pb: 1 }}>
+        <Typography component="h2" sx={{ fontSize: 18, fontWeight: 800 }}>
+          Send alert
         </Typography>
-        <Stack direction="row" spacing={1} sx={{ mt: 0.5, justifyContent: 'flex-end', alignItems: 'center', opacity: 0.9 }}>
-          <Typography sx={{ fontSize: 10 }}>
-            {item.sentBy ?? 'Office'}
-            {item.driverName ? ` → ${item.driverName}` : ''}
-          </Typography>
-          <Typography sx={{ fontSize: 10 }}>{clock(item.at)}</Typography>
+        <Typography color="text.secondary" variant="body2">
+          To {recipient} · {device.name}. Shown in the Trackify app within about a minute.
+        </Typography>
+      </DialogTitle>
+      <DialogContent dividers>
+        <Typography sx={{ fontSize: 12, fontWeight: 700, color: 'text.secondary', mb: 1 }}>
+          Templates
+        </Typography>
+        <Stack direction="row" sx={{ flexWrap: 'wrap', gap: 0.75, mb: 2 }}>
+          {templates.map((template) => {
+            const selected = text === template;
+            return (
+              <Button
+                key={template}
+                disabled={sending}
+                onClick={() => setText(template)}
+                size="small"
+                variant={selected ? 'contained' : 'outlined'}
+                sx={{
+                  minHeight: 30,
+                  px: 1.25,
+                  borderRadius: '8px',
+                  fontSize: 12,
+                  fontWeight: 650,
+                  ...(!selected && { borderColor: '#DCE2EB', color: '#39445A' }),
+                }}
+              >
+                {template}
+              </Button>
+            );
+          })}
         </Stack>
-      </Box>
-    </Stack>
+        <TextField
+          disabled={sending}
+          fullWidth
+          label="Message"
+          minRows={3}
+          multiline
+          onChange={(event) => setText(event.target.value)}
+          placeholder="Write a short, clear instruction"
+          value={text}
+          helperText={`${text.length}/500`}
+          slotProps={{ htmlInput: { maxLength: 500 } }}
+        />
+        {sent && (
+          <Alert severity="success" sx={{ mt: 1.5 }}>
+            Alert sent to {recipient}.
+          </Alert>
+        )}
+        {error && (
+          <Alert severity="error" sx={{ mt: 1.5 }}>
+            {error}
+          </Alert>
+        )}
+        <Typography sx={{ fontSize: 13, fontWeight: 800, mt: 3, mb: 1 }}>
+          Sent alerts · last 7 days
+        </Typography>
+        {messages.length ? (
+          <Box sx={{ border: `1px solid ${panelBorder}`, borderRadius: '10px', overflowX: 'auto' }}>
+            <Table size="small">
+              <TableHead>
+                <TableRow
+                  sx={{
+                    '& th': {
+                      fontSize: 11,
+                      fontWeight: 700,
+                      color: 'text.secondary',
+                      bgcolor: '#F8FAFC',
+                    },
+                  }}
+                >
+                  <TableCell>Sent</TableCell>
+                  <TableCell>Message</TableCell>
+                  <TableCell>By</TableCell>
+                </TableRow>
+              </TableHead>
+              <TableBody>
+                {messages.map((message) => (
+                  <TableRow
+                    key={message.entryId}
+                    sx={{ '& td': { fontSize: 12, verticalAlign: 'top' } }}
+                  >
+                    <TableCell sx={{ whiteSpace: 'nowrap', color: 'text.secondary' }}>
+                      {dayLabel(message.at)}, {clock(message.at)}
+                    </TableCell>
+                    <TableCell sx={{ wordBreak: 'break-word' }}>{message.text}</TableCell>
+                    <TableCell sx={{ color: 'text.secondary', wordBreak: 'break-word' }}>
+                      {message.sentBy ?? 'Office'}
+                    </TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          </Box>
+        ) : (
+          <Typography color="text.secondary" sx={{ fontSize: 12 }}>
+            No alerts sent in the last 7 days.
+          </Typography>
+        )}
+      </DialogContent>
+      <DialogActions sx={{ px: 3, py: 2 }}>
+        <Button color="inherit" onClick={onClose}>
+          Close
+        </Button>
+        <Button
+          disabled={sending || !text.trim()}
+          onClick={() => void send()}
+          startIcon={<Send size={15} />}
+          variant="contained"
+        >
+          {sending ? 'Sending…' : 'Send alert'}
+        </Button>
+      </DialogActions>
+    </Dialog>
   );
 }
 
-/** How the driver's phone behaves. Set here, never on the phone itself. */
-export function PhoneSettingsCard({
+/** How the driver's phone behaves, in a popup. Set here, never on the phone itself. */
+export function PhoneSettingsDialog({
+  open,
   device,
   admin,
   client,
   onChanged,
+  onClose,
 }: {
+  open: boolean;
   device: Device;
   admin: boolean;
   client: TrackifyClient;
   onChanged: () => Promise<void>;
+  onClose: () => void;
 }) {
   const interval = device.trackerIntervalSeconds ?? defaultTrackerIntervalSeconds;
   const pauseLimit = device.pauseLimitMinutes ?? defaultPauseLimitMinutes;
@@ -407,13 +596,23 @@ export function PhoneSettingsCard({
   }
 
   return (
-    <Panel>
-      <PanelHead
-        title="Driver phone settings"
-        caption="Applied on the phone within about a minute while the app is open."
-      />
-      <Box sx={{ px: { xs: 1.75, sm: 2 }, pb: { xs: 1.75, sm: 2 } }}>
-        <Stack spacing={2} sx={{ pt: 0.5 }}>
+    <Dialog open={open} onClose={onClose} fullWidth maxWidth="xs">
+      <DialogTitle component="div" sx={{ pb: 1 }}>
+        <Stack direction="row" spacing={1.25} sx={{ alignItems: 'center' }}>
+          <Box sx={{ color: 'primary.main', display: 'flex' }}>
+            <Smartphone size={19} />
+          </Box>
+          <Typography component="h2" sx={{ fontSize: 18, fontWeight: 800 }}>
+            Driver phone settings
+          </Typography>
+        </Stack>
+        <Typography color="text.secondary" variant="body2" sx={{ mt: 0.5 }}>
+          Applied on the phone within about a minute while the app is open.
+          {!admin && ' Only administrators can change them.'}
+        </Typography>
+      </DialogTitle>
+      <DialogContent>
+        <Stack spacing={2} sx={{ pt: 1 }}>
           <TextField
             disabled={!admin || busy}
             label="Location update every"
@@ -448,7 +647,10 @@ export function PhoneSettingsCard({
             {error}
           </Alert>
         )}
-      </Box>
-    </Panel>
+      </DialogContent>
+      <DialogActions sx={{ px: 3, pb: 2 }}>
+        <Button onClick={onClose}>{busy ? 'Saving…' : 'Done'}</Button>
+      </DialogActions>
+    </Dialog>
   );
 }

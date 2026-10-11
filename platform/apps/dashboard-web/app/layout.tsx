@@ -3,8 +3,8 @@ import './styles.css';
 import { Providers } from './providers';
 
 export const metadata: Metadata = {
-  title: 'Trackify Fleet',
-  description: 'Live fleet operations for dispatch teams',
+  title: 'Trackify',
+  description: 'Live vehicle tracking for dispatch teams',
 };
 
 export default function Layout({ children }: Readonly<{ children: React.ReactNode }>) {

@@ -6,7 +6,7 @@ import type {
   PauseReason,
   WarningKind,
 } from '@trackify/api-client';
-import { vehicleStatus } from './fleet-map-data';
+import { noGpsSince, statusLabels, vehicleStatus } from './fleet-map-data';
 
 export const pauseLabels: Record<PauseReason, string> = {
   break: 'Break',
@@ -48,11 +48,54 @@ export function dutyLabel(device: Device): string | undefined {
 }
 
 /**
+ * Silent this long while "on shift": the driver almost certainly forgot to end the shift (or the
+ * phone died overnight). Still worth showing, but no longer an alarm.
+ */
+export const STALE_SHIFT_MS = 12 * 3_600_000;
+
+/** Since when an on-shift vehicle has been silent: last contact, else the shift start. */
+function silentSince(device: Device) {
+  return Math.max(device.state?.lastSeenAt ?? 0, device.dutySince ?? 0);
+}
+
+/**
  * On shift but silent: Android stopped the app, the phone died or has no internet. A phone
- * without GPS still checks in, so this means the phone itself cannot be reached.
+ * without GPS still checks in, so this means the phone itself cannot be reached. A shift silent
+ * for 12 hours or more was most likely never ended, so it no longer counts.
  */
 export function notReporting(device: Device, now = Date.now()) {
-  return device.dutyStatus === 'on' && vehicleStatus(device, now) === 'offline';
+  return (
+    device.dutyStatus === 'on' &&
+    vehicleStatus(device, now) === 'offline' &&
+    now - silentSince(device) < STALE_SHIFT_MS
+  );
+}
+
+export type PresenceTone = 'moving' | 'parked' | 'critical' | 'warning' | 'muted';
+
+/**
+ * One status for a vehicle, in words, combining whether it is reporting with what the driver
+ * said about their shift, so the dashboard never shows "Offline" next to "On shift".
+ */
+export function presence(device: Device, now = Date.now()): { label: string; tone: PresenceTone } {
+  const status = vehicleStatus(device, now);
+  const duty = device.dutyStatus;
+  if (status === 'offline') {
+    if (duty === 'on') {
+      if (notReporting(device, now)) return { label: 'Not reachable · on shift', tone: 'critical' };
+      return { label: 'Offline · shift not ended', tone: 'muted' };
+    }
+    if (duty === 'paused') return { label: 'Offline · paused', tone: 'muted' };
+    if (duty === 'off') return { label: 'Offline · off duty', tone: 'muted' };
+    return { label: 'Offline', tone: 'muted' };
+  }
+  if (noGpsSince(device, now) !== undefined)
+    return { label: 'Online · no GPS signal', tone: 'warning' };
+  const shift = duty === 'on' ? 'on shift' : duty === 'off' ? 'off duty' : dutyLabel(device);
+  return {
+    label: shift ? `${statusLabels[status]} · ${shift}` : statusLabels[status],
+    tone: status,
+  };
 }
 
 export type Tone = 'critical' | 'warning' | 'info' | 'success';
@@ -126,7 +169,34 @@ export function describeActivity(entry: ActivityEntry): {
         detail: entry.text,
         tone: 'info',
       };
+    case 'driver-change':
+      return {
+        title: 'Driver changed',
+        detail: `${entry.previousDriverName ?? 'No driver'} → ${entry.driverName ?? 'No driver'}${
+          entry.sentBy ? ` · by ${entry.sentBy}` : ''
+        }`,
+        tone: 'info',
+      };
   }
+}
+
+export type ActivityTab = 'driver' | 'vehicle';
+
+const tabTypes: Record<ActivityTab, ReadonlySet<ActivityEntry['type']>> = {
+  // What the driver did with their shift, and who the driver was.
+  driver: new Set(['shift-start', 'shift-end', 'pause', 'resume', 'driver-change']),
+  // What happened to the vehicle: reports, fuel, checks, phone problems, SOS and driver changes.
+  vehicle: new Set(['sos', 'issue', 'fuel', 'check', 'warning', 'driver-change']),
+};
+
+/** Whether an entry belongs in a tab. Alerts sent to the driver are in neither: see Send alert. */
+export function inTab(entry: Pick<ActivityEntry, 'type'>, tab: ActivityTab) {
+  return tabTypes[tab].has(entry.type);
+}
+
+/** Who was driving when it happened. */
+export function driverOf(entry: Pick<ActivityEntry, 'driverName'>) {
+  return entry.driverName ?? 'No driver assigned';
 }
 
 export function alertTitle(alert: Pick<FleetAlert, 'type' | 'kind'>): string {

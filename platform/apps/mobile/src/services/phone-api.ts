@@ -3,7 +3,7 @@ import type { TrackerConfig } from './storage';
 
 /** The administrator revoked this phone or removed its vehicle; it must be set up again. */
 export class DisconnectedError extends Error {
-  constructor(message = 'This phone was disconnected by your fleet administrator.') {
+  constructor(message = 'This phone was disconnected by your administrator.') {
     super(message);
     this.name = 'DisconnectedError';
   }

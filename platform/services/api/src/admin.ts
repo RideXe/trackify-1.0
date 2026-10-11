@@ -111,7 +111,9 @@ export function createAdminRoutes(
         if (!isAdmin) return adminRequired;
         const input = parseGeofence(event.body);
         if ((await admin.listGeofences(tenantId)).length >= MAX_GEOFENCES)
-          return response(409, { message: `a fleet can have at most ${MAX_GEOFENCES} geofences` });
+          return response(409, {
+            message: `an account can have at most ${MAX_GEOFENCES} geofences`,
+          });
         return response(201, await admin.createGeofence(tenantId, input));
       }
     }
@@ -142,7 +144,7 @@ export function createAdminRoutes(
         if (input.groupIds.length) await requireGroups(admin, tenantId, input.groupIds);
         const users = await admin.listUsers(tenantId);
         if (users.some((user) => user.email?.toLowerCase() === input.email))
-          return response(409, { message: 'this email is already a user of the fleet' });
+          return response(409, { message: 'this email is already a user of this account' });
         let subject: string;
         try {
           subject = await identity.invite(input.email);
@@ -180,7 +182,7 @@ export function createAdminRoutes(
         (user) => user.userId !== userId && user.role === 'admin' && user.enabled,
       );
       if (losesAdmin && !otherAdmins.length)
-        throw new InputError('the fleet must keep at least one active administrator');
+        throw new InputError('the account must keep at least one active administrator');
       if (method === 'DELETE') {
         const removed = await admin.deleteUser(tenantId, userId);
         if (!removed) return response(404, { message: 'user not found' });

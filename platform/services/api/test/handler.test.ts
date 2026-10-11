@@ -164,6 +164,51 @@ describe('assigning a driver', () => {
     });
   });
 
+  it('records the switch in the vehicle activity, naming both drivers', async () => {
+    const dependencies = store();
+    dependencies.getDevice.mockResolvedValue({
+      deviceId: 'device-1',
+      name: 'Demo Car',
+      driverId: 'driver-0',
+    });
+    dependencies.getDriver.mockImplementation((_tenant: string, id: string) =>
+      Promise.resolve({ driverId: id, name: id === 'driver-0' ? 'Suresh' : 'Ramesh Kumar' }),
+    );
+    const activity = activityStore();
+    await createHandler(
+      dependencies,
+      undefined,
+      undefined,
+      activity,
+    )(eventWithBody('PATCH', '/devices/device-1', { driverId: 'driver-1' }));
+    expect(activity.append).toHaveBeenCalledWith(
+      'tenant-a',
+      expect.objectContaining({
+        deviceId: 'device-1',
+        type: 'driver-change',
+        driverId: 'driver-1',
+        driverName: 'Ramesh Kumar',
+        previousDriverName: 'Suresh',
+      }),
+    );
+  });
+
+  it('does not record anything when the same driver is saved again', async () => {
+    const dependencies = store();
+    dependencies.getDevice.mockResolvedValue({
+      deviceId: 'device-1',
+      driverId: 'driver-1',
+    });
+    const activity = activityStore();
+    await createHandler(
+      dependencies,
+      undefined,
+      undefined,
+      activity,
+    )(eventWithBody('PATCH', '/devices/device-1', { driverId: 'driver-1' }));
+    expect(activity.append).not.toHaveBeenCalled();
+  });
+
   it('refuses a driver that does not exist, e.g. from another tenant', async () => {
     const dependencies = store();
     dependencies.getDriver.mockResolvedValue(undefined);

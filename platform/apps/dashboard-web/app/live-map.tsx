@@ -15,16 +15,9 @@ import {
 import { toVehicleType, type Device } from '@trackify/api-client';
 import { Search } from 'lucide-react';
 import { useMemo, useState } from 'react';
-import { dutyLabel, notReporting } from './driver-activity-data';
+import { presence } from './driver-activity-data';
 import { FleetMap } from './fleet-map';
-import {
-  clockTime,
-  noGpsSince,
-  statusColors,
-  statusLabels,
-  timeAgo,
-  vehicleStatus,
-} from './fleet-map-data';
+import { statusColors, timeAgo, vehicleStatus } from './fleet-map-data';
 import { filterCounts, filterVehicles, liveFilters, type LiveFilter } from './fleet-views-data';
 import { VehicleAvatar } from './vehicle-icons';
 
@@ -125,14 +118,9 @@ export function LiveMap({
                 <ListItemText
                   primary={device.name}
                   secondary={[
-                    status === 'moving'
-                      ? `${statusLabels[status]} · ${Math.round(device.state?.speedKmh ?? 0)} km/h`
-                      : statusLabels[status],
-                    notReporting(device)
-                      ? `On shift · not reachable${seen ? ` since ${clockTime(seen)}` : ''}`
-                      : dutyLabel(device),
-                    noGpsSince(device) !== undefined && 'no GPS signal',
-                    seen ? timeAgo(seen) : 'no GPS yet',
+                    presence(device).label,
+                    status === 'moving' && `${Math.round(device.state?.speedKmh ?? 0)} km/h`,
+                    seen ? `last heard ${timeAgo(seen)}` : 'no update yet',
                   ]
                     .filter(Boolean)
                     .join(' · ')}

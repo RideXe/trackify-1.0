@@ -69,7 +69,7 @@ export function createConfigRoutes(store: ConfigStore, positions: LatestPosition
         const input = parseComputed(event.body) as ComputedAttributeInput;
         if ((await store.listComputed(tenantId)).length >= MAX_COMPUTED)
           return response(409, {
-            message: `a fleet can have at most ${MAX_COMPUTED} computed attributes`,
+            message: `an account can have at most ${MAX_COMPUTED} computed attributes`,
           });
         return response(201, await store.createComputed(tenantId, input));
       }
@@ -96,7 +96,7 @@ export function createConfigRoutes(store: ConfigStore, positions: LatestPosition
       const input = parseMaintenance(event.body) as MaintenanceInput;
       if ((await store.listMaintenances(tenantId)).length >= MAX_MAINTENANCES)
         return response(409, {
-          message: `a fleet can have at most ${MAX_MAINTENANCES} maintenance schedules`,
+          message: `an account can have at most ${MAX_MAINTENANCES} maintenance schedules`,
         });
       return response(201, await store.createMaintenance(tenantId, input));
     }

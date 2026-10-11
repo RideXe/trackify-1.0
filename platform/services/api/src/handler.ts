@@ -416,7 +416,31 @@ export function createHandler(
         if (unknown.length)
           return response(400, { message: `unknown vehicles: ${unknown.join(', ')}` });
       }
+      const before =
+        changes.driverId !== undefined
+          ? ((await store.getDevice(membership.tenantId, deviceMatch[1])) as
+              { driverId?: string } | undefined)
+          : undefined;
       const device = await store.updateDevice(membership.tenantId, deviceMatch[1], changes);
+      if (
+        device &&
+        changes.driverId !== undefined &&
+        before?.driverId !== (changes.driverId ?? undefined)
+      ) {
+        const name = async (driverId?: string) =>
+          driverId
+            ? (
+                (await store.getDriver(membership.tenantId, driverId)) as
+                  { name?: string } | undefined
+              )?.name
+            : undefined;
+        await recordDriverChange(activity, membership.tenantId, deviceMatch[1], {
+          previous: await name(before?.driverId),
+          next: changes.driverId ?? undefined,
+          nextName: await name(changes.driverId ?? undefined),
+          by: membership.email ?? membership.userId,
+        });
+      }
       return device ? response(200, device) : response(404, { message: 'device not found' });
     }
     if (method === 'DELETE' && deviceMatch?.[1]) {
@@ -449,6 +473,8 @@ export function createHandler(
     if (method === 'DELETE' && driverMatch?.[1]) {
       if (membership.role !== 'admin') return response(403, { message: 'admin role required' });
       const driverId = driverMatch[1];
+      const removed = (await store.getDriver(membership.tenantId, driverId)) as
+        { name?: string } | undefined;
       const deleted = await store.deleteDriver(membership.tenantId, driverId);
       if (!deleted) return response(404, { message: 'driver not found' });
       // A removed driver must not stay on the vehicles they drove.
@@ -456,9 +482,13 @@ export function createHandler(
         (device) => device.driverId === driverId,
       );
       await Promise.all(
-        assigned.map((device) =>
-          store.updateDevice(membership.tenantId, device.deviceId, { driverId: null }),
-        ),
+        assigned.map(async (device) => {
+          await store.updateDevice(membership.tenantId, device.deviceId, { driverId: null });
+          await recordDriverChange(activity, membership.tenantId, device.deviceId, {
+            previous: removed?.name,
+            by: membership.email ?? membership.userId,
+          });
+        }),
       );
       return response(204, undefined);
     }
@@ -678,7 +708,7 @@ export function createHandler(
       const subject = event.requestContext.authorizer.jwt.claims.sub;
       if (typeof subject !== 'string') return response(401, { message: 'invalid identity' });
       const membership = await store.membership(subject);
-      if (!membership) return response(403, { message: 'fleet membership required' });
+      if (!membership) return response(403, { message: 'account membership required' });
       const method = event.requestContext.http.method;
       const path = event.rawPath;
       const result = await route(event, membership, method, path);
@@ -1010,6 +1040,27 @@ function parseDriverChanges(body: string | undefined): DriverChanges {
   if (!Object.keys(changes).length)
     throw new InputError('at least one field to change is required');
   return changes;
+}
+
+/**
+ * Writes "driver changed" into the vehicle's activity, so its log shows who drove when. Only the
+ * dashboard creates these; the phone never receives them.
+ */
+async function recordDriverChange(
+  activity: ActivityStore | undefined,
+  tenantId: string,
+  deviceId: string,
+  change: { previous?: string; next?: string; nextName?: string; by: string },
+) {
+  if (!activity) return;
+  await activity.append(tenantId, {
+    deviceId,
+    type: 'driver-change',
+    at: Date.now(),
+    sentBy: change.by,
+    ...(change.next && { driverId: change.next, driverName: change.nextName }),
+    ...(change.previous && { previousDriverName: change.previous }),
+  });
 }
 
 /** Each card identifies one driver, or driver-change alerts could name the wrong person. */

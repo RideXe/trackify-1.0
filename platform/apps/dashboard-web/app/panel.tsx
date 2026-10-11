@@ -36,16 +36,21 @@ export function Panel({
   );
 }
 
-/** Title, optional caption and an action on the right. `section` is the larger heading. */
+/**
+ * Title, optional caption and an action on the right. `section` is the larger heading; `icon`
+ * sits in front of the title, as on every card of the vehicle page.
+ */
 export function PanelHead({
   title,
   caption,
   action,
+  icon,
   section = false,
 }: {
   title: ReactNode;
   caption?: ReactNode;
   action?: ReactNode;
+  icon?: ReactNode;
   section?: boolean;
 }) {
   return (
@@ -60,23 +65,32 @@ export function PanelHead({
         rowGap: 1,
       }}
     >
-      <Box sx={{ minWidth: 0 }}>
-        <Typography
-          component="h2"
-          sx={{
-            fontSize: section ? { xs: 15, sm: 16 } : 14,
-            fontWeight: 800,
-            letterSpacing: section ? '-0.3px' : 0,
-          }}
-        >
-          {title}
-        </Typography>
-        {caption && (
-          <Typography color="text.secondary" sx={{ fontSize: section ? 12 : 11, mt: 0.4 }}>
-            {caption}
-          </Typography>
+      <Stack direction="row" spacing={1.25} sx={{ minWidth: 0, alignItems: 'flex-start' }}>
+        {icon && (
+          <Box
+            sx={{ color: 'primary.main', display: 'flex', mt: section ? 0.15 : 0, flexShrink: 0 }}
+          >
+            {icon}
+          </Box>
         )}
-      </Box>
+        <Box sx={{ minWidth: 0 }}>
+          <Typography
+            component="h2"
+            sx={{
+              fontSize: section ? { xs: 15, sm: 16 } : 14,
+              fontWeight: 800,
+              letterSpacing: section ? '-0.3px' : 0,
+            }}
+          >
+            {title}
+          </Typography>
+          {caption && (
+            <Typography color="text.secondary" sx={{ fontSize: section ? 12 : 11, mt: 0.4 }}>
+              {caption}
+            </Typography>
+          )}
+        </Box>
+      </Stack>
       {action}
     </Stack>
   );

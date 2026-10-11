@@ -143,7 +143,7 @@ export function createNotificationRoutes(store: NotificationStore, fleet: FleetD
         if (!isAdmin) return adminRequired();
         const input = parseRule(event.body) as RuleInput;
         if ((await store.listRules(tenantId)).length >= MAX_RULES)
-          return response(409, { message: `a fleet can have at most ${MAX_RULES} alert rules` });
+          return response(409, { message: `an account can have at most ${MAX_RULES} alert rules` });
         await checkReferences(store, fleet, tenantId, input);
         return response(201, await store.createRule(tenantId, input));
       }

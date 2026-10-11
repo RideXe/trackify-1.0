@@ -16,7 +16,7 @@ import {
   Typography,
 } from '@mui/material';
 import type { Device, TrackifyClient } from '@trackify/api-client';
-import { Download, History, Pause, Play } from 'lucide-react';
+import { Download, History, Pause, Play, X } from 'lucide-react';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import {
   MAX_ROUTE_POINTS,
@@ -54,7 +54,16 @@ const downloads = {
   csv: { label: 'CSV · Excel', type: 'text/csv' },
 } as const;
 
-export function RouteHistory({ device, client }: { device: Device; client: TrackifyClient }) {
+export function RouteHistory({
+  device,
+  client,
+  onClose,
+}: {
+  device: Device;
+  client: TrackifyClient;
+  /** Shown in a popup: adds a close button next to the period choices. */
+  onClose?: () => void;
+}) {
   const [preset, setPreset] = useState(today.label);
   const [period, setPeriod] = useState<Period>(today.period);
   const [route, setRoute] = useState<LoadedRoute & Period>();
@@ -179,6 +188,11 @@ export function RouteHistory({ device, client }: { device: Device; client: Track
                 {label}
               </Button>
             ))}
+            {onClose && (
+              <IconButton aria-label="Close route history" onClick={onClose} size="small">
+                <X size={18} />
+              </IconButton>
+            )}
           </Stack>
         }
       />

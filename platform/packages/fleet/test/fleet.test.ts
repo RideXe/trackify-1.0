@@ -80,6 +80,36 @@ describe('fleet transition', () => {
     ]);
   });
 
+  it('records a speeding episode: speed and driver as it starts, top speed and length as it ends', () => {
+    const rules = { speedLimitKmh: 60, driverId: 'driver-1', geofences: [] };
+    const at = (second: number, speedKmh: number, north: number) => ({
+      ...base,
+      messageId: `m-${second}`.padEnd(16, '0'),
+      fixTime: 1_000 + second * 1000,
+      receivedAt: 1_000 + second * 1000,
+      latitude: base.latitude + north / 111_195,
+      speedKmh,
+    });
+    const cruising = evaluatePosition(undefined, at(0, 50, 0), rules);
+    const over = evaluatePosition(cruising.state, at(10, 72, 150), rules);
+    expect(over.events.find((event) => event.type === 'deviceOverspeed')?.attributes).toEqual({
+      speedKmh: 72,
+      speedLimitKmh: 60,
+      driverId: 'driver-1',
+    });
+    const faster = evaluatePosition(over.state, at(20, 91, 400), rules);
+    expect(faster.events.map((event) => event.type)).not.toContain('deviceOverspeed');
+    expect(faster.state.overspeed?.maxSpeedKmh).toBe(91);
+    const back = evaluatePosition(faster.state, at(70, 55, 900), rules);
+    expect(back.events.find((event) => event.type === 'overspeedEnded')?.attributes).toMatchObject({
+      maxSpeedKmh: 91,
+      speedLimitKmh: 60,
+      durationS: 60,
+      driverId: 'driver-1',
+    });
+    expect(back.state.overspeed).toBeUndefined();
+  });
+
   it('reports leaving a geofence but not the deletion of one the vehicle was inside', () => {
     const depot = {
       id: '01J9ZQ3X9K8J7H6G5F4E3D2C1B',

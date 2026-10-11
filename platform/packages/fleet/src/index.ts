@@ -30,6 +30,8 @@ export interface MaintenanceRule {
 
 export interface FleetRules {
   speedLimitKmh?: number;
+  /** The driver assigned to the vehicle, recorded on speeding events. */
+  driverId?: string;
   geofences: GeofenceRule[];
   /** Fuel level change, in percentage points, that raises a fuel event. Unset is off. */
   fuel?: { dropThreshold?: number; increaseThreshold?: number };
@@ -56,6 +58,15 @@ export interface FleetState {
   motion: boolean;
   ignition?: boolean;
   overspeeding: boolean;
+  /** The speeding episode in progress: when it began, how fast at most, under which limit. */
+  overspeed?: {
+    startTime: number;
+    maxSpeedKmh: number;
+    speedLimitKmh: number;
+    latitude: number;
+    longitude: number;
+    driverId?: string;
+  };
   geofencesInside: string[];
   odometerM: number;
   /** Engine running time: as reported by the tracker, or counted while ignition is on. */
@@ -163,7 +174,43 @@ export function evaluatePosition(
   if (previous && motion !== previous.motion) emit(motion ? 'deviceMoving' : 'deviceStopped');
   if (previous && ignition !== undefined && ignition !== previous.ignition)
     emit(ignition ? 'ignitionOn' : 'ignitionOff');
-  if (overspeeding && !previous?.overspeeding) emit('deviceOverspeed');
+  // A speeding episode: the alert goes out as it starts; its top speed and length when it ends.
+  let overspeed = previous?.overspeed;
+  const driver: Record<string, string> = rules.driverId ? { driverId: rules.driverId } : {};
+  if (overspeeding && !previous?.overspeeding) {
+    overspeed = {
+      startTime: position.fixTime,
+      maxSpeedKmh: speedKmh,
+      speedLimitKmh: rules.speedLimitKmh!,
+      latitude: position.latitude,
+      longitude: position.longitude,
+      ...driver,
+    };
+    emit('deviceOverspeed', {
+      attributes: {
+        speedKmh: round1(speedKmh),
+        speedLimitKmh: rules.speedLimitKmh!,
+        ...driver,
+      },
+    });
+  } else if (overspeeding && overspeed) {
+    overspeed = { ...overspeed, maxSpeedKmh: Math.max(overspeed.maxSpeedKmh, speedKmh) };
+  } else if (!overspeeding && previous?.overspeeding) {
+    // Episodes that began before episodes were recorded have nothing to report.
+    if (overspeed)
+      emit('overspeedEnded', {
+        attributes: {
+          maxSpeedKmh: round1(overspeed.maxSpeedKmh),
+          speedLimitKmh: overspeed.speedLimitKmh,
+          startTime: overspeed.startTime,
+          durationS: Math.max(0, Math.round((position.fixTime - overspeed.startTime) / 1000)),
+          latitude: overspeed.latitude,
+          longitude: overspeed.longitude,
+          ...(overspeed.driverId && { driverId: overspeed.driverId }),
+        },
+      });
+    overspeed = undefined;
+  }
   for (const geofenceId of inside.filter((id) => !previous?.geofencesInside.includes(id)))
     emit('geofenceEnter', { geofenceId });
   // A geofence deleted while a vehicle was inside it is dropped silently, not reported as an exit.
@@ -235,6 +282,7 @@ export function evaluatePosition(
       motion,
       ignition,
       overspeeding,
+      ...(overspeed && { overspeed }),
       geofencesInside: inside,
       odometerM,
       engineHoursS,
@@ -245,6 +293,10 @@ export function evaluatePosition(
     events,
     completedTrip,
   };
+}
+
+function round1(value: number) {
+  return Math.round(value * 10) / 10;
 }
 
 export function deterministicId(...parts: Array<string | number>): string {

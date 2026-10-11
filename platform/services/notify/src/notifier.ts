@@ -164,7 +164,11 @@ export class Notifier {
     const [timeZone, geofenceName, driverName, position, linked] = await Promise.all([
       this.data.timeZone(tenantId),
       event.geofenceId ? this.data.geofenceName(tenantId, event.geofenceId) : undefined,
-      event.type === 'driverChanged' && driverId
+      // Speeding events name who was driving; driver changes name the new driver.
+      (event.type === 'driverChanged' ||
+        event.type === 'deviceOverspeed' ||
+        event.type === 'overspeedEnded') &&
+      driverId
         ? this.data.driverName(tenantId, driverId)
         : undefined,
       event.positionFixTime !== undefined
@@ -181,8 +185,11 @@ export class Notifier {
       geofenceName,
       driverName,
       maintenanceName: attribute('maintenanceName'),
-      speedKmh: position?.speedKmh,
-      speedLimitKmh: device.speedLimitKmh,
+      // Speeding events record the speed and limit they were raised with.
+      speedKmh:
+        numeric(event.attributes.maxSpeedKmh ?? event.attributes.speedKmh) ?? position?.speedKmh,
+      speedLimitKmh: numeric(event.attributes.speedLimitKmh) ?? device.speedLimitKmh,
+      durationS: numeric(event.attributes.durationS),
       latitude: position?.latitude,
       longitude: position?.longitude,
       // Shown in the alert only, so a display licence is enough.
@@ -221,3 +228,7 @@ export function recipientsOf(rule: AlertRule, users: FleetUser[], groupId: strin
 }
 
 export type { Delivery, WebPublisher } from './fanout';
+
+function numeric(value: unknown) {
+  return typeof value === 'number' && Number.isFinite(value) ? value : undefined;
+}

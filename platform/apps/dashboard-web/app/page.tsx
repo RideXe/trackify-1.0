@@ -6,7 +6,6 @@ import {
   Avatar,
   Box,
   Button,
-  ButtonBase,
   Chip,
   CircularProgress,
   Dialog,
@@ -23,6 +22,7 @@ import {
   ListItemIcon,
   ListItemText,
   Paper,
+  Snackbar,
   Stack,
   Step,
   StepLabel,
@@ -73,6 +73,7 @@ import {
   type DeviceState,
   type Driver,
   type FleetAlert,
+  type LiveAlert,
   type Tokens,
   type VehicleType,
 } from '@trackify/api-client';
@@ -84,6 +85,7 @@ import {
   overviewVehicles,
   type OverviewFilter,
 } from './fleet-views-data';
+import { StatTile } from './stat-tile';
 import { VehicleRow } from './vehicle-row';
 import { FleetMap as FleetMapView } from './fleet-map';
 import { noGpsSince, statusColors, vehicleStatus } from './fleet-map-data';
@@ -156,6 +158,8 @@ export default function FleetPage() {
   const [view, navigate] = useView();
   const [alerts, setAlerts] = useState<FleetAlert[]>();
   const [alertsError, setAlertsError] = useState('');
+  // The latest alert pushed to this user (speeding and other alert rules with "dashboard pop-up").
+  const [liveAlert, setLiveAlert] = useState<LiveAlert>();
   const [membership, setMembership] = useState<Membership>();
   const [challenge, setChallenge] = useState<PasswordChallenge>();
   const [error, setError] = useState('');
@@ -262,6 +266,16 @@ export default function FleetPage() {
             ),
           );
         });
+        const closeAlerts = client.subscribeAlerts(
+          nextMembership.tenantId,
+          nextMembership.userId,
+          setLiveAlert,
+        );
+        const closeFleet = close;
+        close = () => {
+          closeFleet();
+          closeAlerts();
+        };
       })
       .catch((reason: unknown) =>
         setError(reason instanceof Error ? reason.message : 'Account unavailable'),
@@ -318,7 +332,7 @@ export default function FleetPage() {
   const openAlerts = (alerts ?? []).filter((alert) => alert.status === 'open').length;
   const [title, subtitle] =
     view.page === 'drivers'
-      ? ['Drivers', 'People who drive your vehicles']
+      ? ['Drivers', 'Who is on shift, their week and their score']
       : view.page === 'live-map'
         ? ['Live map', 'Where every vehicle is right now']
         : view.page === 'trips'
@@ -423,6 +437,39 @@ export default function FleetPage() {
           onOpenAlerts={() => go({ page: 'alerts' })}
           onOpenVehicle={(deviceId) => go({ page: 'vehicle', deviceId })}
         />
+        <Snackbar
+          anchorOrigin={{ vertical: 'top', horizontal: 'right' }}
+          autoHideDuration={15_000}
+          open={Boolean(liveAlert)}
+          onClose={(_, reason) => reason !== 'clickaway' && setLiveAlert(undefined)}
+          sx={{ mt: { xs: 7, md: 8 } }}
+        >
+          <Alert
+            severity={liveAlert?.type === 'deviceOverspeed' ? 'error' : 'warning'}
+            variant="filled"
+            onClose={() => setLiveAlert(undefined)}
+            action={
+              liveAlert && (
+                <Button
+                  color="inherit"
+                  size="small"
+                  onClick={() => {
+                    go({ page: 'vehicle', deviceId: liveAlert.deviceId });
+                    setLiveAlert(undefined);
+                  }}
+                >
+                  View
+                </Button>
+              )
+            }
+            sx={{ alignItems: 'center', maxWidth: 420 }}
+          >
+            <strong>{liveAlert?.title}</strong>
+            {liveAlert?.text && liveAlert.text !== liveAlert.title && (
+              <Box sx={{ fontSize: 12, opacity: 0.9 }}>{liveAlert.text}</Box>
+            )}
+          </Alert>
+        </Snackbar>
         {loadingFleet ? (
           <Stack
             spacing={2}
@@ -446,11 +493,15 @@ export default function FleetPage() {
           />
         ) : view.page === 'alerts' ? (
           <AlertsPage
+            admin={admin}
             alerts={alerts}
             canAcknowledge={membership?.role !== 'viewer'}
             client={client}
+            devices={devices}
+            drivers={drivers}
             error={alertsError}
             onChanged={loadAlerts}
+            onDevicesChanged={loadFleet}
             onOpenVehicle={(deviceId) => go({ page: 'vehicle', deviceId })}
           />
         ) : view.page === 'settings' ? (
@@ -458,6 +509,7 @@ export default function FleetPage() {
         ) : view.page === 'drivers' ? (
           <DriversPage
             admin={admin}
+            canMessage={membership?.role !== 'viewer'}
             client={client}
             devices={devices}
             drivers={drivers}
@@ -748,80 +800,6 @@ function Dashboard({
         </Box>
       </Box>
     </Stack>
-  );
-}
-
-/** A number on the Overview that also filters the map and the list when clicked. */
-function StatTile({
-  icon: Icon,
-  label,
-  value,
-  tone,
-  selected,
-  onClick,
-}: {
-  icon: typeof Truck;
-  label: string;
-  value: number;
-  tone: string;
-  selected: boolean;
-  onClick: () => void;
-}) {
-  return (
-    <ButtonBase
-      aria-pressed={selected}
-      onClick={onClick}
-      sx={{
-        display: 'flex',
-        flexDirection: { xs: 'column', md: 'row' },
-        alignItems: { xs: 'center', md: 'center' },
-        justifyContent: { xs: 'center', md: 'flex-start' },
-        gap: { xs: 0.25, md: 1.5 },
-        p: { xs: 0.9, md: 1.5 },
-        minWidth: 0,
-        textAlign: { xs: 'center', md: 'left' },
-        borderRadius: { xs: '10px', md: '14px' },
-        border: '1px solid',
-        borderColor: selected ? tone : 'divider',
-        bgcolor: selected ? `${tone}0F` : 'background.paper',
-        boxShadow: selected ? `0 0 0 1px ${tone}` : '0 1px 2px rgba(23,32,51,.04)',
-        transition: 'border-color .15s, background-color .15s',
-        '&:hover': { borderColor: tone },
-      }}
-    >
-      <Avatar
-        variant="rounded"
-        sx={{
-          display: { xs: 'none', md: 'flex' },
-          width: 38,
-          height: 38,
-          bgcolor: `${tone}14`,
-          color: tone,
-        }}
-      >
-        <Icon size={19} />
-      </Avatar>
-      <Box sx={{ minWidth: 0, maxWidth: '100%' }}>
-        <Typography
-          noWrap
-          color="text.secondary"
-          sx={{ fontSize: { xs: 10, md: 12 }, fontWeight: 600 }}
-        >
-          {label}
-        </Typography>
-        <Typography
-          sx={{
-            fontSize: { xs: 18, md: 22 },
-            fontWeight: 800,
-            lineHeight: 1.15,
-            // On phones the number carries the tile's colour, since the icon is hidden.
-            color: { xs: value ? tone : 'text.primary', md: 'text.primary' },
-          }}
-        >
-          {value}
-        </Typography>
-      </Box>
-    </ButtonBase>
   );
 }
 

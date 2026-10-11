@@ -30,6 +30,8 @@ export const eventTypeSchema = z.enum([
   'media',
   'tripStarted',
   'tripEnded',
+  /** A speeding episode is over: attributes carry its top speed, limit and duration. */
+  'overspeedEnded',
 ]);
 export type EventType = z.infer<typeof eventTypeSchema>;
 

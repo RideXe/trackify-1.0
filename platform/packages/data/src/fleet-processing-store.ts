@@ -392,6 +392,9 @@ function toFleetState(item: Record<string, unknown> | undefined): FleetState | u
     motion: item.motion === true,
     ignition: typeof item.ignition === 'boolean' ? item.ignition : undefined,
     overspeeding: item.overspeeding === true,
+    overspeed: isRecord(item.overspeed)
+      ? (item.overspeed as unknown as FleetState['overspeed'])
+      : undefined,
     geofencesInside: Array.isArray(item.geofencesInside) ? item.geofencesInside.map(String) : [],
     odometerM: Number(item.odometerM ?? 0),
     engineHoursS: typeof item.engineHoursS === 'number' ? item.engineHoursS : undefined,
@@ -411,6 +414,7 @@ function toRules(
   const proximity = isRecord(device?.proximity) ? device.proximity : undefined;
   return {
     speedLimitKmh: positive(device?.speedLimitKmh),
+    driverId: typeof device?.driverId === 'string' ? device.driverId : undefined,
     geofences: config.geofences,
     fuel: {
       dropThreshold: positive(device?.fuelDropThreshold),

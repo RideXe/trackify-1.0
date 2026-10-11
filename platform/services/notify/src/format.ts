@@ -12,6 +12,8 @@ export interface MessageContext {
   maintenanceName?: string;
   speedKmh?: number;
   speedLimitKmh?: number;
+  /** overspeedEnded: how long the vehicle was over the limit. */
+  durationS?: number;
   latitude?: number;
   longitude?: number;
   address?: string;
@@ -72,6 +74,7 @@ function describe(context: MessageContext): Description {
     context.speedKmh !== undefined ? `${context.speedKmh.toFixed(1)} km/h` : 'the limit';
   const limit = context.speedLimitKmh !== undefined ? ` (limit ${context.speedLimitKmh} km/h)` : '';
   const geofence = context.geofenceName ?? 'a geofence';
+  const driverPart = context.driverName ? ` (driver ${context.driverName})` : '';
   const status = (title: string, sentence = title): Description => ({
     title,
     sentence,
@@ -86,10 +89,22 @@ function describe(context: MessageContext): Description {
     case 'deviceOverspeed':
       return {
         title: 'exceeds the speed',
-        sentence: `exceeds the speed: ${speed}${limit}${context.geofenceName ? ` in ${context.geofenceName}` : ''}`,
+        sentence: `exceeds the speed: ${speed}${limit}${context.geofenceName ? ` in ${context.geofenceName}` : ''}${driverPart}`,
         label: 'Speed',
         value: `${speed}${limit}`,
       };
+    case 'overspeedEnded': {
+      const minutes =
+        context.durationS !== undefined
+          ? Math.max(1, Math.round(context.durationS / 60))
+          : undefined;
+      return {
+        title: 'back under the speed limit',
+        sentence: `is back under the speed limit: top speed ${speed}${limit}${minutes ? ` over ${minutes} min` : ''}${driverPart}`,
+        label: 'Top speed',
+        value: `${speed}${limit}`,
+      };
+    }
     case 'geofenceEnter':
       return {
         title: 'has entered geofence',

@@ -51,6 +51,10 @@ export interface DeviceState {
   odometerM?: number;
   /** The trip in progress, if the vehicle is moving. */
   trip?: { startTime: number; distanceM: number; maxSpeedKmh: number };
+  /** Over its speed limit right now. */
+  overspeeding?: boolean;
+  /** The speeding episode in progress. */
+  overspeed?: { startTime: number; maxSpeedKmh: number; speedLimitKmh: number; driverId?: string };
 }
 
 /** One stored GPS fix, as returned by the position history API. */
@@ -90,6 +94,8 @@ export interface Device {
   dutySince?: number;
   pauseReason?: PauseReason;
   pauseUntil?: number;
+  /** Going faster raises a speeding alert; unset means no limit. */
+  speedLimitKmh?: number;
   /** The sync interval the phone actually uses (vehicle, fleet default, plan limit). */
   effectiveTrackerIntervalSeconds?: number;
   state?: DeviceState;
@@ -107,6 +113,46 @@ export interface Organisation {
   plan?: SubscriptionPlan;
   /** The fastest interval the plan allows. */
   fastestTrackerIntervalSeconds?: number;
+}
+
+/** Who is told about which events, and how. Only administrators can see and change these. */
+export interface AlertRule {
+  ruleId: string;
+  name: string;
+  enabled: boolean;
+  eventTypes: string[];
+  /** Both empty means every vehicle. */
+  deviceIds: string[];
+  groupIds: string[];
+  /** web = shown in the dashboard; email, push, sms, … */
+  channels: string[];
+  /** Empty means every active administrator. */
+  userIds: string[];
+}
+
+export type AlertRuleInput = Pick<
+  AlertRule,
+  'name' | 'enabled' | 'eventTypes' | 'deviceIds' | 'groupIds' | 'channels' | 'userIds'
+>;
+
+/** A recorded vehicle event (speeding, geofence, …) as listed for the whole account. */
+export interface FleetEvent {
+  eventId: string;
+  deviceId: string;
+  deviceName?: string;
+  type: string;
+  eventTime: number;
+  attributes: Record<string, string | number | boolean>;
+}
+
+/** An alert pushed to this dashboard user as it happens. */
+export interface LiveAlert {
+  eventId: string;
+  type: string;
+  deviceId: string;
+  eventTime: number;
+  title: string;
+  text: string;
 }
 
 export interface FleetAlert {
@@ -156,6 +202,8 @@ export interface DeviceChanges {
   driverId?: string | null;
   trackerIntervalSeconds?: number;
   pauseLimitMinutes?: number;
+  /** km/h, 5 to 300; null removes the limit. */
+  speedLimitKmh?: number | null;
 }
 
 /** A person who drives the tenant's vehicles; every detail is admin-entered. */
@@ -391,7 +439,44 @@ export class TrackifyClient {
     );
   }
 
+  alertRules() {
+    return this.request<{ items: AlertRule[] }>('/alert-rules');
+  }
+  createAlertRule(input: AlertRuleInput) {
+    return this.request<AlertRule>('/alert-rules', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify(input),
+    });
+  }
+  updateAlertRule(ruleId: string, changes: Partial<AlertRuleInput>) {
+    return this.request<AlertRule>(`/alert-rules/${encodeURIComponent(ruleId)}`, {
+      method: 'PATCH',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify(changes),
+    });
+  }
+  /** Events across every vehicle the user may see, newest first. */
+  fleetEvents(from: number, to: number, types: string[] = [], limit = 500) {
+    const query = new URLSearchParams({ from: String(from), to: String(to), limit: String(limit) });
+    if (types.length) query.set('types', types.join(','));
+    return this.request<{ items: FleetEvent[] }>(`/events?${query}`);
+  }
+
   subscribeFleet(tenantId: string, onUpdate: (state: DeviceState & { deviceId: string }) => void) {
+    return this.subscribe(`/fleet/${tenantId}`, (value) => {
+      if (isDeviceUpdate(value)) onUpdate(value);
+    });
+  }
+
+  /** Alerts sent to this user's dashboard (the "web" channel of alert rules), as they happen. */
+  subscribeAlerts(tenantId: string, userId: string, onAlert: (alert: LiveAlert) => void) {
+    return this.subscribe(`/fleet/${tenantId}/users/${userId}`, (value) => {
+      if (isLiveAlert(value)) onAlert(value);
+    });
+  }
+
+  private subscribe(channel: string, onData: (value: unknown) => void) {
     const token = this.accessToken();
     if (!token || !this.config.realtimeDns) return () => undefined;
     const authorization = { Authorization: token, host: this.config.realtimeDns };
@@ -410,15 +495,14 @@ export class TrackifyClient {
           JSON.stringify({
             type: 'subscribe',
             id: subscriptionId,
-            channel: `/fleet/${tenantId}`,
+            channel,
             authorization,
           }),
         );
       }
       if (message.type === 'data') {
         const raw = message.event ?? message.data;
-        const update: unknown = typeof raw === 'string' ? JSON.parse(raw) : raw;
-        if (isDeviceUpdate(update)) onUpdate(update);
+        onData(typeof raw === 'string' ? JSON.parse(raw) : raw);
       }
     });
     return () => {
@@ -480,6 +564,16 @@ function randomId() {
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null;
+}
+
+function isLiveAlert(value: unknown): value is LiveAlert {
+  if (typeof value !== 'object' || value === null) return false;
+  const alert = value as Record<string, unknown>;
+  return (
+    typeof alert.title === 'string' &&
+    typeof alert.deviceId === 'string' &&
+    typeof alert.type === 'string'
+  );
 }
 
 function isDeviceUpdate(value: unknown): value is DeviceState & { deviceId: string } {

@@ -21,7 +21,7 @@
     "@trackify/geo": "0.1.0",
     "lucide-react": "^1.47.0",
     "maplibre-gl": "^6.11.2",
-    "next": "16.3.5",
+    "next": "16.4.2",
     "qrcode": "^1.5.4",
     "react": "19.3.0",
     "react-dom": "19.3.0"

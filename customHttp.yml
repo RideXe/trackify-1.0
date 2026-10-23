@@ -1,0 +1,36 @@
+# Response headers for the Amplify-hosted dashboard (track.bgthub.com). Amplify reads this file
+# from the repo root on every deploy; it overrides headers set in the Amplify console.
+#
+# The Content-Security-Policy is report-only: violations are logged in the browser console but
+# nothing is blocked. Once a full click-through shows no violations, rename the key to
+# Content-Security-Policy to enforce it. 'unsafe-inline' is needed because a Next.js static export
+# and MUI (Emotion) inject inline scripts and styles, and a static site cannot issue nonces.
+applications:
+  - appRoot: platform/apps/dashboard-web
+    customHeaders:
+      - pattern: '**/*'
+        headers:
+          - key: Strict-Transport-Security
+            value: max-age=31536000; includeSubDomains
+          - key: X-Content-Type-Options
+            value: nosniff
+          - key: X-Frame-Options
+            value: DENY
+          - key: Referrer-Policy
+            value: strict-origin-when-cross-origin
+          - key: Permissions-Policy
+            value: camera=(), microphone=(), geolocation=(), payment=(), usb=()
+          - key: Content-Security-Policy-Report-Only
+            value: >-
+              default-src 'self';
+              script-src 'self' 'unsafe-inline';
+              style-src 'self' 'unsafe-inline';
+              img-src 'self' data: blob: https://tiles.openfreemap.org https://*.s3.ap-south-1.amazonaws.com https://*.s3.amazonaws.com;
+              font-src 'self' data:;
+              connect-src 'self' https://*.execute-api.ap-south-1.amazonaws.com https://*.appsync-api.ap-south-1.amazonaws.com wss://*.appsync-realtime-api.ap-south-1.amazonaws.com https://cognito-idp.ap-south-1.amazonaws.com https://tiles.openfreemap.org;
+              worker-src 'self' blob:;
+              child-src 'self' blob:;
+              frame-ancestors 'none';
+              base-uri 'self';
+              form-action 'self';
+              object-src 'none'

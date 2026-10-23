@@ -4,14 +4,18 @@ import { LambdaFunction } from 'aws-cdk-lib/aws-events-targets';
 import { Architecture, Runtime } from 'aws-cdk-lib/aws-lambda';
 import { NodejsFunction } from 'aws-cdk-lib/aws-lambda-nodejs';
 import { LogGroup, RetentionDays } from 'aws-cdk-lib/aws-logs';
+import type { ITopic } from 'aws-cdk-lib/aws-sns';
 import type { Construct } from 'constructs';
 import type { EnvConfig } from '../config';
+import { alarmOnErrors } from '../constructs/alarms';
 import type { DataStack } from './data-stack';
 
 export interface OperationsStackProps extends StackProps {
   config: EnvConfig;
   data: DataStack;
   platformPath: string;
+  /** Operational alarms email this topic; without it no alarms are created. */
+  alarmTopic?: ITopic;
 }
 
 /** Low-frequency maintenance that scales to zero between invocations. */
@@ -45,5 +49,6 @@ export class OperationsStack extends Stack {
       schedule: Schedule.rate(Duration.minutes(1)),
       targets: [new LambdaFunction(sweep, { retryAttempts: 2 })],
     });
+    if (props.alarmTopic) alarmOnErrors(this, sweep, props.alarmTopic);
   }
 }

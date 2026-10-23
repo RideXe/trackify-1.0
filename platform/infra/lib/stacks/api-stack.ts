@@ -11,6 +11,7 @@ import { EmailSubscription } from 'aws-cdk-lib/aws-sns-subscriptions';
 import type { IQueue } from 'aws-cdk-lib/aws-sqs';
 import type { Construct } from 'constructs';
 import type { EnvConfig } from '../config';
+import { alarmOnErrors, alarmOnServerErrors } from '../constructs/alarms';
 import { allowGeocoding } from '../constructs/geocoding';
 import type { DataStack } from './data-stack';
 import type { IdentityStack } from './identity-stack';
@@ -25,6 +26,8 @@ export interface ApiStackProps extends StackProps {
   ingestQueue: IQueue;
   /** New announcements are published here for the notification service to deliver. */
   announcementsTopic?: ITopic;
+  /** Operational alarms email this topic; without it no alarms are created. */
+  alarmTopic?: ITopic;
 }
 
 export class ApiStack extends Stack {
@@ -265,6 +268,13 @@ export class ApiStack extends Stack {
     // A slow ceiling on the public download route, so a shared link cannot be hammered. The stage
     // must wait for the route: route settings for a route that does not exist yet are rejected.
     const stage = this.api.defaultStage?.node.defaultChild as CfnStage | undefined;
+    // Every other route gets its own ceiling (per route, not shared), so a runaway client or
+    // script cannot run up Lambda and DynamoDB costs. 1,000/s covers 10,000 phones reporting
+    // every 10 s on /phone/positions, the load-test target in PLAN.md.
+    stage?.addPropertyOverride('DefaultRouteSettings', {
+      ThrottlingRateLimit: 1000,
+      ThrottlingBurstLimit: 2000,
+    });
     stage?.addPropertyOverride('RouteSettings', {
       'GET /driver-app/{token}': { ThrottlingRateLimit: 2, ThrottlingBurstLimit: 5 },
     });
@@ -461,6 +471,16 @@ export class ApiStack extends Stack {
       ['/phone/today', HttpMethod.GET],
     ] as const) {
       this.api.addRoutes({ path, methods: [method], integration: phoneIntegration });
+    }
+    if (props.alarmTopic) {
+      alarmOnErrors(this, handler, props.alarmTopic);
+      alarmOnErrors(this, phoneIngest, props.alarmTopic);
+      alarmOnServerErrors(
+        this,
+        'FleetApiServerErrors',
+        this.api.metricServerError({ period: Duration.minutes(5), statistic: 'Sum' }),
+        props.alarmTopic,
+      );
     }
     new CfnOutput(this, 'ApiUrl', { value: this.api.apiEndpoint });
   }

@@ -8,6 +8,7 @@ import { IngestStack } from '../lib/stacks/ingest-stack';
 import { GatewayStack } from '../lib/stacks/gateway-stack';
 import { IdentityStack } from '../lib/stacks/identity-stack';
 import { RealtimeStack } from '../lib/stacks/realtime-stack';
+import { AlertsStack } from '../lib/stacks/alerts-stack';
 import { ApiStack } from '../lib/stacks/api-stack';
 import { HostingStack } from '../lib/stacks/hosting-stack';
 import { DashboardAssetsStack } from '../lib/stacks/dashboard-assets-stack';
@@ -30,6 +31,14 @@ new FoundationStack(app, `Trackify-${config.envName}-Foundation`, {
   tags,
   config,
 });
+
+const alerts = new AlertsStack(app, `Trackify-${config.envName}-Alerts`, {
+  env: { account: config.account, region: config.region },
+  description: 'Trackify operational alarm emails',
+  config,
+  tags,
+});
+const alarmTopic = alerts.topic;
 
 const data = new DataStack(app, `Trackify-${config.envName}-Data`, {
   env: { account: config.account, region: config.region },
@@ -75,6 +84,7 @@ const ingest = new IngestStack(app, `Trackify-${config.envName}-Ingest`, {
   data,
   platformPath,
   realtime,
+  alarmTopic,
   tags,
 });
 const notifications = new NotificationStack(app, `Trackify-${config.envName}-Notifications`, {
@@ -83,6 +93,7 @@ const notifications = new NotificationStack(app, `Trackify-${config.envName}-Not
   data,
   realtime,
   platformPath,
+  alarmTopic,
   tags,
 });
 const api = new ApiStack(app, `Trackify-${config.envName}-Api`, {
@@ -95,6 +106,7 @@ const api = new ApiStack(app, `Trackify-${config.envName}-Api`, {
   additionalBrowserOrigins: [hosting.dashboardUrl],
   ingestQueue: ingest.queue,
   announcementsTopic: notifications.announcementsTopic,
+  alarmTopic,
   tags,
 });
 new DashboardAssetsStack(app, `Trackify-${config.envName}-DashboardAssets`, {
@@ -111,6 +123,7 @@ new OperationsStack(app, `Trackify-${config.envName}-Operations`, {
   config,
   data,
   platformPath,
+  alarmTopic,
   tags,
 });
 if (config.enableGateway) {

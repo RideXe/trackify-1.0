@@ -18,13 +18,51 @@ code but never host backend business logic.
 The default deployment excludes the paid TCP gateway, public legacy phone URL, and Firehose
 archive. Enable each only after its launch gate is complete.
 
+Install the workspace first (`npm ci` in `platform/`), then run `cdk diff` with the same flags
+before every deploy:
+
 ```bash
 cd platform/infra
-npx cdk deploy --all --profile bgt --require-approval never \
+npx cdk deploy --all --profile bgt \
   -c env=dev -c account=396913392905 -c region=ap-south-1 \
   -c alertEmail=santhoshrdevadiga@gmail.com \
+  -c dashboardUrl="https://track.bgthub.com" \
   -c enableGateway=false -c allowLegacyPhoneIngest=false -c enableArchive=false
 ```
+
+`dashboardUrl` is required. It sets the API's allowed browser origin (CORS), driver setup links
+and alert-email links; without it they silently fall back to `http://localhost:5173` and the
+hosted dashboard cannot reach the API. Only that one dashboard origin (plus localhost in dev and
+the CloudFront dashboard) is allowed, so the old `*.amplifyapp.com` address no longer works.
+
+### Live development environment
+
+| Item          | Value                                                                        |
+| ------------- | ---------------------------------------------------------------------------- |
+| AWS account   | `396913392905`, region `ap-south-1`, CLI profile `bgt`                       |
+| Dashboard     | `https://track.bgthub.com` (Amplify app `d2psibrecnh42n`, branch `dev`)      |
+| Custom domain | `bgthub.com` DNS is at Hostinger; `track` is a CNAME to Amplify's CloudFront |
+| API           | `Trackify-dev-Api` stack output `ApiUrl`                                     |
+
+The `bgthub.com` root and `www` records point to a separate website on Vercel. Only the `track`
+subdomain belongs to Trackify, so never map the root or `www` in Amplify's custom-domain settings.
+
+### Alarms
+
+`Trackify-<env>-Alerts` owns one SNS topic that emails `alertEmail`. After its first deploy AWS
+sends a subscription confirmation email; no alarm email arrives until the link is clicked. Each
+stack adds its own CloudWatch alarms (10 in total, within the free tier), and each sends an email
+when it fires and again when it clears:
+
+| Stack         | Alarm                                                               |
+| ------------- | ------------------------------------------------------------------- |
+| Ingest        | Processing errors; dead-letter queue not empty; backlog over 60 s   |
+| Notifications | Notify errors; scheduled-report errors; dead-letter queue not empty |
+| Api           | Fleet API errors; phone ingest errors; 5+ API 5xx in 5 minutes      |
+| Operations    | Offline sweep errors                                                |
+
+Lambda error alarms fire at 3 or more failures in 5 minutes. Every API route is throttled at
+1,000 requests/s (burst 2,000), and the public driver-app download at 2/s.
 
 ## Amplify dashboard
 
@@ -36,6 +74,12 @@ files. Configure these non-secret build variables when endpoints differ from dev
 - `NEXT_PUBLIC_AWS_REGION`
 - `NEXT_PUBLIC_COGNITO_CLIENT_ID`
 - `NEXT_PUBLIC_REALTIME_DNS`
+
+Security response headers (HSTS, `nosniff`, `X-Frame-Options`, `Referrer-Policy`,
+`Permissions-Policy`) come from `customHttp.yml` in the repository root and apply on the next
+Amplify build. The Content-Security-Policy there is report-only: open the dashboard, use every
+page, and check the browser console for CSP violations before renaming the header to
+`Content-Security-Policy` to enforce it.
 
 The web and mobile clients show a Trackify email/password form and send credentials directly to the
 Cognito authentication API over TLS. Passwords are never stored by either client. Cognito returns

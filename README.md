@@ -2,7 +2,14 @@
 
 Trackify is an open-source, full-stack GPS tracking system. It enables real-time location tracking of mobile devices and fleets with a powerful backend and an intuitive modern web dashboard.
 
-## Ecosystem Overview
+> **Current system: [`platform/`](./platform/).** Trackify v2 is a serverless AWS platform
+> (CDK backend, Next.js dashboard at https://track.bgthub.com, React Native Android app). Start
+> with [`platform/README.md`](./platform/README.md) and
+> [`platform/docs/deployment-architecture.md`](./platform/docs/deployment-architecture.md).
+> The folders below are the original Traccar-based v1, kept for reference (`trackify/` holds the
+> tracker protocol decoders the new platform ports from).
+
+## Ecosystem Overview (v1)
 
 The Trackify ecosystem is divided into the following sub-projects:
 

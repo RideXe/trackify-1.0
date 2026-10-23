@@ -55,7 +55,8 @@ the one-minute maintenance schedule charge by usage and have no dedicated always
 
 ```bash
 cd infra
-npx cdk deploy --all -c env=dev -c account=<12-digit-account> -c alertEmail=<email>
+npx cdk deploy --all -c env=dev -c account=<12-digit-account> -c alertEmail=<email> \
+  -c dashboardUrl=<https-dashboard-url>
 ```
 
 After deployment, copy `UserPoolId` and the Core table physical name from CloudFormation. Create
@@ -70,7 +71,8 @@ npm start -w @trackify/bootstrap-tenant -- \
   --core-table <CoreTableName>
 ```
 
-Cognito emails a temporary-password invitation. Open the `DashboardUrl` output and sign in. Enable
+Confirm the alarm subscription email AWS sends to `alertEmail`. Cognito emails a
+temporary-password invitation. Open the `DashboardUrl` output and sign in. Enable
 the TCP gateway only for a physical-device pilot:
 
 ```bash

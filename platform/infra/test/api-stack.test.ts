@@ -54,6 +54,12 @@ describe('ApiStack', () => {
     });
   });
 
+  it('caps every route with a default rate limit', () => {
+    synthesize().hasResourceProperties('AWS::ApiGatewayV2::Stage', {
+      DefaultRouteSettings: { ThrottlingRateLimit: 1000, ThrottlingBurstLimit: 2000 },
+    });
+  });
+
   it('protects fleet routes with a Cognito JWT authorizer', () => {
     const template = synthesize();
     template.hasResourceProperties('AWS::ApiGatewayV2::Authorizer', {

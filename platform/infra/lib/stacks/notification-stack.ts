@@ -14,12 +14,13 @@ import { NodejsFunction } from 'aws-cdk-lib/aws-lambda-nodejs';
 import { LogGroup, RetentionDays } from 'aws-cdk-lib/aws-logs';
 import { Secret } from 'aws-cdk-lib/aws-secretsmanager';
 import { EmailIdentity, Identity } from 'aws-cdk-lib/aws-ses';
-import { Topic } from 'aws-cdk-lib/aws-sns';
+import { Topic, type ITopic } from 'aws-cdk-lib/aws-sns';
 import { LambdaSubscription } from 'aws-cdk-lib/aws-sns-subscriptions';
 import { Queue, QueueEncryption } from 'aws-cdk-lib/aws-sqs';
 import type { Construct } from 'constructs';
 import { acknowledgeCost } from '../aspects/cost-guardrails';
 import type { EnvConfig } from '../config';
+import { alarmOnDeadLetters, alarmOnErrors } from '../constructs/alarms';
 import { allowGeocoding } from '../constructs/geocoding';
 import type { DataStack } from './data-stack';
 import type { RealtimeStack } from './realtime-stack';
@@ -29,6 +30,8 @@ export interface NotificationStackProps extends StackProps {
   data: DataStack;
   realtime?: RealtimeStack;
   platformPath: string;
+  /** Operational alarms email this topic; without it no alarms are created. */
+  alarmTopic?: ITopic;
 }
 
 /**
@@ -165,6 +168,12 @@ export class NotificationStack extends Stack {
       schedule: Schedule.rate(Duration.minutes(15)),
       targets: [new LambdaFunction(reports, { retryAttempts: 0 })],
     });
+
+    if (props.alarmTopic) {
+      alarmOnErrors(this, notify, props.alarmTopic);
+      alarmOnErrors(this, reports, props.alarmTopic);
+      alarmOnDeadLetters(this, 'NotifyDeadLetters', deadLetters, props.alarmTopic);
+    }
 
     new CfnOutput(this, 'ChannelCredentialsSecret', { value: credentials.secretName });
   }

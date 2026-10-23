@@ -2,12 +2,14 @@ import { Duration, Stack, type StackProps } from 'aws-cdk-lib';
 import { Architecture, Runtime } from 'aws-cdk-lib/aws-lambda';
 import { SqsEventSource } from 'aws-cdk-lib/aws-lambda-event-sources';
 import { NodejsFunction } from 'aws-cdk-lib/aws-lambda-nodejs';
+import type { ITopic } from 'aws-cdk-lib/aws-sns';
 import { Queue } from 'aws-cdk-lib/aws-sqs';
 import { LogGroup, RetentionDays } from 'aws-cdk-lib/aws-logs';
 import type { Construct } from 'constructs';
 import type { EnvConfig } from '../config';
 import type { DataStack } from './data-stack';
 import type { RealtimeStack } from './realtime-stack';
+import { alarmOnBacklog, alarmOnDeadLetters, alarmOnErrors } from '../constructs/alarms';
 import { allowGeocoding } from '../constructs/geocoding';
 
 export interface IngestStackProps extends StackProps {
@@ -15,6 +17,8 @@ export interface IngestStackProps extends StackProps {
   data: DataStack;
   platformPath: string;
   realtime?: RealtimeStack;
+  /** Operational alarms email this topic; without it no alarms are created. */
+  alarmTopic?: ITopic;
 }
 
 export class IngestStack extends Stack {
@@ -66,6 +70,13 @@ export class IngestStack extends Stack {
     props.data.dailyStats.grantWriteData(processor);
     props.realtime?.api.grantPublish(processor);
     allowGeocoding(processor, props.config);
+
+    if (props.alarmTopic) {
+      alarmOnErrors(this, processor, props.alarmTopic);
+      alarmOnDeadLetters(this, 'IngestDeadLetters', this.deadLetterQueue, props.alarmTopic);
+      // PLAN.md target: oldest unprocessed message under 30 s; alert at double that.
+      alarmOnBacklog(this, 'IngestBacklog', this.queue, Duration.seconds(60), props.alarmTopic);
+    }
   }
 }
 

@@ -7,18 +7,40 @@ services:
       dockerfile: trackify/Dockerfile
     container_name: trackify-server
     restart: unless-stopped
-    dns:
-      - 169.254.169.253            # AWS VPC internal DNS resolver
+    # Database settings come from the environment (or a local .env file, never committed).
+    # Compose refuses to start if a required value is missing, so it can't silently fall back to H2.
+    environment:
+      CONFIG_USE_ENVIRONMENT_VARIABLES: "true"
+      DATABASE_DRIVER: com.mysql.cj.jdbc.Driver
+      # sslMode=VERIFY_IDENTITY checks the RDS certificate and hostname — use the RDS endpoint hostname, not an IP
+      DATABASE_URL: "jdbc:mysql://${RDS_ENDPOINT:?set RDS_ENDPOINT}:3306/${RDS_DATABASE:-trackify}?sslMode=VERIFY_IDENTITY&serverTimezone=UTC&zeroDateTimeBehavior=round&allowMultiQueries=true&autoReconnect=true&useUnicode=yes&characterEncoding=UTF-8&sessionVariables=sql_mode=''"
+      DATABASE_USER: "${DATABASE_USER:?set DATABASE_USER}"
+      DATABASE_PASSWORD: "${DATABASE_PASSWORD:?set DATABASE_PASSWORD}"
     # Config is mounted as a volume below
     volumes:
       - ./trackify/setup/trackify.xml:/opt/trackify/conf/trackify.xml:ro
       - trackify-data:/opt/trackify/data
       - trackify-logs:/opt/trackify/logs
+      - trackify-media:/opt/trackify/media
     ports:
       - "8082:8082"                # Web UI + REST API → http://localhost:8082
-      - "5000-5150:5000-5150"      # GPS device protocol ports
+      - "5023:5023"                # GT06 / Concox trackers (TCP)
+      - "5027:5027"                # Teltonika trackers (TCP)
+      - "5027:5027/udp"            # Teltonika trackers (UDP)
+      - "5055:5055"                # Trackify phone app (OsmAnd protocol)
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://localhost:8082/api/health"]
+      interval: 1m
+      timeout: 5s
+      start_period: 10m            # first start runs database migrations on RDS
+      retries: 3
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
 
 volumes:
   trackify-data:    # persists application data between restarts
   trackify-logs:    # persists server logs
-
+  trackify-media:   # persists photos/files sent by devices

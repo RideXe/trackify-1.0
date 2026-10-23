@@ -1,0 +1,73 @@
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+
+    <uses-permission android:name="android.permission.INTERNET" />
+    <uses-permission android:name="android.permission.CAMERA" />
+    <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
+    <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
+    <uses-permission android:name="android.permission.ACCESS_BACKGROUND_LOCATION" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_LOCATION" />
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+    <!-- Headless JS holds a wake lock while each location upload runs. -->
+    <uses-permission android:name="android.permission.WAKE_LOCK" />
+    <!-- Hold-to-end-shift and SOS buzz under the finger; without this Android closes the app. -->
+    <uses-permission android:name="android.permission.VIBRATE" />
+    <!-- One-tap "always run in the background" question; the APK is handed out directly. -->
+    <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" />
+
+    <!-- Phone makers' own auto-start screens (see VENDOR_SCREENS in TrackifyLocationModule). -->
+    <queries>
+      <package android:name="com.miui.securitycenter" />
+      <package android:name="com.coloros.safecenter" />
+      <package android:name="com.oppo.safe" />
+      <package android:name="com.vivo.permissionmanager" />
+      <package android:name="com.iqoo.secure" />
+      <package android:name="com.huawei.systemmanager" />
+      <package android:name="com.samsung.android.lool" />
+      <package android:name="com.oneplus.security" />
+    </queries>
+    <!-- Optional: motion sensors tell parked from driving (better parking, battery saving). -->
+    <uses-permission android:name="android.permission.ACTIVITY_RECOGNITION" />
+    <uses-permission android:name="com.google.android.gms.permission.ACTIVITY_RECOGNITION" />
+
+    <application
+      android:name=".MainApplication"
+      android:label="@string/app_name"
+      android:icon="@mipmap/ic_launcher"
+      android:roundIcon="@mipmap/ic_launcher_round"
+      android:allowBackup="false"
+      android:theme="@style/AppTheme"
+      android:usesCleartextTraffic="${usesCleartextTraffic}"
+      android:supportsRtl="true">
+      <activity
+        android:name=".MainActivity"
+        android:label="@string/app_name"
+        android:configChanges="keyboard|keyboardHidden|orientation|screenLayout|screenSize|smallestScreenSize|uiMode"
+        android:launchMode="singleTask"
+        android:screenOrientation="portrait"
+        android:windowSoftInputMode="adjustResize"
+        android:exported="true">
+        <intent-filter>
+            <action android:name="android.intent.action.MAIN" />
+            <category android:name="android.intent.category.LAUNCHER" />
+        </intent-filter>
+        <!-- Setup links sent by fleet administrators: trackify://onboard/<CODE> -->
+        <intent-filter>
+            <action android:name="android.intent.action.VIEW" />
+            <category android:name="android.intent.category.DEFAULT" />
+            <category android:name="android.intent.category.BROWSABLE" />
+            <data android:scheme="trackify" android:host="onboard" />
+        </intent-filter>
+      </activity>
+      <service
+        android:name=".location.TrackifyLocationService"
+        android:exported="false"
+        android:foregroundServiceType="location" />
+      <service
+        android:name=".location.TrackifyLocationTaskService"
+        android:exported="false" />
+      <receiver
+        android:name=".location.ActivityTransitionReceiver"
+        android:exported="false" />
+    </application>
+</manifest>

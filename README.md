@@ -49,5 +49,26 @@ flutter run
 ```
 *Make sure to configure the "Server URL" in the app settings to point to your laptop's Wi-Fi IP Address (e.g., `http://192.168.x.x:5055`).*
 
+## Run with Docker + AWS RDS (MySQL)
+
+The Docker image bundles the server and the web dashboard. The database settings are **not** stored in the repo — provide them as environment variables, or in a `.env` file next to `docker-compose.yml` (it is git-ignored):
+
+| Variable | Required | Example |
+|---|---|---|
+| `RDS_ENDPOINT` | yes | `trackify.abc123xyz.ap-south-1.rds.amazonaws.com` |
+| `RDS_DATABASE` | no (default `trackify`) | `trackify` |
+| `DATABASE_USER` | yes | `admin` |
+| `DATABASE_PASSWORD` | yes | *(your RDS password)* |
+
+```bash
+docker compose up -d --build
+docker compose ps        # wait for "healthy" (first start runs database migrations)
+```
+
+- **Use the RDS endpoint hostname**, not an IP address. The connection uses `sslMode=VERIFY_IDENTITY`, which verifies the RDS certificate and hostname; the image trusts the Amazon RDS root certificates.
+- **Create the `trackify` database** in RDS before the first start.
+- **Ports:** `8082` web + API · `5023` GT06/Concox (TCP) · `5027` Teltonika (TCP + UDP) · `5055` phone app. To support more tracker types, add them to `protocols.enable` in [`trackify/setup/trackify.xml`](./trackify/setup/trackify.xml) and publish their ports in `docker-compose.yml`.
+- The container runs as a non-root `trackify` user; data, logs, and device media are kept in Docker volumes.
+
 ## License
 Trackify is based on the open-source Traccar project. Licensed under the Apache License, Version 2.0.

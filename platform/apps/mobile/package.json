@@ -1,0 +1,45 @@
+{
+  "name": "@trackify/mobile",
+  "version": "0.1.0",
+  "private": true,
+  "main": "index.js",
+  "scripts": {
+    "start": "react-native start",
+    "android": "react-native run-android",
+    "release:android": "bash scripts/release-android.sh",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run --passWithNoTests"
+  },
+  "dependencies": {
+    "@maplibre/maplibre-react-native": "11.4.0",
+    "@trackify/api-client": "0.1.0",
+    "@trackify/geo": "0.1.0",
+    "lucide-react-native": "1.47.0",
+    "react": "19.2.3",
+    "react-native": "0.86.3",
+    "react-native-camera-kit": "18.0.1",
+    "react-native-keychain": "10.0.0",
+    "react-native-qrcode-svg": "^6.3.24",
+    "react-native-safe-area-context": "5.10.1",
+    "react-native-svg": "^15.15.4"
+  },
+  "devDependencies": {
+    "@babel/core": "^7.25.2",
+    "@babel/preset-env": "^7.25.3",
+    "@babel/runtime": "^7.25.0",
+    "@react-native-community/cli": "20.1.0",
+    "@react-native-community/cli-platform-android": "20.1.0",
+    "@react-native/babel-preset": "0.86.3",
+    "@react-native/metro-config": "0.86.3",
+    "@react-native/typescript-config": "0.86.3",
+    "@types/react": "19.3.0"
+  },
+  "codegenConfig": {
+    "name": "TrackifyLocationSpec",
+    "type": "modules",
+    "jsSrcsDir": "src/native",
+    "android": {
+      "javaPackageName": "com.ridexe.trackify.location"
+    }
+  }
+}

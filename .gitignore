@@ -8,6 +8,9 @@ Thumbs.db
 *~
 *.swp
 
+# Secrets for docker compose (RDS endpoint, user, password) — never commit
+.env
+
 # IDEs and Editors
 .idea/
 .vscode/
@@ -24,6 +27,9 @@ target/
 out/
 logs/
 data/
+!platform/packages/data/
+!platform/packages/data/src/
+!platform/packages/data/src/onboarding-store.ts
 !gradle/wrapper/gradle-wrapper.jar
 
 # ----------------------------------------------------------------------
@@ -55,3 +61,6 @@ ios/Pods/
 ios/.generated/
 .flutter-plugins
 .flutter-plugins-dependencies
+
+!platform/packages/data/test/
+!platform/packages/data/test/onboarding-store.test.ts

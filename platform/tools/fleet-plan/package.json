@@ -1,0 +1,19 @@
+{
+  "name": "@trackify/fleet-plan",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "typecheck": "tsc --noEmit -p tsconfig.json",
+    "test": "vitest run",
+    "start": "tsx src/main.ts"
+  },
+  "dependencies": {
+    "@aws-sdk/lib-dynamodb": "3.1135.0",
+    "@trackify/data": "0.1.0",
+    "@trackify/domain": "0.1.0"
+  },
+  "devDependencies": {
+    "tsx": "4.23.13"
+  }
+}

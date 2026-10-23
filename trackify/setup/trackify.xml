@@ -4,11 +4,14 @@
 
     <!-- Documentation: https://www.trackify.org/configuration-file/ -->
 
-    <!-- ── MySQL (AWS RDS) ── -->
-    <!-- Fill in YOUR_RDS_ENDPOINT and YOUR_RDS_PASSWORD after creating the RDS instance (Phase 2 of deployment guide) -->
-    <entry key='database.driver'>com.mysql.cj.jdbc.Driver</entry>
-    <entry key='database.url'>jdbc:mysql://YOUR_RDS_ENDPOINT:3306/trackify?zeroDateTimeBehavior=round&amp;serverTimezone=UTC&amp;allowPublicKeyRetrieval=true&amp;useSSL=true&amp;requireSSL=true&amp;verifyServerCertificate=false&amp;allowMultiQueries=true&amp;autoReconnect=true</entry>
-    <entry key='database.user'>admin</entry>
-    <entry key='database.password'>YOUR_RDS_PASSWORD</entry>
+    <!-- Local runs use H2. Docker/AWS overrides these with environment variables
+         (see docker-compose.yml) — never put real credentials in this file. -->
+    <entry key='database.driver'>org.h2.Driver</entry>
+    <entry key='database.url'>jdbc:h2:./data/database</entry>
+    <entry key='database.user'>sa</entry>
+    <entry key='database.password' />
+
+    <!-- Only open ports for the trackers we use: GT06 5023, Teltonika 5027, phones (OsmAnd) 5055 -->
+    <entry key='protocols.enable'>gt06,teltonika,osmand</entry>
 
 </properties>

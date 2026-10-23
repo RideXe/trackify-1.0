@@ -1,0 +1,467 @@
+import { CfnOutput, Duration, RemovalPolicy, Stack, type StackProps } from 'aws-cdk-lib';
+import { CorsHttpMethod, HttpApi, HttpMethod, type CfnStage } from 'aws-cdk-lib/aws-apigatewayv2';
+import { HttpJwtAuthorizer } from 'aws-cdk-lib/aws-apigatewayv2-authorizers';
+import { HttpLambdaIntegration } from 'aws-cdk-lib/aws-apigatewayv2-integrations';
+import { Architecture, Runtime } from 'aws-cdk-lib/aws-lambda';
+import { NodejsFunction } from 'aws-cdk-lib/aws-lambda-nodejs';
+import { LogGroup, RetentionDays } from 'aws-cdk-lib/aws-logs';
+import { BlockPublicAccess, Bucket, BucketEncryption } from 'aws-cdk-lib/aws-s3';
+import { Topic, type ITopic } from 'aws-cdk-lib/aws-sns';
+import { EmailSubscription } from 'aws-cdk-lib/aws-sns-subscriptions';
+import type { IQueue } from 'aws-cdk-lib/aws-sqs';
+import type { Construct } from 'constructs';
+import type { EnvConfig } from '../config';
+import { allowGeocoding } from '../constructs/geocoding';
+import type { DataStack } from './data-stack';
+import type { IdentityStack } from './identity-stack';
+
+export interface ApiStackProps extends StackProps {
+  config: EnvConfig;
+  data: DataStack;
+  identity: IdentityStack;
+  platformPath: string;
+  dashboardUrl?: string;
+  additionalBrowserOrigins?: string[];
+  ingestQueue: IQueue;
+  /** New announcements are published here for the notification service to deliver. */
+  announcementsTopic?: ITopic;
+}
+
+export class ApiStack extends Stack {
+  readonly api: HttpApi;
+
+  constructor(scope: Construct, id: string, props: ApiStackProps) {
+    super(scope, id, props);
+    const dashboardUrl = props.dashboardUrl ?? props.config.dashboardUrl;
+    const browserOrigins =
+      props.config.envName === 'dev'
+        ? [
+            ...new Set([
+              dashboardUrl,
+              'http://localhost:5173',
+              ...(props.additionalBrowserOrigins ?? []),
+            ]),
+          ]
+        : [...new Set([dashboardUrl, ...(props.additionalBrowserOrigins ?? [])])];
+    // Issue and fuel-receipt photos from driver phones. Private; reached only via presigned URLs.
+    const photos = new Bucket(this, 'DriverPhotos', {
+      blockPublicAccess: BlockPublicAccess.BLOCK_ALL,
+      encryption: BucketEncryption.S3_MANAGED,
+      enforceSSL: true,
+      lifecycleRules: [
+        { expiration: Duration.days(365) },
+        { abortIncompleteMultipartUploadAfter: Duration.days(1) },
+      ],
+      // Photos are evidence (accidents, receipts); never delete them with the stack.
+      removalPolicy: RemovalPolicy.RETAIN,
+    });
+    // The Android driver app, uploaded by `npm run release:android`. Private: drivers download it
+    // only through expiring links made in the dashboard. Versions are kept to roll back a bad one.
+    const driverApp = new Bucket(this, 'DriverApp', {
+      blockPublicAccess: BlockPublicAccess.BLOCK_ALL,
+      encryption: BucketEncryption.S3_MANAGED,
+      enforceSSL: true,
+      versioned: true,
+      lifecycleRules: [{ noncurrentVersionExpiration: Duration.days(90) }],
+      removalPolicy: RemovalPolicy.RETAIN,
+    });
+    new CfnOutput(this, 'DriverAppBucket', {
+      value: driverApp.bucketName,
+      description: 'Where the release script uploads the Android driver app',
+    });
+    // SOS and serious issue reports are emailed here. AWS sends a confirmation email first;
+    // nothing arrives until that link is clicked.
+    const driverAlerts = new Topic(this, 'DriverAlerts', { displayName: 'Trackify driver alerts' });
+    driverAlerts.addSubscription(new EmailSubscription(props.config.alertEmail));
+
+    const handler = new NodejsFunction(this, 'FleetApiHandler', {
+      entry: `${props.platformPath}/services/api/src/handler.ts`,
+      runtime: Runtime.NODEJS_24_X,
+      architecture: Architecture.ARM_64,
+      memorySize: 256,
+      timeout: Duration.seconds(15),
+      environment: {
+        CORE_TABLE: props.data.core.tableName,
+        DEVICE_STATE_TABLE: props.data.deviceState.tableName,
+        POSITIONS_TABLE: props.data.positions.tableName,
+        EVENTS_TABLE: props.data.events.tableName,
+        TRIPS_TABLE: props.data.trips.tableName,
+        DAILY_STATS_TABLE: props.data.dailyStats.tableName,
+        COMMANDS_TABLE: props.data.commands.tableName,
+        ONBOARDING_TABLE: props.data.onboarding.tableName,
+        ONBOARDING_WEB_URL: dashboardUrl,
+        PHOTOS_BUCKET: photos.bucketName,
+        DRIVER_APP_BUCKET: driverApp.bucketName,
+        USER_POOL_ID: props.identity.userPool.userPoolId,
+        ...(props.announcementsTopic
+          ? { ANNOUNCEMENTS_TOPIC_ARN: props.announcementsTopic.topicArn }
+          : {}),
+      },
+      logGroup: new LogGroup(this, 'FleetApiLogs', { retention: RetentionDays.ONE_WEEK }),
+      bundling: { minify: true, sourceMap: true },
+    });
+    props.data.core.grantReadWriteData(handler);
+    props.data.deviceState.grantReadData(handler);
+    props.data.positions.grantReadData(handler);
+    props.data.events.grantReadData(handler);
+    props.data.trips.grantReadData(handler);
+    props.data.dailyStats.grantReadData(handler);
+    props.data.commands.grantReadWriteData(handler);
+    props.data.onboarding.grantReadWriteData(handler);
+    photos.grantRead(handler);
+    driverApp.grantRead(handler);
+    allowGeocoding(handler, props.config);
+    props.announcementsTopic?.grantPublish(handler);
+    props.identity.userPool.grant(
+      handler,
+      'cognito-idp:AdminCreateUser',
+      'cognito-idp:AdminDeleteUser',
+      'cognito-idp:AdminDisableUser',
+      'cognito-idp:AdminEnableUser',
+    );
+    const authorizer = new HttpJwtAuthorizer(
+      'CognitoAuthorizer',
+      `https://cognito-idp.${this.region}.amazonaws.com/${props.identity.userPool.userPoolId}`,
+      { jwtAudience: [props.identity.client.userPoolClientId] },
+    );
+    this.api = new HttpApi(this, 'FleetApi', {
+      corsPreflight: {
+        allowOrigins: browserOrigins,
+        allowHeaders: ['authorization', 'content-type'],
+        allowMethods: [
+          CorsHttpMethod.GET,
+          CorsHttpMethod.POST,
+          CorsHttpMethod.PATCH,
+          CorsHttpMethod.DELETE,
+          CorsHttpMethod.OPTIONS,
+        ],
+      },
+    });
+    // One invoke permission for the whole API instead of one per route: with 80+ routes the
+    // per-route statements exceed Lambda's 20 KB resource-policy limit. The handler still checks
+    // the caller's login and role on every request.
+    const integration = new HttpLambdaIntegration('FleetApiIntegration', handler, {
+      scopePermissionToRoute: false,
+    });
+    this.api.addRoutes({
+      path: '/me/push-tokens',
+      methods: [HttpMethod.GET, HttpMethod.POST],
+      integration,
+      authorizer,
+    });
+    this.api.addRoutes({
+      path: '/me/push-tokens/{tokenId}',
+      methods: [HttpMethod.DELETE],
+      integration,
+      authorizer,
+    });
+    this.api.addRoutes({
+      path: '/me',
+      methods: [HttpMethod.GET, HttpMethod.PATCH],
+      integration,
+      authorizer,
+    });
+    this.api.addRoutes({
+      path: '/devices/{deviceId}/invitations',
+      methods: [HttpMethod.GET, HttpMethod.POST],
+      integration,
+      authorizer,
+    });
+    this.api.addRoutes({
+      path: '/invitations/{invitationId}',
+      methods: [HttpMethod.DELETE],
+      integration,
+      authorizer,
+    });
+    for (const path of [
+      '/devices/{deviceId}/events',
+      '/devices/{deviceId}/trips',
+      '/devices/{deviceId}/summary',
+      '/devices/{deviceId}/stops',
+      '/devices/{deviceId}/geofence-visits',
+      '/devices/{deviceId}/chart',
+      '/events',
+      '/reports/{kind}',
+      '/audit',
+      '/statistics',
+      '/geocode',
+    ]) {
+      this.api.addRoutes({ path, methods: [HttpMethod.GET], integration, authorizer });
+    }
+    this.api.addRoutes({
+      path: '/announcements',
+      methods: [HttpMethod.GET, HttpMethod.POST],
+      integration,
+      authorizer,
+    });
+    this.api.addRoutes({
+      path: '/devices/{deviceId}/shares',
+      methods: [HttpMethod.GET, HttpMethod.POST],
+      integration,
+      authorizer,
+    });
+    this.api.addRoutes({
+      path: '/devices/{deviceId}/shares/{shareId}',
+      methods: [HttpMethod.DELETE],
+      integration,
+      authorizer,
+    });
+    // Public share links: no sign-in, read-only, and only the linked vehicle's live position.
+    const shared = new NodejsFunction(this, 'SharedLocationHandler', {
+      entry: `${props.platformPath}/services/api/src/shared.ts`,
+      runtime: Runtime.NODEJS_24_X,
+      architecture: Architecture.ARM_64,
+      memorySize: 256,
+      timeout: Duration.seconds(10),
+      environment: {
+        CORE_TABLE: props.data.core.tableName,
+        DEVICE_STATE_TABLE: props.data.deviceState.tableName,
+      },
+      logGroup: new LogGroup(this, 'SharedLocationLogs', { retention: RetentionDays.ONE_WEEK }),
+      bundling: { minify: true, sourceMap: true },
+    });
+    props.data.core.grantReadData(shared);
+    props.data.deviceState.grantReadData(shared);
+    this.api.addRoutes({
+      path: '/shared/{token}',
+      methods: [HttpMethod.GET],
+      integration: new HttpLambdaIntegration('SharedLocationIntegration', shared),
+    });
+    this.api.addRoutes({
+      path: '/driver-app',
+      methods: [HttpMethod.GET],
+      integration,
+      authorizer,
+    });
+    this.api.addRoutes({
+      path: '/driver-app/links',
+      methods: [HttpMethod.POST],
+      integration,
+      authorizer,
+    });
+    // The public end of a shared driver-app link: no sign-in, so it gets its own small function.
+    const appDownload = new NodejsFunction(this, 'DriverAppDownloadHandler', {
+      entry: `${props.platformPath}/services/api/src/driver-app-download.ts`,
+      runtime: Runtime.NODEJS_24_X,
+      architecture: Architecture.ARM_64,
+      memorySize: 256,
+      timeout: Duration.seconds(10),
+      environment: {
+        CORE_TABLE: props.data.core.tableName,
+        DRIVER_APP_BUCKET: driverApp.bucketName,
+      },
+      logGroup: new LogGroup(this, 'DriverAppDownloadLogs', {
+        retention: RetentionDays.ONE_WEEK,
+      }),
+      bundling: { minify: true, sourceMap: true },
+    });
+    props.data.core.grantReadData(appDownload);
+    driverApp.grantRead(appDownload);
+    const [downloadRoute] = this.api.addRoutes({
+      path: '/driver-app/{token}',
+      methods: [HttpMethod.GET],
+      integration: new HttpLambdaIntegration('DriverAppDownloadIntegration', appDownload),
+    });
+    // A slow ceiling on the public download route, so a shared link cannot be hammered. The stage
+    // must wait for the route: route settings for a route that does not exist yet are rejected.
+    const stage = this.api.defaultStage?.node.defaultChild as CfnStage | undefined;
+    stage?.addPropertyOverride('RouteSettings', {
+      'GET /driver-app/{token}': { ThrottlingRateLimit: 2, ThrottlingBurstLimit: 5 },
+    });
+    if (stage && downloadRoute) stage.node.addDependency(downloadRoute);
+    this.api.addRoutes({
+      path: '/computed-attributes/test',
+      methods: [HttpMethod.POST],
+      integration,
+      authorizer,
+    });
+    this.api.addRoutes({
+      path: '/devices/{deviceId}/accumulators',
+      methods: [HttpMethod.POST],
+      integration,
+      authorizer,
+    });
+    this.api.addRoutes({
+      path: '/devices/{deviceId}/commands',
+      methods: [HttpMethod.POST],
+      integration,
+      authorizer,
+    });
+
+    const onboarding = new NodejsFunction(this, 'OnboardingHandler', {
+      entry: `${props.platformPath}/services/onboarding-api/src/handler.ts`,
+      runtime: Runtime.NODEJS_24_X,
+      architecture: Architecture.ARM_64,
+      memorySize: 256,
+      timeout: Duration.seconds(10),
+      environment: {
+        ONBOARDING_TABLE: props.data.onboarding.tableName,
+        API_BASE_URL: this.api.apiEndpoint,
+      },
+      logGroup: new LogGroup(this, 'OnboardingLogs', { retention: RetentionDays.ONE_WEEK }),
+      bundling: { minify: true, sourceMap: true },
+    });
+    props.data.onboarding.grantReadWriteData(onboarding);
+    this.api.addRoutes({
+      path: '/onboard/{code}/redeem',
+      methods: [HttpMethod.POST],
+      integration: new HttpLambdaIntegration('OnboardingIntegration', onboarding),
+    });
+
+    const phoneIngest = new NodejsFunction(this, 'PhoneIngestHandler', {
+      entry: `${props.platformPath}/services/ingest-http/src/handler.ts`,
+      runtime: Runtime.NODEJS_24_X,
+      architecture: Architecture.ARM_64,
+      memorySize: 256,
+      timeout: Duration.seconds(15),
+      environment: {
+        ONBOARDING_TABLE: props.data.onboarding.tableName,
+        INGEST_QUEUE_URL: props.ingestQueue.queueUrl,
+        DEVICE_STATE_TABLE: props.data.deviceState.tableName,
+      },
+      logGroup: new LogGroup(this, 'PhoneIngestLogs', { retention: RetentionDays.ONE_WEEK }),
+      bundling: { minify: true, sourceMap: true },
+    });
+    props.data.onboarding.grantReadData(phoneIngest);
+    props.ingestQueue.grantSendMessages(phoneIngest);
+    // Check-ins without a position only refresh "last seen".
+    props.data.deviceState.grant(phoneIngest, 'dynamodb:UpdateItem');
+    this.api.addRoutes({
+      path: '/phone/positions',
+      methods: [HttpMethod.POST],
+      integration: new HttpLambdaIntegration('PhoneIngestIntegration', phoneIngest),
+    });
+    this.api.addRoutes({
+      path: '/devices',
+      methods: [HttpMethod.GET, HttpMethod.POST],
+      integration,
+      authorizer,
+    });
+    this.api.addRoutes({
+      path: '/devices/{deviceId}',
+      methods: [HttpMethod.PATCH, HttpMethod.DELETE],
+      integration,
+      authorizer,
+    });
+    this.api.addRoutes({
+      path: '/devices/{deviceId}/positions',
+      methods: [HttpMethod.GET],
+      integration,
+      authorizer,
+    });
+    this.api.addRoutes({
+      path: '/drivers',
+      methods: [HttpMethod.GET, HttpMethod.POST],
+      integration,
+      authorizer,
+    });
+    this.api.addRoutes({
+      path: '/drivers/{driverId}',
+      methods: [HttpMethod.PATCH, HttpMethod.DELETE],
+      integration,
+      authorizer,
+    });
+    for (const path of ['/organisation']) {
+      this.api.addRoutes({
+        path,
+        methods: [HttpMethod.GET, HttpMethod.PATCH],
+        integration,
+        authorizer,
+      });
+    }
+    for (const resource of [
+      'groups',
+      'geofences',
+      'alert-rules',
+      'calendars',
+      'scheduled-reports',
+      'computed-attributes',
+      'maintenances',
+    ]) {
+      this.api.addRoutes({
+        path: `/${resource}`,
+        methods: [HttpMethod.GET, HttpMethod.POST],
+        integration,
+        authorizer,
+      });
+      this.api.addRoutes({
+        path: `/${resource}/{id}`,
+        methods: [HttpMethod.PATCH, HttpMethod.DELETE],
+        integration,
+        authorizer,
+      });
+    }
+    this.api.addRoutes({
+      path: '/users',
+      methods: [HttpMethod.GET, HttpMethod.POST],
+      integration,
+      authorizer,
+    });
+    this.api.addRoutes({
+      path: '/users/{userId}',
+      methods: [HttpMethod.PATCH, HttpMethod.DELETE],
+      integration,
+      authorizer,
+    });
+    this.api.addRoutes({ path: '/alerts', methods: [HttpMethod.GET], integration, authorizer });
+    this.api.addRoutes({ path: '/trips', methods: [HttpMethod.GET], integration, authorizer });
+    this.api.addRoutes({
+      path: '/alerts/{alertId}',
+      methods: [HttpMethod.PATCH],
+      integration,
+      authorizer,
+    });
+    this.api.addRoutes({
+      path: '/devices/{deviceId}/activity',
+      methods: [HttpMethod.GET],
+      integration,
+      authorizer,
+    });
+    this.api.addRoutes({
+      path: '/devices/{deviceId}/messages',
+      methods: [HttpMethod.POST],
+      integration,
+      authorizer,
+    });
+
+    // The driver app. No Cognito: each request carries the phone's own device credential.
+    const phoneApi = new NodejsFunction(this, 'PhoneApiHandler', {
+      entry: `${props.platformPath}/services/api/src/phone.ts`,
+      runtime: Runtime.NODEJS_24_X,
+      architecture: Architecture.ARM_64,
+      memorySize: 256,
+      timeout: Duration.seconds(15),
+      environment: {
+        CORE_TABLE: props.data.core.tableName,
+        ONBOARDING_TABLE: props.data.onboarding.tableName,
+        DEVICE_STATE_TABLE: props.data.deviceState.tableName,
+        POSITIONS_TABLE: props.data.positions.tableName,
+        EVENTS_TABLE: props.data.events.tableName,
+        TRIPS_TABLE: props.data.trips.tableName,
+        DAILY_STATS_TABLE: props.data.dailyStats.tableName,
+        COMMANDS_TABLE: props.data.commands.tableName,
+        PHOTOS_BUCKET: photos.bucketName,
+        ALERTS_TOPIC_ARN: driverAlerts.topicArn,
+        DASHBOARD_URL: dashboardUrl,
+      },
+      logGroup: new LogGroup(this, 'PhoneApiLogs', { retention: RetentionDays.ONE_WEEK }),
+      bundling: { minify: true, sourceMap: true },
+    });
+    props.data.core.grantReadWriteData(phoneApi);
+    props.data.onboarding.grantReadData(phoneApi);
+    props.data.trips.grantReadData(phoneApi);
+    photos.grantPut(phoneApi);
+    driverAlerts.grantPublish(phoneApi);
+    const phoneIntegration = new HttpLambdaIntegration('PhoneApiIntegration', phoneApi);
+    for (const [path, method] of [
+      ['/phone/config', HttpMethod.GET],
+      ['/phone/activity', HttpMethod.POST],
+      ['/phone/messages', HttpMethod.GET],
+      ['/phone/photos', HttpMethod.POST],
+      ['/phone/today', HttpMethod.GET],
+    ] as const) {
+      this.api.addRoutes({ path, methods: [method], integration: phoneIntegration });
+    }
+    new CfnOutput(this, 'ApiUrl', { value: this.api.apiEndpoint });
+  }
+}

@@ -1,0 +1,10 @@
+{
+  "extends": "@react-native/typescript-config",
+  "compilerOptions": {
+    // Hermes provides fetch, WebSocket, TextEncoder, atob and btoa; @trackify/api-client uses them.
+    "lib": ["DOM", "ESNext"],
+    "types": []
+  },
+  "include": ["**/*.ts", "**/*.tsx"],
+  "exclude": ["**/node_modules", "android"]
+}

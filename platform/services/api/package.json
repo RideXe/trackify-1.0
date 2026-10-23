@@ -1,0 +1,22 @@
+{
+  "name": "@trackify/api",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "typecheck": "tsc --noEmit -p tsconfig.json",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@aws-sdk/client-cognito-identity-provider": "3.1135.0",
+    "@aws-sdk/client-s3": "3.1135.0",
+    "@aws-sdk/client-sns": "3.1135.0",
+    "@aws-sdk/s3-request-presigner": "3.1135.0",
+    "@trackify/data": "0.1.0",
+    "@trackify/domain": "0.1.0",
+    "@trackify/fleet": "0.1.0",
+    "@trackify/geocoder": "0.1.0",
+    "@trackify/protocols": "0.1.0",
+    "@trackify/reports": "0.1.0"
+  }
+}
